@@ -1,48 +1,73 @@
 import React from 'react';
 import { Box } from 'ink';
-import { ScrollView } from 'ink-scroll-view';
-import Divider from 'ink-divider';
-import { theme } from '../theme.js';
 import type { Repo } from '../data/types.js';
-import FileTabs from './file-tabs.js';
-import CommitSummary from './commit-summary.js';
-import CodePane from './code-pane.js';
+import type { WorkingTree as WorkingTreeState } from '../hooks/use-working-tree.js';
+import CommitBox, { commitBoxHeight } from './commit-box.js';
+import WorkingTree from './working-tree.js';
 
 type Props = {
 	readonly repo: Repo;
 	readonly width: number;
 	readonly height: number;
+	readonly message: string;
+	readonly isCommitFocused: boolean;
+	/** False while an overlay owns input. */
+	readonly isActive: boolean;
+	readonly workingTree: WorkingTreeState;
+	readonly onMessageChange: (value: string) => void;
+	readonly onFocusCommit: () => void;
+	readonly onBlurCommit: () => void;
+	readonly onOpenCommitMenu: () => void;
+	readonly onCommit: () => void;
 };
 
-export default function RightPanel({ repo, width, height }: Props) {
+/** Blank rows separating the commit box from the file list below it. */
+const commitGapHeight = 1;
+
+/**
+ * The commit panel: message and commit action on top, then the working tree
+ * grouped into tracked changes and untracked files, each file expandable to its
+ * diff.
+ */
+export default function RightPanel({
+	repo,
+	width,
+	height,
+	message,
+	isCommitFocused,
+	isActive,
+	workingTree,
+	onMessageChange,
+	onFocusCommit,
+	onBlurCommit,
+	onOpenCommitMenu,
+	onCommit,
+}: Props) {
+	const listHeight = Math.max(1, height - commitBoxHeight - commitGapHeight);
+
 	return (
 		<Box width={width} height={height} flexDirection="column">
-			<FileTabs
-				files={repo.openFiles}
-				activeFile={repo.openFiles[repo.activeFile] ?? ''}
+			<CommitBox
+				author={repo.meta.author}
 				width={width}
+				message={message}
+				stagedCount={workingTree.stagedCount}
+				isFocused={isCommitFocused}
+				isActive={isActive}
+				onMessageChange={onMessageChange}
+				onFocus={onFocusCommit}
+				onBlur={onBlurCommit}
+				onOpenMenu={onOpenCommitMenu}
+				onCommit={onCommit}
 			/>
-			<Divider width={width} dividerChar="-" dividerColor={theme.dimmer} />
-			<ScrollView width={width} height={Math.max(1, height - 2)}>
-				<CommitSummary
-					meta={repo.meta}
-					changedFiles={repo.changedFiles}
-					selectedFile={repo.selectedFile}
-					width={width}
-				/>
-				<Divider
-					width={Math.max(0, width - 2)}
-					dividerChar="-"
-					dividerColor={theme.dimmer}
-					boxProps={{
-						marginLeft: 1,
-						marginRight: 1,
-						marginTop: 1,
-						marginBottom: 1,
-					}}
-				/>
-				<CodePane code={repo.code} language={repo.language} width={width} />
-			</ScrollView>
+			<Box height={commitGapHeight} />
+			<WorkingTree
+				tree={workingTree}
+				width={width}
+				height={listHeight}
+				isActive={isActive && !isCommitFocused}
+				onCommit={onCommit}
+			/>
 		</Box>
 	);
 }

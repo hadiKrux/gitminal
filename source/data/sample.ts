@@ -1,163 +1,301 @@
 import type { DiffLine, Repo } from './types.js';
 
-const diff: DiffLine[] = [
+const appDiff: DiffLine[] = [
 	{
 		kind: 'context',
-		oldNumber: 5,
-		newNumber: 5,
-		text: '* CLI entry for framework maintenance commands.',
-	},
-	{ kind: 'context', oldNumber: 6, newNumber: 6, text: '*' },
-	{
-		kind: 'context',
-		oldNumber: 7,
-		newNumber: 7,
-		text: '* Handles `php roolith route:list` (lint plus display),',
-	},
-	{
-		kind: 'del',
-		oldNumber: 8,
-		newNumber: undefined,
-		text: '* `php roolith migrate` commands (create, run, status, rollback), and',
-	},
-	{
-		kind: 'del',
-		oldNumber: 9,
-		newNumber: undefined,
-		text: '* `php roolith seed` commands plus `seeder:` aliases (create, run, status).',
-	},
-	{
-		kind: 'del',
-		oldNumber: 10,
-		newNumber: undefined,
-		text: '* Help output covers `help`, `--help`, and `-h`. Unknown commands',
-	},
-	{
-		kind: 'del',
-		oldNumber: 11,
-		newNumber: undefined,
-		text: '* return 1 without side effects; generator delegation lives in the',
-	},
-	{
-		kind: 'del',
 		oldNumber: 12,
-		newNumber: undefined,
-		text: '* `roolith` entrypoint, not here. All methods never echo secrets and',
+		newNumber: 12,
+		text: "import Toolbar from './components/toolbar.js';",
+	},
+	{
+		kind: 'context',
+		oldNumber: 13,
+		newNumber: 13,
+		text: "import CommandMenu from './components/command-menu.js';",
+	},
+	{
+		kind: 'context',
+		oldNumber: 14,
+		newNumber: 14,
+		text: "import Sidebar from './components/sidebar.js';",
 	},
 	{
 		kind: 'del',
-		oldNumber: 13,
+		oldNumber: 15,
 		newNumber: undefined,
-		text: '* return integer exit codes.',
+		text: "import CommitList from './components/commit-list.js';",
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
-		newNumber: 8,
-		text: '* migration commands (`migrate` family as BC aliases of',
+		newNumber: 15,
+		text: "import ExplorerPanel from './components/explorer-panel.js';",
+	},
+	{
+		kind: 'context',
+		oldNumber: 16,
+		newNumber: 16,
+		text: "import RightPanel from './components/right-panel.js';",
+	},
+	{
+		kind: 'context',
+		oldNumber: 17,
+		newNumber: 17,
+		text: "import { repo } from './data/sample.js';",
+	},
+	{ kind: 'context', oldNumber: 18, newNumber: 18, text: '' },
+	{ kind: 'header', oldNumber: undefined, newNumber: undefined, text: 'App:' },
+	{
+		kind: 'context',
+		oldNumber: 102,
+		newNumber: 102,
+		text: '            width={layout.sidebarWidth}',
+	},
+	{
+		kind: 'context',
+		oldNumber: 103,
+		newNumber: 103,
+		text: '            height={layout.bodyHeight}',
+	},
+	{ kind: 'context', oldNumber: 104, newNumber: 104, text: '          />' },
+	{
+		kind: 'del',
+		oldNumber: 105,
+		newNumber: undefined,
+		text: '          <CommitList',
+	},
+	{
+		kind: 'del',
+		oldNumber: 106,
+		newNumber: undefined,
+		text: '            commits={repo.commits}',
+	},
+	{
+		kind: 'del',
+		oldNumber: 107,
+		newNumber: undefined,
+		text: '            selectedIndex={repo.selectedCommit}',
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
-		newNumber: 9,
-		text: '* `migration:*` from `roolith/migration`), and seeder commands',
+		newNumber: 105,
+		text: '          <ExplorerPanel',
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
-		newNumber: 10,
-		text: '* (`seed` family plus `seeder:*`). Help output covers `help`,',
+		newNumber: 106,
+		text: '            repo={repo}',
+	},
+	{
+		kind: 'context',
+		oldNumber: 108,
+		newNumber: 107,
+		text: '            width={layout.commitsWidth}',
+	},
+	{
+		kind: 'context',
+		oldNumber: 109,
+		newNumber: 108,
+		text: '            height={layout.bodyHeight}',
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
-		newNumber: 11,
-		text: '* `--help`, and `-h`. Unknown commands return 1 without side',
+		newNumber: 109,
+		text: '            isActive={!isMenuOpen}',
+	},
+	{ kind: 'context', oldNumber: 110, newNumber: 110, text: '          />' },
+	{
+		kind: 'context',
+		oldNumber: 111,
+		newNumber: 111,
+		text: '          <RightPanel',
+	},
+	{
+		kind: 'context',
+		oldNumber: 112,
+		newNumber: 112,
+		text: '            repo={repo}',
+	},
+];
+
+const commitListDiff: DiffLine[] = [
+	{
+		kind: 'header',
+		oldNumber: undefined,
+		newNumber: undefined,
+		text: 'CommitList:',
+	},
+	{
+		kind: 'context',
+		oldNumber: 133,
+		newNumber: 133,
+		text: '  const graph = buildGraph(commits);',
+	},
+	{
+		kind: 'del',
+		oldNumber: 134,
+		newNumber: undefined,
+		text: '  const rows = commits;',
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
-		newNumber: 12,
-		text: '* effects; generator delegation lives in the `roolith` entrypoint,',
+		newNumber: 134,
+		text: '  // One width for every row keeps messages aligned.',
+	},
+	{
+		kind: 'context',
+		oldNumber: 135,
+		newNumber: 135,
+		text: '  let laneCount = 1;',
+	},
+];
+
+const sampleDiff: DiffLine[] = [
+	{ kind: 'header', oldNumber: undefined, newNumber: undefined, text: 'repo:' },
+	{
+		kind: 'del',
+		oldNumber: 452,
+		newNumber: undefined,
+		text: '  selectedCommit: 0,',
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
-		newNumber: 13,
-		text: '* not here. All methods never echo secrets and return integer exit codes.',
-	},
-	{ kind: 'context', oldNumber: 14, newNumber: 14, text: '*/' },
-	{ kind: 'context', oldNumber: 15, newNumber: 15, text: 'final class Cli' },
-	{ kind: 'context', oldNumber: 16, newNumber: 16, text: '{' },
-	{ kind: 'context', oldNumber: 17, newNumber: 17, text: '    /**' },
-	{
-		kind: 'add',
-		oldNumber: undefined,
-		newNumber: 18,
-		text: '     * Migrate family (BC aliases) to native migration:* commands.',
-	},
-	{ kind: 'add', oldNumber: undefined, newNumber: 19, text: '     *' },
-	{
-		kind: 'add',
-		oldNumber: undefined,
-		newNumber: 20,
-		text: '     * Single source of truth for every migrate/migration command the',
+		newNumber: 452,
+		text: '  selectedCommit: 1,',
 	},
 	{
-		kind: 'add',
+		kind: 'context',
+		oldNumber: 453,
+		newNumber: 453,
+		text: '  fileGroups: [',
+	},
+];
+
+const typesDiff: DiffLine[] = [
+	{
+		kind: 'header',
 		oldNumber: undefined,
-		newNumber: 21,
-		text: '     * CLI handles; Cli::run(), isFrameworkCommand(), and migrate()',
+		newNumber: undefined,
+		text: 'DiffLineKind:',
+	},
+	{
+		kind: 'del',
+		oldNumber: 52,
+		newNumber: undefined,
+		text: "export type DiffLineKind = 'context' | 'add' | 'del';",
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
-		newNumber: 22,
-		text: '     * all read this map.',
-	},
-	{ kind: 'add', oldNumber: undefined, newNumber: 23, text: '     *' },
-	{
-		kind: 'add',
-		oldNumber: undefined,
-		newNumber: 24,
-		text: '     * @var array<string, string>',
-	},
-	{ kind: 'add', oldNumber: undefined, newNumber: 25, text: '     */' },
-	{
-		kind: 'add',
-		oldNumber: undefined,
-		newNumber: 26,
-		text: '    private const MIGRATE_MAP = [',
+		newNumber: 52,
+		text: "export type DiffLineKind = 'context' | 'add' | 'del' | 'header';",
 	},
 	{
-		kind: 'add',
-		oldNumber: undefined,
-		newNumber: 27,
-		text: "        'migrate' => 'migration:run',",
+		kind: 'context',
+		oldNumber: 53,
+		newNumber: 53,
+		text: '',
 	},
+];
+
+const themeDiff: DiffLine[] = [
 	{
-		kind: 'add',
+		kind: 'header',
 		oldNumber: undefined,
-		newNumber: 28,
-		text: "        'migrate:run' => 'migration:run',",
-	},
-	{
-		kind: 'add',
-		oldNumber: undefined,
-		newNumber: 29,
-		text: "        'migration:run' => 'migration:run',",
+		newNumber: undefined,
+		text: 'ThemeTokens:',
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
 		newNumber: 30,
-		text: "        'migrate:status' => 'migration:status',",
+		text: '  codeBg: string;',
 	},
 	{
 		kind: 'add',
 		oldNumber: undefined,
 		newNumber: 31,
-		text: "        'migration:status' => 'migration:status',",
+		text: '  codeText: string;',
+	},
+	{
+		kind: 'context',
+		oldNumber: 30,
+		newNumber: 32,
+		text: '  codeGutterFg: string;',
+	},
+];
+
+const diffViewDiff: DiffLine[] = [
+	{
+		kind: 'header',
+		oldNumber: undefined,
+		newNumber: undefined,
+		text: 'DiffView:',
+	},
+	{
+		kind: 'add',
+		oldNumber: undefined,
+		newNumber: 1,
+		text: "import React from 'react';",
+	},
+	{
+		kind: 'add',
+		oldNumber: undefined,
+		newNumber: 2,
+		text: "import { Box } from 'ink';",
+	},
+	{
+		kind: 'add',
+		oldNumber: undefined,
+		newNumber: 3,
+		text: '',
+	},
+];
+
+const workingTreeDiff: DiffLine[] = [
+	{
+		kind: 'header',
+		oldNumber: undefined,
+		newNumber: undefined,
+		text: 'WorkingTree:',
+	},
+	{
+		kind: 'add',
+		oldNumber: undefined,
+		newNumber: 1,
+		text: "import React, { useState } from 'react';",
+	},
+	{
+		kind: 'add',
+		oldNumber: undefined,
+		newNumber: 2,
+		text: "import { Box } from 'ink';",
+	},
+];
+
+const workingTreeHookDiff: DiffLine[] = [
+	{
+		kind: 'header',
+		oldNumber: undefined,
+		newNumber: undefined,
+		text: 'useWorkingTree:',
+	},
+	{
+		kind: 'add',
+		oldNumber: undefined,
+		newNumber: 1,
+		text: "import { useCallback, useMemo, useState } from 'react';",
+	},
+	{
+		kind: 'add',
+		oldNumber: undefined,
+		newNumber: 2,
+		text: "import type { WorkingFile } from '../data/types.js';",
 	},
 ];
 
@@ -210,7 +348,8 @@ export const repo: Repo = {
 	commits: [
 		{
 			hash: '',
-			message: 'No changes',
+			parents: [],
+			message: '9 unstaged files',
 			author: 'Commit Changes',
 			date: '',
 			tags: [],
@@ -218,13 +357,16 @@ export const repo: Repo = {
 		},
 		{
 			hash: '4f1c2a9',
+			parents: ['9b2e7d0'],
 			message: 'audit file removed',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
+			fileCount: 11,
 			tags: ['master', 'origin/master'],
 		},
 		{
 			hash: '9b2e7d0',
+			parents: ['1a8f3c4'],
 			message: 'seeder code example added',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
@@ -232,6 +374,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '1a8f3c4',
+			parents: ['7d5b1e2'],
 			message: 'roolith/migration added and adjusted code base',
 			author: 'Md Habilullah Al Hadi',
 			date: 'Tue, Sep 8, 1 PM',
@@ -240,6 +383,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '7d5b1e2',
+			parents: ['2f7c9a3', '3c9a6f8'],
 			message: 'Merge pull request #21 from im4aLL/next',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
@@ -248,6 +392,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '3c9a6f8',
+			parents: ['6e2d4b1'],
 			message: 'mermaid diagram extension for vitepress',
 			author: 'Md Habilullah Al Hadi',
 			date: 'Mon, Sep 7, 12 PM',
@@ -256,6 +401,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '6e2d4b1',
+			parents: ['2f7c9a3'],
 			message: 'architecture md file',
 			author: 'Md Habilullah Al Hadi',
 			date: 'Mon, Sep 7, 12 PM',
@@ -264,6 +410,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '2f7c9a3',
+			parents: ['8b1e5d7'],
 			message: 'removed version from composer.json',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
@@ -271,6 +418,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '8b1e5d7',
+			parents: ['5a3f8c2'],
 			message: 'roolith router lib update',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
@@ -279,6 +427,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '5a3f8c2',
+			parents: ['0d6b2e9'],
 			message: 'roolith generator updated',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
@@ -287,6 +436,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '0d6b2e9',
+			parents: ['4c8a1f5'],
 			message: 'roolith event lib',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
@@ -295,6 +445,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '4c8a1f5',
+			parents: ['9e2d7b3'],
 			message: 'roolith config lib updated',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
@@ -303,6 +454,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '9e2d7b3',
+			parents: ['1f5c8a4'],
 			message: 'roolith cache update',
 			author: 'Md Habilullah Al Hadi',
 			date: '',
@@ -311,6 +463,7 @@ export const repo: Repo = {
 		},
 		{
 			hash: '1f5c8a4',
+			parents: ['7a3e9c1'],
 			message: 'roolith-template-engine updated',
 			author: 'Md Habilullah Al Hadi',
 			date: 'Thu, Sep 3, 11 PM',
@@ -319,25 +472,153 @@ export const repo: Repo = {
 		},
 		{
 			hash: '7a3e9c1',
+			parents: ['2b8d4e6'],
 			message: 'transaction read me updated',
 			author: 'Md Habilullah Al Hadi',
 			date: 'Thu, Sep 3, 3 PM',
 			tags: [],
 		},
+		{
+			hash: '2b8d4e6',
+			parents: ['8c1a5f2'],
+			message: 'roolith developing guide added',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Thu, Sep 3, 2 PM',
+			fileCount: 5,
+			tags: ['4.1.0'],
+		},
+		{
+			hash: '8c1a5f2',
+			parents: ['3f7a1c9', '6d3b9e7'],
+			message: 'Merge pull request #18 from im4aLL/master',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Wed, Sep 2, 6 PM',
+			fileCount: 31,
+			tags: [],
+		},
+		{
+			hash: '6d3b9e7',
+			parents: ['3f7a1c9'],
+			message: 'composer dependencies bumped',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Wed, Sep 2, 11 AM',
+			fileCount: 2,
+			tags: [],
+		},
+		{
+			hash: '3f7a1c9',
+			parents: ['9a2e6d4'],
+			message: 'roolith session lib added',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Tue, Sep 1, 4 PM',
+			fileCount: 8,
+			tags: ['4.0.0'],
+		},
+		{
+			hash: '9a2e6d4',
+			parents: ['5e8c2b7'],
+			message: 'phpunit config updated',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Tue, Sep 1, 9 AM',
+			fileCount: 3,
+			tags: [],
+		},
+		{
+			hash: '5e8c2b7',
+			parents: ['c1a7e3f'],
+			message: 'readme badge and install notes',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Mon, Aug 31, 7 PM',
+			fileCount: 1,
+			tags: [],
+		},
+		{
+			hash: 'c1a7e3f',
+			parents: ['e6b2d8a'],
+			message: 'route:list command output polish',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Mon, Aug 31, 4 PM',
+			fileCount: 4,
+			tags: [],
+		},
+		{
+			hash: 'e6b2d8a',
+			parents: ['a4f8c1e'],
+			message: 'exception handler added',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Sun, Aug 30, 8 PM',
+			fileCount: 6,
+			tags: ['0.9.0'],
+		},
+		{
+			hash: 'a4f8c1e',
+			parents: ['b7d3a9f'],
+			message: 'config loader rewrite',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Sun, Aug 30, 1 PM',
+			fileCount: 9,
+			tags: [],
+		},
+		{
+			hash: 'b7d3a9f',
+			parents: ['f2c6e8b'],
+			message: 'composer autoload files map',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Sat, Aug 29, 6 PM',
+			fileCount: 3,
+			tags: [],
+		},
+		{
+			hash: 'f2c6e8b',
+			parents: ['1d9f4a8'],
+			message: 'project scaffolding bootstrap',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Sat, Aug 29, 11 AM',
+			fileCount: 15,
+			tags: ['0.1.0'],
+		},
+		{
+			hash: '1d9f4a8',
+			parents: [],
+			message: 'initial commit',
+			author: 'Md Habilullah Al Hadi',
+			date: 'Wed, Aug 26, 9 AM',
+			fileCount: 24,
+			tags: ['1.0.0'],
+		},
 	],
 	selectedCommit: 1,
-	openFiles: [
-		'Summary',
-		'settings.json',
-		'ARCHITECTURE.md',
-		'CHANGELOG.md',
-		'README.md',
-		'Cli.php',
-		'MigrationFactory.php',
-		'MigrationInterface.php',
-		'Migrator.php',
+	fileGroups: [
+		{
+			category: 'modified',
+			label: 'Modified',
+			files: [
+				'app/Console/Cli.php',
+				'ARCHITECTURE.md',
+				'README.md',
+				'composer.json',
+				'src/Migration/Migrator.php',
+			],
+		},
+		{
+			category: 'untracked',
+			label: 'Untracked',
+			files: [
+				'docs/migration.md',
+				'src/Seeder/Seeder.php',
+				'tests/Fixtures/seeder.php',
+			],
+		},
+		{
+			category: 'staged',
+			label: 'Staged',
+			files: [
+				'CHANGELOG.md',
+				'.vscode/settings.json',
+				'tests/MigrationTest.php',
+			],
+		},
 	],
-	activeFile: 0,
 	meta: {
 		hash: '8d3537927595add55ed223990ef40295769f58ff',
 		tree: '0bf16c408db85cf4bec14a258f189b7d707424c',
@@ -348,30 +629,62 @@ export const repo: Repo = {
 		additions: 1201,
 		deletions: 4631,
 	},
-	changedFiles: [
-		{ path: '.vscode/settings.json', additions: 0, deletions: 0 },
-		{ path: 'ARCHITECTURE.md', additions: 4, deletions: 4 },
-		{ path: 'CHANGELOG.md', additions: 6, deletions: 1 },
-		{ path: 'README.md', additions: 14, deletions: 7 },
-		{ path: 'app/Console/Cli.php', additions: 159, deletions: 186 },
+	workingFiles: [
+		{
+			path: 'source/app.tsx',
+			status: 'modified',
+			additions: 4,
+			deletions: 4,
+			diff: appDiff,
+		},
+		{
+			path: 'source/components/commit-list.tsx',
+			status: 'modified',
+			additions: 2,
+			deletions: 1,
+			diff: commitListDiff,
+		},
+		{
+			path: 'source/data/sample.ts',
+			status: 'modified',
+			additions: 1,
+			deletions: 1,
+			diff: sampleDiff,
+		},
+		{
+			path: 'source/data/types.ts',
+			status: 'modified',
+			additions: 1,
+			deletions: 1,
+			diff: typesDiff,
+		},
+		{
+			path: 'source/theme.ts',
+			status: 'modified',
+			additions: 2,
+			deletions: 0,
+			diff: themeDiff,
+		},
+		{
+			path: 'source/components/diff-view.tsx',
+			status: 'untracked',
+			additions: 3,
+			deletions: 0,
+			diff: diffViewDiff,
+		},
+		{
+			path: 'source/components/working-tree.tsx',
+			status: 'untracked',
+			additions: 2,
+			deletions: 0,
+			diff: workingTreeDiff,
+		},
+		{
+			path: 'source/hooks/use-working-tree.ts',
+			status: 'untracked',
+			additions: 2,
+			deletions: 0,
+			diff: workingTreeHookDiff,
+		},
 	],
-	selectedFile: 0,
-	diff,
-	language: 'php',
-	code: `    /**
-     * Migrate family (BC aliases) to native migration:* commands.
-     *
-     * Single source of truth for every migrate/migration command the
-     * CLI handles; Cli::run(), isFrameworkCommand(), and migrate()
-     * all read this map.
-     *
-     * @var array<string, string>
-     */
-    private const MIGRATE_MAP = [
-        'migrate' => 'migration:run',
-        'migrate:run' => 'migration:run',
-        'migration:run' => 'migration:run',
-        'migrate:status' => 'migration:status',
-        'migration:status' => 'migration:status',
-    ];`,
 };

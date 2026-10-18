@@ -18,13 +18,18 @@ export type Commit = {
 	date: string;
 	fileCount?: number;
 	tags: string[];
+	/** Parent hashes in history order; empty for the root (and for pending). */
+	parents: string[];
 	pending?: boolean;
 };
 
-export type ChangedFile = {
-	path: string;
-	additions: number;
-	deletions: number;
+export type FileCategory = 'modified' | 'untracked' | 'staged';
+
+/** A group of working-tree files shown under the "Files" tab. */
+export type FileGroup = {
+	readonly category: FileCategory;
+	readonly label: string;
+	readonly files: readonly string[];
 };
 
 export type CommitMeta = {
@@ -38,7 +43,7 @@ export type CommitMeta = {
 	deletions: number;
 };
 
-export type DiffLineKind = 'context' | 'add' | 'del';
+export type DiffLineKind = 'context' | 'add' | 'del' | 'header';
 
 export type DiffLine = {
 	kind: DiffLineKind;
@@ -47,17 +52,33 @@ export type DiffLine = {
 	text: string;
 };
 
+/** Git status of a file in the working tree. */
+export type WorkingFileStatus = 'modified' | 'added' | 'deleted' | 'untracked';
+
+/** A single file in the working tree, with the diff of its pending change. */
+export type WorkingFile = {
+	readonly path: string;
+	readonly status: WorkingFileStatus;
+	readonly additions: number;
+	readonly deletions: number;
+	readonly diff: readonly DiffLine[];
+};
+
+/** The two groups the commit panel splits the working tree into. */
+export type WorkingGroupCategory = 'working' | 'untracked';
+
+export type WorkingGroup = {
+	readonly category: WorkingGroupCategory;
+	readonly label: string;
+	readonly files: readonly WorkingFile[];
+};
+
 export type Repo = {
 	branch: string;
 	sections: SidebarSection[];
 	commits: Commit[];
 	selectedCommit: number;
-	openFiles: string[];
-	activeFile: number;
+	fileGroups: FileGroup[];
 	meta: CommitMeta;
-	changedFiles: ChangedFile[];
-	selectedFile: number;
-	diff: DiffLine[];
-	code: string;
-	language: string;
+	workingFiles: WorkingFile[];
 };

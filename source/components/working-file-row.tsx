@@ -1,0 +1,123 @@
+import React, { useRef } from 'react';
+import { Box, Text, type DOMElement } from 'ink';
+import { useOnMouseClick } from '@zenobius/ink-mouse';
+import { theme } from '../theme.js';
+import { icons } from '../icons.js';
+import { truncate } from '../layout.js';
+import type { WorkingFile, WorkingFileStatus } from '../data/types.js';
+import DiffView from './diff-view.js';
+import ToolbarButton from './toolbar-button.js';
+
+type Props = {
+	readonly file: WorkingFile;
+	readonly width: number;
+	readonly isExpanded: boolean;
+	readonly isStaged: boolean;
+	readonly onToggle: () => void;
+	readonly onDiscard: () => void;
+	readonly onStage: () => void;
+};
+
+const statusLabel = (status: WorkingFileStatus): string => {
+	switch (status) {
+		case 'added': {
+			return 'A';
+		}
+
+		case 'deleted': {
+			return 'D';
+		}
+
+		case 'untracked': {
+			return '?';
+		}
+
+		default: {
+			return 'M';
+		}
+	}
+};
+
+const statusColor = (status: WorkingFileStatus): string => {
+	switch (status) {
+		case 'added':
+		case 'untracked': {
+			return theme.add;
+		}
+
+		case 'deleted': {
+			return theme.del;
+		}
+
+		default: {
+			return theme.text;
+		}
+	}
+};
+
+/** Width the two row actions occupy, including the gap between them. */
+const actionsWidth = (stageLabel: string): number =>
+	' Discard '.length + 1 + (stageLabel.length + 2);
+
+/**
+ * A working-tree file row.
+ *
+ * The left side toggles the file's diff, while the actions stay independent so
+ * a click never expands a file by accident.
+ */
+export default function WorkingFileRow({
+	file,
+	width,
+	isExpanded,
+	isStaged,
+	onToggle,
+	onDiscard,
+	onStage,
+}: Props) {
+	const rowRef = useRef<DOMElement>(null);
+
+	useOnMouseClick(rowRef, pressed => {
+		if (pressed) {
+			onToggle();
+		}
+	});
+
+	const stageLabel = isStaged ? 'Unstage' : 'Stage';
+	const labelWidth = Math.max(0, width - actionsWidth(stageLabel));
+	const disclosure = isExpanded
+		? icons.sectionExpanded
+		: icons.sectionCollapsed;
+	const pathRoom = Math.max(0, labelWidth - disclosure.length - 2);
+	const path = truncate(file.path, pathRoom);
+	const labelLength = disclosure.length + 2 + path.length;
+	const fill = Math.max(0, labelWidth - labelLength);
+	const background = isExpanded ? theme.accentBg : undefined;
+
+	return (
+		<Box flexDirection="column">
+			<Box flexDirection="row" width={width}>
+				<Box ref={rowRef} width={labelWidth} flexShrink={0}>
+					<Text backgroundColor={background} wrap="truncate-end">
+						<Text color={theme.dim}>{disclosure}</Text>
+						{isStaged ? (
+							<Text backgroundColor={theme.addBg} color={theme.addText}>
+								{statusLabel(file.status)}
+							</Text>
+						) : (
+							<Text color={statusColor(file.status)}>
+								{statusLabel(file.status)}
+							</Text>
+						)}
+						<Text color={theme.text}>{` ${path}`}</Text>
+						{fill > 0 ? <Text>{' '.repeat(fill)}</Text> : null}
+					</Text>
+				</Box>
+				<Box flexDirection="row" flexShrink={0} gap={1}>
+					<ToolbarButton label="Discard" tone="danger" onPress={onDiscard} />
+					<ToolbarButton label={stageLabel} onPress={onStage} />
+				</Box>
+			</Box>
+			{isExpanded ? <DiffView lines={file.diff} width={width} /> : null}
+		</Box>
+	);
+}

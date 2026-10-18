@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import React, { useCallback, useState } from 'react';
 import { Box, useApp } from 'ink';
 import { MouseProvider, useMouse } from '@zenobius/ink-mouse';
@@ -6,15 +7,24 @@ import {
 	KeyboardProvider,
 	useKeyboardShortcuts,
 } from './hooks/use-keyboard-shortcuts.js';
+import { useWorkingTree } from './hooks/use-working-tree.js';
 import { defaultKeybindings, type ResolvedKeybindings } from './keybindings.js';
 import { type CommandId } from './commands.js';
 import { getLayout } from './layout.js';
 import Toolbar from './components/toolbar.js';
 import CommandMenu from './components/command-menu.js';
+import CommitMenu from './components/commit-menu.js';
 import Sidebar from './components/sidebar.js';
-import CommitList from './components/commit-list.js';
+import ExplorerPanel from './components/explorer-panel.js';
 import RightPanel from './components/right-panel.js';
 import { repo } from './data/sample.js';
+
+/**
+ * The mouse layer registers one listener per interactive element, and the
+ * commit panel alone has dozens of rows and buttons. Raise Node's default cap
+ * so it does not warn about every extra row.
+ */
+EventEmitter.defaultMaxListeners = 256;
 
 type Props = {
 	readonly columns?: number;
@@ -22,18 +32,22 @@ type Props = {
 	readonly keybindings?: ResolvedKeybindings;
 };
 
+type Overlay = 'remote' | 'commit';
+
 /**
- * App-wide shortcuts. They are disabled while an overlay is open so the
- * overlay owns input; the character keys (q, p, ...) must not leak through.
+ * App-wide shortcuts. They are disabled while an overlay is open or the commit
+ * message owns the keyboard, so neither a modal nor typing leaks a command.
  */
 function GlobalShortcuts({
 	isActive,
 	onCommand,
 	onOpenMenu,
+	onFocusCommit,
 }: {
 	readonly isActive: boolean;
 	readonly onCommand: (id: CommandId) => void;
 	readonly onOpenMenu: () => void;
+	readonly onFocusCommit: () => void;
 }) {
 	const { exit } = useApp();
 	const mouse = useMouse();
@@ -49,6 +63,7 @@ function GlobalShortcuts({
 			},
 			'toggle-mouse': mouse.toggle,
 			'open-remote-menu': onOpenMenu,
+			'focus-commit': onFocusCommit,
 		},
 		{ isActive },
 	);
@@ -69,21 +84,42 @@ export default function App({
 	const [activeCommand, setActiveCommand] = useState<CommandId | undefined>(
 		undefined,
 	);
-	const [isMenuOpen, setIsMenuOpen] = useState(false);
+	const [overlay, setOverlay] = useState<Overlay | undefined>(undefined);
+	const [isCommitFocused, setIsCommitFocused] = useState(false);
+	const [message, setMessage] = useState('');
+	const workingTree = useWorkingTree(repo.workingFiles);
+
+	const openOverlay = useCallback((next: Overlay) => {
+		setIsCommitFocused(false);
+		setOverlay(next);
+	}, []);
+
+	const closeOverlay = useCallback(() => {
+		setOverlay(undefined);
+	}, []);
 
 	const handleCommand = useCallback((id: CommandId) => {
 		setActiveCommand(id);
-		setIsMenuOpen(false);
+		setOverlay(undefined);
 	}, []);
+
+	const commit = useCallback(() => {
+		workingTree.commit();
+		setMessage('');
+		setOverlay(undefined);
+	}, [workingTree]);
 
 	return (
 		<KeyboardProvider keybindings={keybindings}>
 			<MouseProvider>
 				<GlobalShortcuts
-					isActive={!isMenuOpen}
+					isActive={overlay === undefined && !isCommitFocused}
 					onCommand={handleCommand}
 					onOpenMenu={() => {
-						setIsMenuOpen(true);
+						openOverlay('remote');
+					}}
+					onFocusCommit={() => {
+						setIsCommitFocused(true);
 					}}
 				/>
 				<Box flexDirection="column" width={layout.columns} height={layout.rows}>
@@ -93,7 +129,7 @@ export default function App({
 						activeCommand={activeCommand}
 						onCommand={handleCommand}
 						onOpenMenu={() => {
-							setIsMenuOpen(true);
+							openOverlay('remote');
 						}}
 					/>
 					<Box flexDirection="row" height={layout.bodyHeight}>
@@ -102,24 +138,42 @@ export default function App({
 							width={layout.sidebarWidth}
 							height={layout.bodyHeight}
 						/>
-						<CommitList
-							commits={repo.commits}
-							selectedIndex={repo.selectedCommit}
+						<ExplorerPanel
+							repo={repo}
 							width={layout.commitsWidth}
 							height={layout.bodyHeight}
+							isActive={overlay === undefined && !isCommitFocused}
 						/>
 						<RightPanel
 							repo={repo}
 							width={layout.rightWidth}
 							height={layout.bodyHeight}
+							message={message}
+							isCommitFocused={isCommitFocused}
+							isActive={overlay === undefined}
+							workingTree={workingTree}
+							onMessageChange={setMessage}
+							onFocusCommit={() => {
+								setIsCommitFocused(true);
+							}}
+							onBlurCommit={() => {
+								setIsCommitFocused(false);
+							}}
+							onOpenCommitMenu={() => {
+								openOverlay('commit');
+							}}
+							onCommit={commit}
 						/>
 					</Box>
-					{isMenuOpen ? (
-						<CommandMenu
-							onSelect={handleCommand}
-							onClose={() => {
-								setIsMenuOpen(false);
+					{overlay === 'remote' ? (
+						<CommandMenu onSelect={handleCommand} onClose={closeOverlay} />
+					) : null}
+					{overlay === 'commit' ? (
+						<CommitMenu
+							onSelect={() => {
+								commit();
 							}}
+							onClose={closeOverlay}
 						/>
 					) : null}
 				</Box>

@@ -32,6 +32,8 @@ Available actions:
 - `pull` - run the default pull (default: `p`).
 - `push` - run the default push (default: `shift+p`).
 - `open-remote-menu` - open the remote operations menu (default: `.`).
+- `focus-commit` - focus the commit message input (default: `c`). Escape blurs it. Enter inserts a newline.
+- `commit` - commit the staged files while the message is focused (default: `ctrl+s`).
 - `move-down` - move the menu selection down (default: `down`).
 - `move-up` - move the menu selection up (default: `up`).
 - `activate-selection` - run the highlighted menu command (default: `enter`).

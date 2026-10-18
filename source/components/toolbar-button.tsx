@@ -3,14 +3,26 @@ import { Box, Text, type DOMElement } from 'ink';
 import { useOnMouseClick, useOnMouseHover } from '@zenobius/ink-mouse';
 import { theme } from '../theme.js';
 
+export type ButtonTone = 'default' | 'danger';
+
 type Props = {
 	readonly label: string;
 	readonly isActive?: boolean;
+	readonly isDisabled?: boolean;
+	readonly tone?: ButtonTone;
 	readonly onPress: () => void;
 };
 
 /** Pick the button background for its current interaction state. */
-const backgroundFor = (isActive: boolean, isHovered: boolean): string => {
+const backgroundFor = (
+	isActive: boolean,
+	isHovered: boolean,
+	isDisabled: boolean,
+): string => {
+	if (isDisabled) {
+		return theme.bgPanel;
+	}
+
 	if (isActive) {
 		return theme.accent;
 	}
@@ -22,21 +34,44 @@ const backgroundFor = (isActive: boolean, isHovered: boolean): string => {
 	return theme.bgPanel;
 };
 
+const colorFor = (
+	isActive: boolean,
+	isDisabled: boolean,
+	tone: ButtonTone,
+): string => {
+	if (isActive) {
+		return theme.bg;
+	}
+
+	if (isDisabled) {
+		return theme.dimmer;
+	}
+
+	return tone === 'danger' ? theme.del : theme.text;
+};
+
 /**
- * A toolbar button that works from both input paths: it is activated by a
- * mouse click here, and by the matching keybinding wired up in `app.tsx`.
+ * An inline button for the toolbar and the commit panel.
+ *
+ * It works from both input paths: mouse clicks here and a matching keybinding
+ * where one exists. Disabled buttons keep their footprint but ignore clicks.
  */
 export default function ToolbarButton({
 	label,
 	isActive = false,
+	isDisabled = false,
+	tone = 'default',
 	onPress,
 }: Props) {
 	const ref = useRef<DOMElement>(null);
 	const [isHovered, setIsHovered] = useState(false);
 
-	useOnMouseHover(ref, setIsHovered);
+	useOnMouseHover(ref, hovered => {
+		setIsHovered(!isDisabled && hovered);
+	});
+
 	useOnMouseClick(ref, isPressed => {
-		if (isPressed) {
+		if (isPressed && !isDisabled) {
 			onPress();
 		}
 	});
@@ -45,8 +80,8 @@ export default function ToolbarButton({
 		<Box ref={ref}>
 			<Text
 				bold
-				backgroundColor={backgroundFor(isActive, isHovered)}
-				color={isActive ? theme.bg : theme.text}
+				backgroundColor={backgroundFor(isActive, isHovered, isDisabled)}
+				color={colorFor(isActive, isDisabled, tone)}
 			>
 				{` ${label} `}
 			</Text>
