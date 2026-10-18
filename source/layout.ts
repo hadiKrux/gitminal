@@ -12,8 +12,8 @@ const clamp = (value: number, min: number, max: number): number =>
 	Math.max(min, Math.min(max, value));
 
 export const getLayout = (columns: number, rows: number): Layout => {
-	// Top spacer (1) + toolbar content and bottom border (2).
-	const chromeHeight = 3;
+	// Toolbar content and bottom border (2).
+	const chromeHeight = 2;
 	const sidebarWidth = clamp(Math.round(columns * 0.15), 16, 26);
 	const commitsWidth = clamp(Math.round(columns * 0.3), 28, 46);
 	const rightWidth = Math.max(24, columns - sidebarWidth - commitsWidth);

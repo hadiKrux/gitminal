@@ -87,7 +87,6 @@ export default function App({
 					}}
 				/>
 				<Box flexDirection="column" width={layout.columns} height={layout.rows}>
-					<Box height={1} />
 					<Toolbar
 						branch={repo.branch}
 						width={layout.columns}
