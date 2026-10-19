@@ -8,6 +8,8 @@
 $ npm install --global gitminal
 ```
 
+Node.js 20.15 or newer is required; the `engines` field applies on every platform. Recursive `fs.watch` is low-latency from Node 20.12, while on Linux Node 20.0 to 20.11 falls back to polling with roughly 5 second latency. Node 20.15 contains the recursive-watch setup fix; Linux Node 20.12 to 20.14 can crash on watcher close after a watched file is removed during setup.
+
 ## Configuration
 
 gitminal reads an optional config file from `~/.config/gitminal/config.json` (or `$GITMINAL_CONFIG` when set, and `$XDG_CONFIG_HOME/gitminal/config.json` when `XDG_CONFIG_HOME` is set). All fields are optional; anything missing keeps its default.

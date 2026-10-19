@@ -261,6 +261,7 @@ export default function App({
 							activeCommand={activeCommand}
 							operation={repoState.operation}
 							entry={latestEntry}
+							isWatchDegraded={repoState.watchDegraded}
 							hasDetailsHint={
 								overlay === undefined &&
 								failedOperation !== undefined &&

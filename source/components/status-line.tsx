@@ -2,12 +2,22 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { theme } from '../theme.js';
-import type { OperationLogEntry, OperationState } from '../hooks/use-repo.js';
+import {
+	watchUnavailableHint,
+	type OperationLogEntry,
+	type OperationState,
+} from '../hooks/use-repo.js';
 
 type Props = {
 	readonly operation: OperationState;
 	/** Newest log entry; the console (ticket 03) renders the same entries. */
 	readonly entry: OperationLogEntry | undefined;
+	/**
+	 * True while live sync is degraded. Kept as state rather than inferred from
+	 * the newest entry, so pressing `r` cannot replace the warning with a green
+	 * "refreshed" while the watcher is still down.
+	 */
+	readonly isWatchDegraded: boolean;
 	/** True while enter would open the error overlay; false while typing. */
 	readonly hasDetailsHint: boolean;
 };
@@ -27,12 +37,13 @@ const failedFallback = 'operation failed';
  * It renders only its content: the toolbar owns the flexible slot, so the
  * summary shrinks first while the details hint keeps its cells. A long failure
  * summary truncates instead of cutting the hint or pushing the toolbar
- * buttons. The states come from the newest operation-log entry, so this and
- * the ticket 03 console can never disagree.
+ * buttons. Runs come from the newest operation-log entry; the watch warning
+ * comes from its own sticky state, so it survives the refresh row `r` adds.
  */
 export default function StatusLine({
 	operation,
 	entry,
+	isWatchDegraded,
 	hasDetailsHint,
 }: Props) {
 	if (operation.busy) {
@@ -56,6 +67,29 @@ export default function StatusLine({
 				{hasDetailsHint ? (
 					// `Text` takes no layout props in Ink, so the non-shrinking
 					// tail is a box that never gives up the hint's cells.
+					<Box flexShrink={0}>
+						<Text color={theme.dim}>{detailsHint}</Text>
+					</Box>
+				) : null}
+			</Box>
+		);
+	}
+
+	/*
+	 * Degradation outlives the newest log entry: `r` appends a successful
+	 * refresh row, and only this state keeps telling the user that live sync
+	 * is still unavailable. A newer failed run above takes precedence, so the
+	 * line never claims success while offering stale details.
+	 */
+	if (isWatchDegraded) {
+		return (
+			<Box flexDirection="row" flexGrow={1} flexShrink={1}>
+				<Box flexGrow={1} flexShrink={1}>
+					<Text wrap="truncate-end" color={theme.warn}>
+						{watchUnavailableHint}
+					</Text>
+				</Box>
+				{hasDetailsHint ? (
 					<Box flexShrink={0}>
 						<Text color={theme.dim}>{detailsHint}</Text>
 					</Box>

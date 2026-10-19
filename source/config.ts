@@ -44,8 +44,11 @@ const toStringList = (value: unknown): string[] | undefined => {
 		return [value];
 	}
 
-	if (Array.isArray(value) && value.every(item => typeof item === 'string')) {
-		return value;
+	if (Array.isArray(value)) {
+		const items: unknown[] = value;
+		if (items.every((item): item is string => typeof item === 'string')) {
+			return items;
+		}
 	}
 
 	return undefined;

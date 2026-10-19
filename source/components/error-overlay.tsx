@@ -22,11 +22,25 @@ type Props = {
 const outputHeight = (rows: number | undefined): number =>
 	Math.max(3, Math.min(16, Math.round((rows ?? 30) * 0.4)));
 
-/** `undefined` means the process was killed or never started, not exit 0. */
-const exitLabel = (exitCode: number | undefined): string =>
-	exitCode === undefined
-		? 'no exit code (killed or failed to start)'
-		: `exit code ${exitCode}`;
+/**
+ * `undefined` means the process was killed or never started, not exit 0.
+ *
+ * A synthetic failure (watch degradation, an edge probe) has no argv and no
+ * exit code; saying "killed or failed to start" there would be wrong, so it
+ * only reports the missing code.
+ */
+const exitLabel = (operation: OperationLogEntry): string => {
+	const { error } = operation;
+	if (error?.exitCode !== undefined) {
+		return `exit code ${error.exitCode}`;
+	}
+
+	if (error !== undefined && error.args.length === 0) {
+		return 'no exit code';
+	}
+
+	return 'no exit code (killed or failed to start)';
+};
 
 /**
  * The scrollable error detail overlay for a failed operation.
@@ -42,10 +56,13 @@ export default function ErrorOverlay({ operation, onClose }: Props) {
 	useKeyboardShortcuts({ 'close-overlay': onClose });
 
 	const { error } = operation;
+	const captured = [error?.stdout ?? '', error?.stderr ?? '']
+		.filter(text => text.length > 0)
+		.join('\n');
+	// A timeout or synthetic failure can have no captured output; show the
+	// error's own message instead of claiming there is no detail.
 	const output = sanitizeOutput(
-		[error?.stdout ?? '', error?.stderr ?? '']
-			.filter(text => text.length > 0)
-			.join('\n'),
+		captured.length > 0 ? captured : error?.message ?? '',
 	);
 
 	return (
@@ -58,9 +75,7 @@ export default function ErrorOverlay({ operation, onClose }: Props) {
 				/>
 			</FrameRow>
 			<FrameRow>
-				<Line
-					segments={[{ text: exitLabel(error?.exitCode), color: theme.del }]}
-				/>
+				<Line segments={[{ text: exitLabel(operation), color: theme.del }]} />
 			</FrameRow>
 			<FrameRow>
 				<ScrollableArea width={contentWidth} height={outputHeight(rows)}>

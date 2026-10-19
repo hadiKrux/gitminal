@@ -14,6 +14,7 @@ type Props = {
 	readonly activeCommand: CommandId | undefined;
 	readonly operation: OperationState;
 	readonly entry: OperationLogEntry | undefined;
+	readonly isWatchDegraded: boolean;
 	readonly hasDetailsHint: boolean;
 	readonly onCommand: (id: CommandId) => void;
 	readonly onOpenMenu: () => void;
@@ -37,6 +38,7 @@ export default function Toolbar({
 	activeCommand,
 	operation,
 	entry,
+	isWatchDegraded,
 	hasDetailsHint,
 	onCommand,
 	onOpenMenu,
@@ -89,6 +91,7 @@ export default function Toolbar({
 					<StatusLine
 						operation={operation}
 						entry={entry}
+						isWatchDegraded={isWatchDegraded}
 						hasDetailsHint={hasDetailsHint}
 					/>
 				</Box>

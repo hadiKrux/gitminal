@@ -1,8 +1,20 @@
+import path from 'node:path';
 import { GitError, runGitReadOnly } from './exec.js';
 
 /** Where the process was started, from git's point of view. */
 export type RepoInfo =
-	| { readonly kind: 'repo'; readonly root: string; readonly gitDir: string }
+	| {
+			readonly kind: 'repo';
+			readonly root: string;
+			readonly gitDir: string;
+			/**
+			 * Shared git directory that holds the refs; in a linked worktree this
+			 * differs from `gitDir`, which only holds that worktree's HEAD and
+			 * index. Live sync watches this directory so branch, stash, and fetch
+			 * updates are visible from every worktree.
+			 */
+			readonly commonDir: string;
+	  }
 	| { readonly kind: 'bare'; readonly gitDir: string }
 	| { readonly kind: 'not-a-repo' };
 
@@ -103,11 +115,18 @@ export const resolveRepoInfo = async (options: {
 		throw error;
 	}
 
-	const { stdout: gitDirOut } = await runGitReadOnly(
-		['rev-parse', '--absolute-git-dir'],
-		{ cwd },
-	);
+	const [{ stdout: gitDirOut }, { stdout: commonDirOut }] = await Promise.all([
+		runGitReadOnly(['rev-parse', '--absolute-git-dir'], { cwd }),
+		runGitReadOnly(['rev-parse', '--git-common-dir'], { cwd }),
+	]);
 	const gitDir = pathValue(gitDirOut);
+	/*
+	 * `--git-common-dir` can answer relative to the launch directory (`.git` at
+	 * the root, `../../.git` from a nested one), so resolve it against `cwd`:
+	 * `fs.watch` needs one absolute root, and it must stay correct for nested
+	 * launches and linked worktrees alike.
+	 */
+	const commonDir = path.resolve(cwd, pathValue(commonDirOut));
 
 	if (isBare) {
 		// A bare repo has no worktree; its git dir is the config location.
@@ -126,7 +145,7 @@ export const resolveRepoInfo = async (options: {
 	const root = pathValue(rootOut);
 
 	return {
-		repo: { kind: 'repo', root, gitDir },
+		repo: { kind: 'repo', root, gitDir, commonDir },
 		identity: await readIdentity(root),
 	};
 };
