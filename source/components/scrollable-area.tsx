@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, type DOMElement } from 'ink';
 import { ScrollView, type ScrollViewRef } from 'ink-scroll-view';
-import { useMouse, useOnMouseHover } from '@zenobius/ink-mouse';
+import { useMouse } from '@zenobius/ink-mouse';
 import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
+import { useMouseHover } from '../hooks/use-mouse.js';
 import Scrollbar from './scrollbar.js';
 
 type Props = {
@@ -76,7 +77,7 @@ export default function ScrollableArea({
 		{ isActive },
 	);
 
-	useOnMouseHover(containerRef, hovered => {
+	useMouseHover(containerRef, hovered => {
 		isHoveredRef.current = hovered;
 	});
 

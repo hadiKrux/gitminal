@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { stripMouseReports } from '../mouse-reports.js';
+import { textWidth, truncate } from '../layout.js';
 
 type Props = {
 	/** Current text, owned by the caller so it can be cleared on commit. */
@@ -23,9 +24,13 @@ type WrappedLine = {
 	readonly endsAtNewline: boolean;
 };
 
+/** Grapheme boundaries, so wide characters and emoji are never split. */
+const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
 /**
  * Wrap one logical line (the text between newlines) into visual lines,
- * breaking after the last space that fits when possible.
+ * breaking after the last space that fits when possible. Widths are measured
+ * in terminal cells, and breaks only fall on grapheme boundaries.
  */
 const wrapSegment = (
 	segment: string,
@@ -37,27 +42,58 @@ const wrapSegment = (
 		return [{ text: '', start: offset, endsAtNewline }];
 	}
 
+	const safeWidth = Math.max(1, width);
+	const graphemes = [...segmenter.segment(segment)];
 	const lines: WrappedLine[] = [];
-	let start = 0;
+	let index = 0;
 
-	while (start < segment.length) {
-		const limit = Math.min(start + width, segment.length);
-		let end = limit;
+	while (index < graphemes.length) {
+		let cellWidth = 0;
+		let lastSpace = -1;
+		let end = index;
 
-		if (limit < segment.length) {
-			const space = segment.lastIndexOf(' ', limit - 1);
-			if (space > start) {
-				end = space + 1;
+		while (end < graphemes.length) {
+			const grapheme = graphemes[end]?.segment ?? '';
+			const graphemeWidth = textWidth(grapheme);
+
+			// A single grapheme wider than the view still takes a row on its
+			// own rather than stalling the wrap.
+			if (cellWidth === 0 && graphemeWidth > safeWidth) {
+				end += 1;
+				break;
 			}
+
+			if (cellWidth + graphemeWidth > safeWidth) {
+				break;
+			}
+
+			cellWidth += graphemeWidth;
+			if (grapheme === ' ') {
+				lastSpace = end;
+			}
+
+			end += 1;
 		}
 
-		const isLastPiece = end >= segment.length;
+		if (end === index) {
+			end = index + 1;
+		} else if (end < graphemes.length && lastSpace > index) {
+			// Keep words whole when a space fits: break after it.
+			end = lastSpace + 1;
+		}
+
+		const startIndex = graphemes[index]?.index ?? segment.length;
+		const endIndex =
+			end < graphemes.length
+				? graphemes[end]?.index ?? segment.length
+				: segment.length;
+		const isLastPiece = end >= graphemes.length;
 		lines.push({
-			text: segment.slice(start, end),
-			start: offset + start,
+			text: segment.slice(startIndex, endIndex),
+			start: offset + startIndex,
 			endsAtNewline: isLastPiece && endsAtNewline,
 		});
-		start = end;
+		index = end;
 	}
 
 	return lines;
@@ -98,6 +134,54 @@ const rowOf = (lines: readonly WrappedLine[], cursor: number): number => {
 	}
 
 	return lines.length - 1;
+};
+
+/** Greatest grapheme boundary at or before `cursor`. */
+const previousBoundary = (text: string, cursor: number): number => {
+	let previous = 0;
+	for (const { index } of segmenter.segment(text)) {
+		if (index >= cursor) {
+			break;
+		}
+
+		previous = index;
+	}
+
+	return previous;
+};
+
+/** Smallest grapheme boundary after `cursor`. */
+const nextBoundary = (text: string, cursor: number): number => {
+	for (const { index } of segmenter.segment(text)) {
+		if (index > cursor) {
+			return index;
+		}
+	}
+
+	return text.length;
+};
+
+/** Terminal cells from the start of `lineText` to `charOffset`. */
+const visualColumnOf = (lineText: string, charOffset: number): number =>
+	textWidth(
+		lineText.slice(0, Math.max(0, Math.min(charOffset, lineText.length))),
+	);
+
+/** UTF-16 length of the longest prefix of `lineText` fitting `column` cells. */
+const offsetForVisualColumn = (lineText: string, column: number): number => {
+	let used = 0;
+	let length = 0;
+	for (const { segment } of segmenter.segment(lineText)) {
+		const segmentWidth = textWidth(segment);
+		if (used + segmentWidth > column) {
+			break;
+		}
+
+		used += segmentWidth;
+		length += segment.length;
+	}
+
+	return length;
 };
 
 /**
@@ -153,11 +237,15 @@ export default function CommitMessageInput({
 
 	const moveToRow = (row: number): void => {
 		const target = lines[row];
-		if (target === undefined) {
+		const current = lines[cursorRow];
+		if (target === undefined || current === undefined) {
 			return;
 		}
 
-		setCursorOffset(target.start + Math.min(cursorColumn, target.text.length));
+		const visualColumn = visualColumnOf(current.text, cursor - current.start);
+		setCursorOffset(
+			target.start + offsetForVisualColumn(target.text, visualColumn),
+		);
 	};
 
 	useInput(
@@ -182,12 +270,12 @@ export default function CommitMessageInput({
 			}
 
 			if (key.leftArrow) {
-				setCursorOffset(Math.max(0, cursor - 1));
+				setCursorOffset(previousBoundary(value, cursor));
 				return;
 			}
 
 			if (key.rightArrow) {
-				setCursorOffset(Math.min(value.length, cursor + 1));
+				setCursorOffset(nextBoundary(value, cursor));
 				return;
 			}
 
@@ -196,8 +284,9 @@ export default function CommitMessageInput({
 					return;
 				}
 
-				onChange(value.slice(0, cursor - 1) + value.slice(cursor));
-				setCursorOffset(cursor - 1);
+				const previous = previousBoundary(value, cursor);
+				onChange(value.slice(0, previous) + value.slice(cursor));
+				setCursorOffset(previous);
 				return;
 			}
 
@@ -214,15 +303,18 @@ export default function CommitMessageInput({
 	const rows = Array.from({ length: height }, (_, index) => index + viewOffset);
 
 	if (value.length === 0) {
+		const shown = truncate(placeholder, Math.max(1, width));
+		const first = [...segmenter.segment(shown)][0]?.segment ?? '';
+		const rest = first.length === 0 ? '' : shown.slice(first.length);
 		return (
 			<Box flexDirection="column" width={width} height={height}>
 				<Text wrap="truncate-end">
 					{isDisabled ? (
-						<Text dimColor>{placeholder}</Text>
+						<Text dimColor>{shown}</Text>
 					) : (
 						<>
-							<Text inverse>{placeholder.slice(0, 1)}</Text>
-							<Text dimColor>{placeholder.slice(1)}</Text>
+							<Text inverse>{first}</Text>
+							<Text dimColor>{rest}</Text>
 						</>
 					)}
 				</Text>
@@ -250,7 +342,7 @@ export default function CommitMessageInput({
 	);
 }
 
-/** Render one line, inverting the character under the cursor when focused. */
+/** Render one line, inverting the grapheme under the cursor when focused. */
 const renderLine = (
 	line: WrappedLine,
 	isCursorRow: boolean,
@@ -261,13 +353,20 @@ const renderLine = (
 		return line.text;
 	}
 
-	const at = line.text[cursorColumn] ?? ' ';
+	const safeOffset = Math.max(0, Math.min(cursorColumn, line.text.length));
+	const before = line.text.slice(0, safeOffset);
+	const rest = line.text.slice(safeOffset);
+	const grapheme = [...segmenter.segment(rest)][0]?.segment ?? ' ';
+	const after =
+		rest.length === 0
+			? ''
+			: rest.slice(grapheme.length === 0 ? 1 : grapheme.length);
 
 	return (
 		<>
-			{line.text.slice(0, cursorColumn)}
-			<Text inverse>{at}</Text>
-			{line.text.slice(cursorColumn + 1)}
+			{before}
+			<Text inverse>{grapheme}</Text>
+			{after}
 		</>
 	);
 };

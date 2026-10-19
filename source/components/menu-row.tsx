@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
 import { Box, Text, type DOMElement } from 'ink';
-import { useOnMouseClick, useOnMouseHover } from '@zenobius/ink-mouse';
+import { useMouseClick, useMouseHover } from '../hooks/use-mouse.js';
 import { theme } from '../theme.js';
+import { padToWidth } from '../layout.js';
 
 type Props = {
 	readonly label: string;
@@ -30,20 +31,16 @@ export default function MenuRow({
 }: Props) {
 	const ref = useRef<DOMElement>(null);
 
-	useOnMouseHover(ref, isHovered => {
+	useMouseHover(ref, isHovered => {
 		if (isHovered) {
 			onHover();
 		}
 	});
 
-	useOnMouseClick(ref, isPressed => {
-		if (isPressed) {
-			onPress();
-		}
-	});
+	useMouseClick(ref, onPress);
 
 	const cursor = isSelected ? '>' : ' ';
-	const paddedLabel = label.padEnd(width - 2);
+	const paddedLabel = padToWidth(label, Math.max(0, width - 2));
 
 	return (
 		<Box ref={ref}>

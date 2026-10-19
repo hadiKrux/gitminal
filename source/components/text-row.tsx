@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text } from 'ink';
+import { textWidth, truncate } from '../layout.js';
 
 export type Cell = {
 	text: string;
@@ -26,7 +27,7 @@ const styleProps = (cell: Cell) => ({
 });
 
 const lengthOf = (cells: Cell[]): number =>
-	cells.reduce((total, cell) => total + cell.text.length, 0);
+	cells.reduce((total, cell) => total + textWidth(cell.text), 0);
 
 const fit = (cells: Cell[], max: number): Cell[] => {
 	const out: Cell[] = [];
@@ -37,11 +38,12 @@ const fit = (cells: Cell[], max: number): Cell[] => {
 			break;
 		}
 
-		if (cell.text.length <= remaining) {
+		const cellWidth = textWidth(cell.text);
+		if (cellWidth <= remaining) {
 			out.push(cell);
-			remaining -= cell.text.length;
+			remaining -= cellWidth;
 		} else {
-			out.push({ ...cell, text: cell.text.slice(0, remaining) });
+			out.push({ ...cell, text: truncate(cell.text, remaining) });
 			remaining = 0;
 		}
 	}

@@ -36,9 +36,36 @@ export type ThemeTokens = {
 	delText: string;
 };
 
+/**
+ * Colors for the syntax highlighter, keyed by semantic token rather than by the
+ * highlighter's own names so a scheme stays the only place that picks colors.
+ */
+export type SyntaxColors = {
+	readonly default: string;
+	readonly keyword: string;
+	readonly builtIn: string;
+	readonly type: string;
+	readonly literal: string;
+	readonly number: string;
+	readonly regexp: string;
+	readonly string: string;
+	readonly comment: string;
+	readonly function: string;
+	readonly className: string;
+	readonly tag: string;
+	readonly attr: string;
+	readonly meta: string;
+	readonly variable: string;
+	readonly symbol: string;
+	readonly section: string;
+	readonly addition: string;
+	readonly deletion: string;
+};
+
 export type ColorScheme = {
 	readonly variant: Variant;
 	readonly theme: ThemeTokens;
+	readonly syntax: SyntaxColors;
 	readonly tagColors: readonly string[];
 	readonly graphColors: readonly string[];
 };
@@ -68,6 +95,27 @@ export const mocha: ColorScheme = {
 		addText: '#1e1e2e', // Base
 		delBg: '#f38ba8', // Red
 		delText: '#1e1e2e', // Base
+	},
+	syntax: {
+		default: '#cdd6f4', // Text
+		keyword: '#cba6f7', // Mauve
+		builtIn: '#74c7ec', // Sapphire
+		type: '#f9e2af', // Yellow
+		literal: '#fab387', // Peach
+		number: '#fab387', // Peach
+		regexp: '#f5c2e7', // Pink
+		string: '#a6e3a1', // Green
+		comment: '#6c7086', // Overlay0
+		function: '#89b4fa', // Blue
+		className: '#f9e2af', // Yellow
+		tag: '#f38ba8', // Red
+		attr: '#f9e2af', // Yellow
+		meta: '#fab387', // Peach
+		variable: '#f5c2e7', // Pink
+		symbol: '#fab387', // Peach
+		section: '#89b4fa', // Blue
+		addition: '#a6e3a1', // Green
+		deletion: '#f38ba8', // Red
 	},
 	tagColors: [
 		'#89b4fa', // Blue
@@ -111,6 +159,27 @@ export const latte: ColorScheme = {
 		addText: '#eff1f5', // Base
 		delBg: '#d20f39', // Red
 		delText: '#eff1f5', // Base
+	},
+	syntax: {
+		default: '#4c4f69', // Text
+		keyword: '#8839ef', // Mauve
+		builtIn: '#209fb5', // Sapphire
+		type: '#df8e1d', // Yellow
+		literal: '#fe640b', // Peach
+		number: '#fe640b', // Peach
+		regexp: '#ea76cb', // Pink
+		string: '#40a02b', // Green
+		comment: '#9ca0b0', // Overlay0
+		function: '#1e66f5', // Blue
+		className: '#df8e1d', // Yellow
+		tag: '#d20f39', // Red
+		attr: '#df8e1d', // Yellow
+		meta: '#fe640b', // Peach
+		variable: '#ea76cb', // Pink
+		symbol: '#fe640b', // Peach
+		section: '#1e66f5', // Blue
+		addition: '#40a02b', // Green
+		deletion: '#d20f39', // Red
 	},
 	tagColors: [
 		'#1e66f5', // Blue

@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { Box, Text, type DOMElement } from 'ink';
-import { useOnMouseClick } from '@zenobius/ink-mouse';
+import { useMouseClick } from '../hooks/use-mouse.js';
 import { theme } from '../theme.js';
 import { padToWidth, truncate } from '../layout.js';
 import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
@@ -52,11 +52,7 @@ export default function CommitBox({
 	const inputRef = useRef<DOMElement>(null);
 	const messageWidth = Math.max(1, width - menuWidth);
 
-	useOnMouseClick(inputRef, pressed => {
-		if (pressed) {
-			onFocus();
-		}
-	});
+	useMouseClick(inputRef, onFocus);
 
 	useKeyboardShortcuts(
 		{

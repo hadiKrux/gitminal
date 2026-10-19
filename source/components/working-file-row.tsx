@@ -1,10 +1,11 @@
 import React, { useRef } from 'react';
 import { Box, Text, type DOMElement } from 'ink';
-import { useOnMouseClick } from '@zenobius/ink-mouse';
+import { useMouseClick } from '../hooks/use-mouse.js';
 import { theme } from '../theme.js';
 import { icons } from '../icons.js';
-import { truncate } from '../layout.js';
+import { textWidth, truncate } from '../layout.js';
 import type { WorkingFile, WorkingFileStatus } from '../data/types.js';
+import { languageForPath } from '../data/language.js';
 import DiffView from './diff-view.js';
 import ToolbarButton from './toolbar-button.js';
 
@@ -76,11 +77,7 @@ export default function WorkingFileRow({
 }: Props) {
 	const rowRef = useRef<DOMElement>(null);
 
-	useOnMouseClick(rowRef, pressed => {
-		if (pressed) {
-			onToggle();
-		}
-	});
+	useMouseClick(rowRef, onToggle);
 
 	const stageLabel = isStaged ? 'Unstage' : 'Stage';
 	const labelWidth = Math.max(0, width - actionsWidth(stageLabel));
@@ -89,7 +86,7 @@ export default function WorkingFileRow({
 		: icons.sectionCollapsed;
 	const pathRoom = Math.max(0, labelWidth - disclosure.length - 2);
 	const path = truncate(file.path, pathRoom);
-	const labelLength = disclosure.length + 2 + path.length;
+	const labelLength = disclosure.length + 2 + textWidth(path);
 	const fill = Math.max(0, labelWidth - labelLength);
 	const background = isExpanded ? theme.accentBg : undefined;
 
@@ -98,7 +95,7 @@ export default function WorkingFileRow({
 			<Box flexDirection="row" width={width}>
 				<Box ref={rowRef} width={labelWidth} flexShrink={0}>
 					<Text backgroundColor={background} wrap="truncate-end">
-						<Text color={theme.dim}>{disclosure}</Text>
+						<Text color={theme.dimmer}>{disclosure}</Text>
 						{isStaged ? (
 							<Text backgroundColor={theme.addBg} color={theme.addText}>
 								{statusLabel(file.status)}
@@ -117,7 +114,13 @@ export default function WorkingFileRow({
 					<ToolbarButton label={stageLabel} onPress={onStage} />
 				</Box>
 			</Box>
-			{isExpanded ? <DiffView lines={file.diff} width={width} /> : null}
+			{isExpanded ? (
+				<DiffView
+					lines={file.diff}
+					width={width}
+					language={languageForPath(file.path)}
+				/>
+			) : null}
 		</Box>
 	);
 }

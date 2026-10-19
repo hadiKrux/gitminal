@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Box, type DOMElement } from 'ink';
-import { useOnMouseClick, useOnMouseHover } from '@zenobius/ink-mouse';
+import { useMouseClick, useMouseHover } from '../hooks/use-mouse.js';
 import { theme } from '../theme.js';
 import { icons } from '../icons.js';
 import type { FileGroup } from '../data/types.js';
@@ -27,12 +27,8 @@ function GroupHeader({ group, isCollapsed, width, onToggle }: HeaderProps) {
 	const ref = useRef<DOMElement>(null);
 	const [isHovered, setIsHovered] = useState(false);
 
-	useOnMouseHover(ref, setIsHovered);
-	useOnMouseClick(ref, pressed => {
-		if (pressed) {
-			onToggle();
-		}
-	});
+	useMouseHover(ref, setIsHovered);
+	useMouseClick(ref, onToggle);
 
 	return (
 		<Box ref={ref}>

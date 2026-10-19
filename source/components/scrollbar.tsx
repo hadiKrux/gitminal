@@ -40,7 +40,7 @@ export default function Scrollbar({ height, offset, contentHeight }: Props) {
 				const isThumb = index >= thumbTop && index < thumbTop + thumbHeight;
 
 				return (
-					<Text key={index} color={isThumb ? theme.dimmer : theme.border}>
+					<Text key={index} color={theme.dimmer}>
 						{isThumb ? '┃' : '│'}
 					</Text>
 				);

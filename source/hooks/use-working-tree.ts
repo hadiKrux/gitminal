@@ -12,6 +12,7 @@ export type WorkingTree = {
 	hasUnstaged: (category: WorkingGroupCategory) => boolean;
 	toggleStage: (path: string) => void;
 	stageAll: (category: WorkingGroupCategory) => void;
+	unstageAll: (category: WorkingGroupCategory) => void;
 	discard: (path: string) => void;
 	discardAll: (category: WorkingGroupCategory) => void;
 	commit: () => void;
@@ -19,6 +20,15 @@ export type WorkingTree = {
 
 const without = (paths: ReadonlySet<string>, removed: ReadonlySet<string>) =>
 	new Set([...paths].filter(path => !removed.has(path)));
+
+/** The paths of every file in a group, used by the bulk stage/unstage actions. */
+const pathsIn = (
+	files: readonly WorkingFile[],
+	category: WorkingGroupCategory,
+): ReadonlySet<string> =>
+	new Set(
+		files.filter(file => categoryOf(file) === category).map(file => file.path),
+	);
 
 /**
  * Owns the pending working-tree changes.
@@ -68,16 +78,16 @@ export const useWorkingTree = (
 
 	const stageAll = useCallback(
 		(category: WorkingGroupCategory) => {
-			setStagedPaths(current => {
-				const next = new Set(current);
-				for (const file of files) {
-					if (categoryOf(file) === category) {
-						next.add(file.path);
-					}
-				}
+			setStagedPaths(
+				current => new Set([...current, ...pathsIn(files, category)]),
+			);
+		},
+		[files],
+	);
 
-				return next;
-			});
+	const unstageAll = useCallback(
+		(category: WorkingGroupCategory) => {
+			setStagedPaths(current => without(current, pathsIn(files, category)));
 		},
 		[files],
 	);
@@ -92,14 +102,7 @@ export const useWorkingTree = (
 			setFiles(current =>
 				current.filter(file => categoryOf(file) !== category),
 			);
-			setStagedPaths(current => {
-				const removed = new Set(
-					files
-						.filter(file => categoryOf(file) === category)
-						.map(file => file.path),
-				);
-				return without(current, removed);
-			});
+			setStagedPaths(current => without(current, pathsIn(files, category)));
 		},
 		[files],
 	);
@@ -119,6 +122,7 @@ export const useWorkingTree = (
 		hasUnstaged,
 		toggleStage,
 		stageAll,
+		unstageAll,
 		discard,
 		discardAll,
 		commit,

@@ -66,7 +66,6 @@ export default function RightPanel({
 				width={width}
 				height={listHeight}
 				isActive={isActive && !isCommitFocused}
-				onCommit={onCommit}
 			/>
 		</Box>
 	);

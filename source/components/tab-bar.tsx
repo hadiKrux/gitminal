@@ -7,6 +7,7 @@ import {
 	useElementPosition,
 } from '@zenobius/ink-mouse';
 import { theme } from '../theme.js';
+import { textWidth } from '../layout.js';
 
 export type TabDef = {
 	readonly name: string;
@@ -75,10 +76,10 @@ export default function TabBar({
 			const column = x - 1;
 			for (const [index, tab] of tabs.entries()) {
 				if (index > 0) {
-					cursor += rowSeparator.length;
+					cursor += textWidth(rowSeparator);
 				}
 
-				const tabWidth = paddedLabel(tab).length;
+				const tabWidth = textWidth(paddedLabel(tab));
 				if (column >= cursor && column < cursor + tabWidth) {
 					onChange(tab.name);
 					return;

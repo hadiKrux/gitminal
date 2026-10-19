@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Box, Text, type DOMElement } from 'ink';
-import { useOnMouseClick, useOnMouseHover } from '@zenobius/ink-mouse';
+import { useMouseClick, useMouseHover } from '../hooks/use-mouse.js';
 import { theme } from '../theme.js';
 
 export type ButtonTone = 'default' | 'danger';
@@ -66,12 +66,12 @@ export default function ToolbarButton({
 	const ref = useRef<DOMElement>(null);
 	const [isHovered, setIsHovered] = useState(false);
 
-	useOnMouseHover(ref, hovered => {
+	useMouseHover(ref, hovered => {
 		setIsHovered(!isDisabled && hovered);
 	});
 
-	useOnMouseClick(ref, isPressed => {
-		if (isPressed && !isDisabled) {
+	useMouseClick(ref, () => {
+		if (!isDisabled) {
 			onPress();
 		}
 	});

@@ -44,7 +44,7 @@ const gutter = (
 		const char = chars[lane] ?? ' ';
 		return {
 			text: `${char === '*' ? nodeChar : char} `,
-			color: isColored ? colorAt(graphColors, lane) : theme.dim,
+			color: isColored ? colorAt(graphColors, lane) : theme.dimmer,
 		};
 	});
 

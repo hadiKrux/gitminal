@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
+import { textWidth } from '../layout.js';
 import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
 import MenuRow from './menu-row.js';
 
@@ -57,7 +58,7 @@ type LineProps = {
  */
 function Line({ segments }: LineProps) {
 	const content = segments.reduce(
-		(width, segment) => width + segment.text.length,
+		(width, segment) => width + textWidth(segment.text),
 		0,
 	);
 	const fill = ' '.repeat(Math.max(0, contentWidth - content));
@@ -83,7 +84,7 @@ function Line({ segments }: LineProps) {
 function Rule() {
 	return (
 		<Line
-			segments={[{ text: '-'.repeat(contentWidth), color: theme.accentBg }]}
+			segments={[{ text: '─'.repeat(contentWidth), color: theme.dimmer }]}
 		/>
 	);
 }
@@ -211,7 +212,7 @@ export default function MenuModal<Id extends string>({
 								segments={[
 									{
 										text: section.title.toUpperCase(),
-										color: theme.dimmer,
+										color: theme.labelFg,
 										isBold: true,
 									},
 								]}
@@ -243,9 +244,9 @@ export default function MenuModal<Id extends string>({
 					<Line
 						segments={[
 							{ text: 'enter', color: theme.accent, isBold: true },
-							{ text: ' run   ', color: theme.dimmer },
+							{ text: ' run   ', color: theme.dim },
 							{ text: 'esc', color: theme.accent, isBold: true },
-							{ text: ' close', color: theme.dimmer },
+							{ text: ' close', color: theme.dim },
 						]}
 					/>
 				</FrameRow>

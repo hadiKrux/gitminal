@@ -1,11 +1,14 @@
 import React, { useRef, useState } from 'react';
 import { Box, Text, type DOMElement } from 'ink';
-import { useOnMouseClick, useOnMouseHover } from '@zenobius/ink-mouse';
+import { useMouseClick, useMouseHover } from '../hooks/use-mouse.js';
 import { theme } from '../theme.js';
 import { icons } from '../icons.js';
-import { truncate } from '../layout.js';
-import { commitLabel } from '../labels.js';
-import type { WorkingGroup, WorkingGroupCategory } from '../data/types.js';
+import { textWidth, truncate } from '../layout.js';
+import type {
+	WorkingFile,
+	WorkingGroup,
+	WorkingGroupCategory,
+} from '../data/types.js';
 import {
 	categoryOf,
 	type WorkingTree as WorkingTreeState,
@@ -19,7 +22,6 @@ type Props = {
 	readonly width: number;
 	readonly height: number;
 	readonly isActive: boolean;
-	readonly onCommit: () => void;
 };
 
 type HeaderProps = {
@@ -28,21 +30,21 @@ type HeaderProps = {
 	readonly width: number;
 	readonly isCollapsed: boolean;
 	readonly hasUnstaged: boolean;
-	readonly stagedCount: number;
 	readonly onToggle: () => void;
 	readonly onDiscardAll: () => void;
 	readonly onStageAll: () => void;
-	readonly onCommit: () => void;
+	readonly onUnstageAll: () => void;
 };
 
 const groupActionsWidth = ' Discard All '.length + 1 + ' Stage All '.length;
+const unstageAllWidth = ' Unstage All '.length;
 
 /**
  * A collapsible group header.
  *
  * While the group still has unstaged files it offers the bulk stage/discard
- * actions; once everything in it is staged those give way to the commit action,
- * since there is nothing left to stage or discard.
+ * actions; once everything in it is staged, discard no longer applies and the
+ * pair gives way to a single unstage action that puts the files back.
  */
 function GroupHeader({
 	label,
@@ -50,34 +52,29 @@ function GroupHeader({
 	width,
 	isCollapsed,
 	hasUnstaged,
-	stagedCount,
 	onToggle,
 	onDiscardAll,
 	onStageAll,
-	onCommit,
+	onUnstageAll,
 }: HeaderProps) {
 	const ref = useRef<DOMElement>(null);
 	const [isHovered, setIsHovered] = useState(false);
 
-	useOnMouseHover(ref, setIsHovered);
-	useOnMouseClick(ref, pressed => {
-		if (pressed) {
-			onToggle();
-		}
-	});
+	useMouseHover(ref, setIsHovered);
+	useMouseClick(ref, onToggle);
 
-	const showCommit = !hasUnstaged && stagedCount > 0;
-	const actionsWidth = hasUnstaged
-		? groupActionsWidth
-		: showCommit
-		? commitLabel(stagedCount).length + 2
-		: 0;
+	const actionsWidth = hasUnstaged ? groupActionsWidth : unstageAllWidth;
 	const labelWidth = Math.max(0, width - actionsWidth);
 	const disclosure = isCollapsed
 		? icons.sectionCollapsed
 		: icons.sectionExpanded;
 	const suffix = ` (${count})`;
-	const contentWidth = disclosure.length + label.length + suffix.length;
+	const shownLabel = truncate(
+		label,
+		Math.max(0, labelWidth - disclosure.length - suffix.length),
+	);
+	const contentWidth =
+		disclosure.length + textWidth(shownLabel) + suffix.length;
 	const fill = Math.max(0, labelWidth - contentWidth);
 
 	return (
@@ -89,10 +86,7 @@ function GroupHeader({
 				>
 					<Text color={theme.dimmer}>{disclosure}</Text>
 					<Text bold color={theme.labelFg}>
-						{truncate(
-							label,
-							Math.max(0, labelWidth - disclosure.length - suffix.length),
-						)}
+						{shownLabel}
 					</Text>
 					<Text color={theme.dimmer}>{suffix}</Text>
 					{fill > 0 ? <Text>{' '.repeat(fill)}</Text> : null}
@@ -108,10 +102,9 @@ function GroupHeader({
 						/>
 						<ToolbarButton label="Stage All" onPress={onStageAll} />
 					</>
-				) : null}
-				{showCommit ? (
-					<ToolbarButton label={commitLabel(stagedCount)} onPress={onCommit} />
-				) : null}
+				) : (
+					<ToolbarButton label="Unstage All" onPress={onUnstageAll} />
+				)}
 			</Box>
 		</Box>
 	);
@@ -140,13 +133,7 @@ const toGroups = (tree: WorkingTreeState): WorkingGroup[] => {
  * "Untracked Files". Group headers and individual file rows both collapse, and
  * an expanded row renders the file's diff underneath it.
  */
-export default function WorkingTree({
-	tree,
-	width,
-	height,
-	isActive,
-	onCommit,
-}: Props) {
+export default function WorkingTree({ tree, width, height, isActive }: Props) {
 	const [collapsedGroups, setCollapsedGroups] = useState<
 		ReadonlySet<WorkingGroupCategory>
 	>(() => new Set());
@@ -174,6 +161,18 @@ export default function WorkingTree({
 				next.delete(path);
 			} else {
 				next.add(path);
+			}
+
+			return next;
+		});
+	};
+
+	/** Collapse a group's files, e.g. once they have all been staged. */
+	const collapseFiles = (files: readonly WorkingFile[]): void => {
+		setExpandedFiles(current => {
+			const next = new Set(current);
+			for (const file of files) {
+				next.delete(file.path);
 			}
 
 			return next;
@@ -208,7 +207,6 @@ export default function WorkingTree({
 								width={contentWidth}
 								isCollapsed={isCollapsed}
 								hasUnstaged={tree.hasUnstaged(group.category)}
-								stagedCount={tree.stagedCount}
 								onToggle={() => {
 									toggleGroup(group.category);
 								}}
@@ -217,8 +215,11 @@ export default function WorkingTree({
 								}}
 								onStageAll={() => {
 									tree.stageAll(group.category);
+									collapseFiles(group.files);
 								}}
-								onCommit={onCommit}
+								onUnstageAll={() => {
+									tree.unstageAll(group.category);
+								}}
 							/>
 							{isCollapsed
 								? null
