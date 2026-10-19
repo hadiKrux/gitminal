@@ -135,9 +135,13 @@ export default function WorkingTree({ tree, width, height, isActive }: Props) {
 	const [collapsedGroups, setCollapsedGroups] = useState<
 		ReadonlySet<WorkingGroupCategory>
 	>(() => new Set());
+	// Mounted after the snapshot loads, so the first real row starts expanded.
 	const [expandedFiles, setExpandedFiles] = useState<ReadonlySet<string>>(
 		() => new Set(tree.files[0] === undefined ? [] : [tree.files[0].path]),
 	);
+	// Destructured so the effects can depend on the values they read; the
+	// rule cannot track `tree.ensureDiff` back to a stable member reference.
+	const { ensureDiff, files } = tree;
 
 	// Files can vanish (discarded, staged away): drop their paths from the
 	// expansion set so it does not grow all session and so a path that comes
@@ -149,12 +153,26 @@ export default function WorkingTree({ tree, width, height, isActive }: Props) {
 				return current;
 			}
 
-			const present = new Set(tree.files.map(file => file.path));
+			const present = new Set(files.map(file => file.path));
 			const next = new Set([...current].filter(path => present.has(path)));
 
 			return next.size === current.size ? current : next;
 		});
-	}, [tree.files]);
+	}, [files]);
+
+	/**
+	 * Keep every expanded row's diff loaded.
+	 *
+	 * Expansion is the trigger, but a refresh can invalidate a diff while its
+	 * path stays expanded, so this runs whenever the file snapshot changes too.
+	 * `ensureDiff` is a no-op for a cache hit or an in-flight read, which also
+	 * makes the effect safe to re-run after it updates the rows.
+	 */
+	useEffect(() => {
+		for (const path of expandedFiles) {
+			ensureDiff(path);
+		}
+	}, [expandedFiles, ensureDiff, files]);
 
 	const toggleGroup = (category: WorkingGroupCategory): void => {
 		setCollapsedGroups(current => {
@@ -170,6 +188,7 @@ export default function WorkingTree({ tree, width, height, isActive }: Props) {
 	};
 
 	const toggleFile = (path: string): void => {
+		const isExpanding = !expandedFiles.has(path);
 		setExpandedFiles(current => {
 			const next = new Set(current);
 			if (next.has(path)) {
@@ -180,6 +199,12 @@ export default function WorkingTree({ tree, width, height, isActive }: Props) {
 
 			return next;
 		});
+
+		// Load immediately on expansion; the effect above covers the refresh
+		// case and this call is a no-op once the cache holds the diff.
+		if (isExpanding) {
+			ensureDiff(path);
+		}
 	};
 
 	/** Collapse a group's files, e.g. once they have all been staged. */

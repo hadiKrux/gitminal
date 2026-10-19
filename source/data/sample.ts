@@ -637,6 +637,7 @@ export const repo: Repo = {
 			hasUnstaged: true,
 			additions: 4,
 			deletions: 4,
+			binary: false,
 			diff: appDiff,
 		},
 		{
@@ -646,6 +647,7 @@ export const repo: Repo = {
 			hasUnstaged: true,
 			additions: 2,
 			deletions: 1,
+			binary: false,
 			diff: commitListDiff,
 		},
 		{
@@ -655,6 +657,7 @@ export const repo: Repo = {
 			hasUnstaged: true,
 			additions: 1,
 			deletions: 1,
+			binary: false,
 			diff: sampleDiff,
 		},
 		{
@@ -664,6 +667,7 @@ export const repo: Repo = {
 			hasUnstaged: true,
 			additions: 1,
 			deletions: 1,
+			binary: false,
 			diff: typesDiff,
 		},
 		{
@@ -673,6 +677,7 @@ export const repo: Repo = {
 			hasUnstaged: true,
 			additions: 2,
 			deletions: 0,
+			binary: false,
 			diff: themeDiff,
 		},
 		{
@@ -682,6 +687,7 @@ export const repo: Repo = {
 			hasUnstaged: true,
 			additions: 3,
 			deletions: 0,
+			binary: false,
 			diff: diffViewDiff,
 		},
 		{
@@ -691,6 +697,7 @@ export const repo: Repo = {
 			hasUnstaged: true,
 			additions: 2,
 			deletions: 0,
+			binary: false,
 			diff: workingTreeDiff,
 		},
 		{
@@ -700,6 +707,7 @@ export const repo: Repo = {
 			hasUnstaged: true,
 			additions: 2,
 			deletions: 0,
+			binary: false,
 			diff: workingTreeHookDiff,
 		},
 	],

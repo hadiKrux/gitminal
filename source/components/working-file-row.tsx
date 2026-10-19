@@ -80,6 +80,25 @@ const actionsWidth = (stageLabel: string, hasDiscard: boolean): number =>
 	stageLabel.length + 2 + (hasDiscard ? ' Discard '.length + 1 : 0);
 
 /**
+ * The row's change summary: numstat counts, or git's binary marker.
+ *
+ * Zero/zero is not a change worth summarizing (a directory row, or a diff that
+ * has not loaded yet), so the chip is omitted entirely. When either side is
+ * non-zero both numbers render, which keeps the chip's shape stable.
+ */
+const changeChip = (file: WorkingFile): string | undefined => {
+	if (file.binary) {
+		return 'binary file changed';
+	}
+
+	if (file.additions === 0 && file.deletions === 0) {
+		return undefined;
+	}
+
+	return `+${file.additions} -${file.deletions}`;
+};
+
+/**
  * A working-tree file row.
  *
  * The left side toggles the file's diff, while the actions stay independent so
@@ -105,9 +124,24 @@ export default function WorkingFileRow({
 	const disclosure = isExpanded
 		? icons.sectionExpanded
 		: icons.sectionCollapsed;
-	const pathRoom = Math.max(0, labelWidth - disclosure.length - 2);
+	const chipLabel = changeChip(file);
+	// At most half the label: on a narrow panel the path must stay visible
+	// instead of being fully displaced by a clipped count. Truncation cuts on
+	// grapheme boundaries, so "binary file changed" degrades without breaking
+	// the row width or the trailing fill.
+	const chipRoom =
+		chipLabel === undefined
+			? 0
+			: Math.min(textWidth(chipLabel), Math.max(0, Math.floor(labelWidth / 2)));
+	const chip = chipLabel === undefined ? '' : truncate(chipLabel, chipRoom);
+	const chipGap = textWidth(chip) > 0 ? 1 : 0;
+	const pathRoom = Math.max(
+		0,
+		labelWidth - disclosure.length - 2 - chipGap - textWidth(chip),
+	);
 	const path = truncate(file.path, pathRoom);
-	const labelLength = disclosure.length + 2 + textWidth(path);
+	const labelLength =
+		disclosure.length + 2 + textWidth(path) + chipGap + textWidth(chip);
 	const fill = Math.max(0, labelWidth - labelLength);
 	const background = isExpanded ? theme.accentBg : undefined;
 
@@ -127,6 +161,14 @@ export default function WorkingFileRow({
 							</Text>
 						)}
 						<Text color={theme.text}>{` ${path}`}</Text>
+						{chipGap > 0 ? (
+							<>
+								<Text> </Text>
+								<Text color={file.binary ? theme.dimmer : theme.dim}>
+									{chip}
+								</Text>
+							</>
+						) : null}
 						{fill > 0 ? <Text>{' '.repeat(fill)}</Text> : null}
 					</Text>
 				</Box>
@@ -142,6 +184,7 @@ export default function WorkingFileRow({
 					lines={file.diff}
 					width={width}
 					language={languageForPath(file.path)}
+					onCollapse={onToggle}
 				/>
 			) : null}
 		</Box>

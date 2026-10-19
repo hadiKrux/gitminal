@@ -253,11 +253,13 @@ export function MouseDispatcher() {
 }
 
 /**
- * Registers one hit target for the life of the component.
+ * Registers one hit target while the component declares a handler.
  *
  * The handlers and the gate flag are kept in a ref and read at dispatch time,
  * so they always see the latest props instead of the ones from the render that
- * first subscribed; the registry entry itself never needs re-registering.
+ * first subscribed. A component with no handlers is not registered at all:
+ * diff body rows declare no action, and an inert rectangle would only cost
+ * every dispatch pass. The effect re-runs and registers if a handler appears.
  */
 export const useMouseTarget = (
 	ref: RefObject<DOMElement>,
@@ -267,15 +269,23 @@ export const useMouseTarget = (
 	const stateRef = useRef<TargetState>({ handlers, blocked });
 	stateRef.current.handlers = handlers;
 	stateRef.current.blocked = blocked;
+	const hasHandlers =
+		handlers.onHover !== undefined ||
+		handlers.onPress !== undefined ||
+		handlers.onScroll !== undefined;
 
 	useEffect(() => {
+		if (!hasHandlers) {
+			return;
+		}
+
 		registrationSequence += 1;
 		return registerTarget({
 			ref,
 			state: stateRef.current,
 			sequence: registrationSequence,
 		});
-	}, [ref]);
+	}, [ref, hasHandlers]);
 };
 
 /** Calls `onChange` with whether the pointer is over the referenced element. */

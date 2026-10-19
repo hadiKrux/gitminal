@@ -75,6 +75,8 @@ export type WorkingFile = {
 	readonly hasUnstaged: boolean;
 	readonly additions: number;
 	readonly deletions: number;
+	/** True when git calls the change binary and numstat reports no counts. */
+	readonly binary: boolean;
 	readonly diff: readonly DiffLine[];
 };
 
@@ -101,6 +103,12 @@ export const categoryOf = (file: WorkingFile): WorkingGroupCategory =>
 export type WorkingTree = {
 	readonly files: readonly WorkingFile[];
 	readonly stagedCount: number;
+	/**
+	 * Ask for a row's diff; a cache hit, an in-flight load, or an edge state
+	 * makes it a no-op. Expanding a row is lazy, so this is the only entry
+	 * point that starts diff work.
+	 */
+	ensureDiff: (path: string) => void;
 	isStaged: (path: string) => boolean;
 	hasUnstaged: (category: WorkingGroupCategory) => boolean;
 	toggleStage: (path: string) => void;

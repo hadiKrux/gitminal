@@ -2,6 +2,12 @@ import fs from 'node:fs';
 import process from 'node:process';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitError, GitNotFoundError, type GitResult } from '../git/exec.js';
+import {
+	diffSourceOf,
+	readFileDiff,
+	readWorkingFileStats,
+	type DiffStat,
+} from '../git/diff.js';
 import { resolveRepoInfo, type Identity } from '../git/repo-info.js';
 import { readStatus } from '../git/status.js';
 import {
@@ -15,6 +21,7 @@ import { mapStatus } from '../data/map.js';
 import { sanitizeOutput } from '../data/format.js';
 import {
 	categoryOf,
+	type DiffLine,
 	type FileGroup,
 	type WorkingFile,
 	type WorkingGroupCategory,
@@ -139,6 +146,8 @@ export type RepoState = {
 	unstageAll: (category: WorkingGroupCategory) => void;
 	discardAll: (category: WorkingGroupCategory) => void;
 	refresh: () => void;
+	/** Load a row's diff on demand; no-op when cached or already in flight. */
+	ensureDiff: (path: string) => void;
 };
 
 type RepoSnapshot = Omit<
@@ -154,6 +163,7 @@ type RepoSnapshot = Omit<
 	| 'unstageAll'
 	| 'discardAll'
 	| 'refresh'
+	| 'ensureDiff'
 >;
 
 /** Entries kept in the ring buffer; older runs fall off the front. */
@@ -351,6 +361,81 @@ const probeFailure = (
 });
 
 /**
+ * What makes a cached diff stale.
+ *
+ * The row's identity is everything the diff command would read: the status
+ * letter, which side is staged, whether the worktree also differs (it changes
+ * the task), the numstat counts, the binary marker, and the resulting diff
+ * source. Comparing this again after a refresh is what turns a background
+ * `git add` or a second-terminal edit into a reload instead of a stale view.
+ */
+const diffSignature = (file: WorkingFile): string =>
+	[
+		file.status,
+		file.staged ? '1' : '0',
+		file.hasUnstaged ? '1' : '0',
+		file.additions,
+		file.deletions,
+		file.binary ? '1' : '0',
+		diffSourceOf(file),
+	].join(':');
+
+type CachedDiff = {
+	readonly signature: string;
+	readonly diff: readonly DiffLine[];
+};
+
+/** Identity token for one read, so a stale read cannot clear a newer one. */
+type InFlightDiff = {
+	readonly signature: string;
+};
+
+const noStat: DiffStat = { additions: 0, deletions: 0, binary: false };
+
+/**
+ * Apply numstat counts to a fresh status snapshot and reattach valid diffs.
+ *
+ * Cached diffs survive a refresh only while the row's signature still matches;
+ * a changed row drops its diff so the next expansion reads the new state, and a
+ * vanished path loses its cache entry entirely. A failed diff read is cached as
+ * a header note under the same signature, so it needs no special case here.
+ */
+const withWorkingStats = (
+	files: readonly WorkingFile[],
+	stats: ReadonlyMap<string, DiffStat>,
+	cache: Map<string, CachedDiff>,
+): readonly WorkingFile[] => {
+	const present = new Set<string>();
+
+	const next: WorkingFile[] = files.map(file => {
+		const annotated: WorkingFile = {
+			...file,
+			...(stats.get(file.path) ?? noStat),
+		};
+		const signature = diffSignature(annotated);
+		const cached = cache.get(file.path);
+		present.add(file.path);
+
+		if (cached !== undefined && cached.signature !== signature) {
+			cache.delete(file.path);
+		}
+
+		return {
+			...annotated,
+			diff: cached?.signature === signature ? cached.diff : [],
+		};
+	});
+
+	for (const path of cache.keys()) {
+		if (!present.has(path)) {
+			cache.delete(path);
+		}
+	}
+
+	return next;
+};
+
+/**
  * What one `load` attempt observed.
  *
  * `load` keeps owning its error handling (it sets the edge states the app
@@ -401,6 +486,22 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	const mountedRef = useRef(true);
 	const requestId = useRef(0);
 	const filesRef = useRef<readonly WorkingFile[]>([]);
+	/**
+	 * Parsed diffs, keyed by path and guarded by the signature they describe.
+	 *
+	 * Expansion is lazy and repeated: collapsing and reopening a row must not
+	 * spawn another git command, and an untouched row may keep its diff across
+	 * every status refresh. The signature is what makes that safe.
+	 */
+	const diffCacheRef = useRef<Map<string, CachedDiff>>(new Map());
+	/**
+	 * Reads currently running, keyed by path.
+	 *
+	 * A row can be expanded again after a refresh changed it while the previous
+	 * read is still running, so the entry is an identity token: the older read
+	 * may only clear its own marker, never the newer request's.
+	 */
+	const diffInFlightRef = useRef<Map<string, InFlightDiff>>(new Map());
 	const stateRef = useRef(state);
 	const queueRef = useRef<QueuedRun[]>([]);
 	const isDrainingRef = useRef(false);
@@ -580,6 +681,25 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				}
 
 				const view = mapStatus(status);
+				const stats = await readWorkingFileStats({
+					cwd: root,
+					files: view.workingFiles,
+				});
+
+				if (!isCurrent()) {
+					return { status: 'superseded' };
+				}
+
+				const workingFiles = withWorkingStats(
+					view.workingFiles,
+					stats,
+					diffCacheRef.current,
+				);
+
+				// Keep `ensureDiff` and the actions in sync before React renders:
+				// a diff resolving in this window must compare against the new
+				// signature, not the previous snapshot's.
+				filesRef.current = workingFiles;
 				setState(current => ({
 					kind: 'repo',
 					root,
@@ -588,7 +708,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					// carrying it through here keeps the hint until a watch is live.
 					watchDegraded: current.watchDegraded,
 					branch: view.branch,
-					workingFiles: view.workingFiles,
+					workingFiles,
 					fileGroups: view.fileGroups,
 					identity: probe.identity,
 					detail: undefined,
@@ -642,6 +762,93 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			cancelWatchRetry();
 		};
 	}, [cancelWatchRetry, load]);
+
+	/**
+	 * Load one row's diff the first time it expands.
+	 *
+	 * This is deliberately outside the operation queue: a read that the user
+	 * asked for by expanding a row must not wait behind a stage or commit, and
+	 * it mutates nothing. The signature checks on both sides of the read keep a
+	 * status refresh from being overwritten by a slower, older diff: a result
+	 * only lands if the exact row it was read for is still the current one. A
+	 * failure becomes a cached header row, so reopening the file explains the
+	 * problem instead of retrying a broken command on every render.
+	 */
+	const ensureDiff = useCallback((path: string): void => {
+		const { root } = stateRef.current;
+		if (root === undefined) {
+			return;
+		}
+
+		const file = filesRef.current.find(item => item.path === path);
+		if (file === undefined) {
+			return;
+		}
+
+		const signature = diffSignature(file);
+		if (diffCacheRef.current.get(path)?.signature === signature) {
+			return;
+		}
+
+		if (diffInFlightRef.current.get(path)?.signature === signature) {
+			return;
+		}
+
+		const token: InFlightDiff = { signature };
+		diffInFlightRef.current.set(path, token);
+
+		const apply = (diff: readonly DiffLine[]): void => {
+			if (!mountedRef.current) {
+				return;
+			}
+
+			const current = filesRef.current.find(item => item.path === path);
+			if (current === undefined || diffSignature(current) !== signature) {
+				// The row changed while git was reading. Its new state will ask
+				// for its own diff when it renders; this result is history.
+				return;
+			}
+
+			diffCacheRef.current.set(path, { signature, diff });
+			setState(state => {
+				// The updater sees the freshest snapshot, which closes the
+				// window between a load computing files and React applying it.
+				const target = state.workingFiles.find(item => item.path === path);
+				if (target === undefined || diffSignature(target) !== signature) {
+					return state;
+				}
+
+				return {
+					...state,
+					workingFiles: state.workingFiles.map(item =>
+						item.path === path ? { ...item, diff } : item,
+					),
+				};
+			});
+		};
+
+		void readFileDiff({ cwd: root, file })
+			.then(apply)
+			.catch((error: unknown) => {
+				// A read, not an operation: report in the row rather than in the
+				// log or the error overlay, and cache it so repeated expansion
+				// cannot retry-storm a command that is going to keep failing.
+				const summary = failureSummary(toGitError(error));
+				apply([
+					{
+						kind: 'header',
+						oldNumber: undefined,
+						newNumber: undefined,
+						text: `diff unavailable: ${summary}`,
+					},
+				]);
+			})
+			.finally(() => {
+				if (diffInFlightRef.current.get(path) === token) {
+					diffInFlightRef.current.delete(path);
+				}
+			});
+	}, []);
 
 	/** Run one queued operation and record its outcome in the log. */
 	const runQueued = useCallback(async (queued: QueuedRun): Promise<void> => {
@@ -1288,6 +1495,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		() => ({
 			files: state.workingFiles,
 			stagedCount: state.workingFiles.filter(file => file.staged).length,
+			ensureDiff,
 			isStaged(path: string) {
 				return state.workingFiles.some(
 					file => file.path === path && file.staged,
@@ -1318,6 +1526,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		}),
 		[
 			state.workingFiles,
+			ensureDiff,
 			stage,
 			unstage,
 			discard,
@@ -1407,5 +1616,6 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		unstageAll,
 		discardAll,
 		refresh,
+		ensureDiff,
 	};
 };

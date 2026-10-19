@@ -1,4 +1,4 @@
 export const icons = {
-	sectionExpanded: '▲ ',
-	sectionCollapsed: '▼ ',
+	sectionExpanded: '▼ ',
+	sectionCollapsed: '> ',
 } as const;

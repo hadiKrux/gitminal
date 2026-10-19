@@ -90,9 +90,11 @@ const toWorkingFile = (entry: StatusEntry): WorkingFile => ({
 	status: statusOf(entry),
 	staged: isStaged(entry),
 	hasUnstaged: hasUnstagedChanges(entry),
-	// Additions/deletions and diffs arrive in milestone 5; rows still render.
+	// Additions/deletions come from numstat in `useRepo`; rows still render
+	// before that read completes.
 	additions: 0,
 	deletions: 0,
+	binary: false,
 	diff: [],
 });
 
