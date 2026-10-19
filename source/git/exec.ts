@@ -131,16 +131,18 @@ const accumulatedText = (accumulator: Accumulator): string =>
 /**
  * Global flags placed before the subcommand.
  *
- * `--no-pager` keeps git from spawning a pager over the TUI. Read-only commands
+ * `--no-pager` keeps git from spawning a pager over the TUI. `-c
+ * color.ui=false` forces plain output for every command, mutations included:
+ * the status line and the error overlay show captured stderr, and a user's
+ * `color.ui=always` must not put escape sequences in them. Read-only commands
  * additionally skip the optional index locks (`status` often runs while the
- * user's own terminal has git open) and force plain output, because it is
- * parsed rather than displayed.
+ * user's own terminal has git open).
  */
 const globalFlags = (readOnly: boolean | undefined): string[] => {
-	const flags = ['--no-pager'];
+	const flags = ['--no-pager', '-c', 'color.ui=false'];
 
 	if (readOnly === true) {
-		flags.push('--no-optional-locks', '-c', 'color.ui=false');
+		flags.push('--no-optional-locks');
 	}
 
 	return flags;

@@ -25,6 +25,12 @@ type Props = {
 
 /** Rows of the commit message area above the author line. */
 const messageRows = 3;
+/**
+ * Left inset of the box contents. Working-tree rows start with a two-cell
+ * disclosure glyph before their text, so the same inset lines the commit
+ * message and the author up with them.
+ */
+const inset = 2;
 /** The overflow button, shown as ` label ` in the toolbar. */
 const menuLabel = '...';
 const menuWidth = menuLabel.length + 2;
@@ -50,7 +56,8 @@ export default function CommitBox({
 	onCommit,
 }: Props) {
 	const inputRef = useRef<DOMElement>(null);
-	const messageWidth = Math.max(1, width - menuWidth);
+	const contentWidth = Math.max(1, width - inset);
+	const messageWidth = Math.max(1, contentWidth - menuWidth);
 
 	useMouseClick(inputRef, onFocus);
 
@@ -67,11 +74,11 @@ export default function CommitBox({
 	);
 
 	const label = commitLabel(stagedCount);
-	const authorWidth = Math.max(0, width - (label.length + 2));
+	const authorWidth = Math.max(0, contentWidth - (label.length + 2));
 
 	return (
-		<Box flexDirection="column" width={width}>
-			<Box flexDirection="row" width={width} alignItems="flex-start">
+		<Box flexDirection="column" width={width} paddingLeft={inset}>
+			<Box flexDirection="row" width={contentWidth} alignItems="flex-start">
 				<Box ref={inputRef} width={messageWidth}>
 					<CommitMessageInput
 						value={message}
@@ -84,7 +91,7 @@ export default function CommitBox({
 				</Box>
 				<ToolbarButton label={menuLabel} onPress={onOpenMenu} />
 			</Box>
-			<Box flexDirection="row" width={width}>
+			<Box flexDirection="row" width={contentWidth}>
 				<Text color={theme.dim} wrap="truncate-end">
 					{padToWidth(truncate(author, authorWidth), authorWidth)}
 				</Text>

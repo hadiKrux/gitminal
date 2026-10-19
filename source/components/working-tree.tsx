@@ -1,18 +1,16 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, type DOMElement } from 'ink';
 import { useMouseClick, useMouseHover } from '../hooks/use-mouse.js';
 import { theme } from '../theme.js';
 import { icons } from '../icons.js';
 import { textWidth, truncate } from '../layout.js';
-import type {
-	WorkingFile,
-	WorkingGroup,
-	WorkingGroupCategory,
-} from '../data/types.js';
 import {
 	categoryOf,
+	type WorkingFile,
+	type WorkingGroup,
+	type WorkingGroupCategory,
 	type WorkingTree as WorkingTreeState,
-} from '../hooks/use-working-tree.js';
+} from '../data/types.js';
 import ScrollableArea from './scrollable-area.js';
 import ToolbarButton from './toolbar-button.js';
 import WorkingFileRow from './working-file-row.js';
@@ -141,6 +139,23 @@ export default function WorkingTree({ tree, width, height, isActive }: Props) {
 		() => new Set(tree.files[0] === undefined ? [] : [tree.files[0].path]),
 	);
 
+	// Files can vanish (discarded, staged away): drop their paths from the
+	// expansion set so it does not grow all session and so a path that comes
+	// back starts collapsed. The same set object is returned when nothing was
+	// pruned, which lets React skip the extra render.
+	useEffect(() => {
+		setExpandedFiles(current => {
+			if (current.size === 0) {
+				return current;
+			}
+
+			const present = new Set(tree.files.map(file => file.path));
+			const next = new Set([...current].filter(path => present.has(path)));
+
+			return next.size === current.size ? current : next;
+		});
+	}, [tree.files]);
+
 	const toggleGroup = (category: WorkingGroupCategory): void => {
 		setCollapsedGroups(current => {
 			const next = new Set(current);
@@ -183,7 +198,7 @@ export default function WorkingTree({ tree, width, height, isActive }: Props) {
 
 	if (groups.length === 0) {
 		return (
-			<Box width={width} height={height} paddingX={1}>
+			<Box width={width} height={height} paddingLeft={2}>
 				<Text color={theme.dimmer}>Working tree clean</Text>
 			</Box>
 		);

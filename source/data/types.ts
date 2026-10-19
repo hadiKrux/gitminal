@@ -87,6 +87,29 @@ export type WorkingGroup = {
 	readonly files: readonly WorkingFile[];
 };
 
+/** Untracked files get their own group; everything else is a working change. */
+export const categoryOf = (file: WorkingFile): WorkingGroupCategory =>
+	file.status === 'untracked' ? 'untracked' : 'working';
+
+/**
+ * The working-tree view the commit panel renders and acts through.
+ *
+ * The state lives in `useRepo` (it is the single owner of git state); this
+ * type is the contract between the panel and the actions, so the components
+ * stay presentational and never reach for git themselves.
+ */
+export type WorkingTree = {
+	readonly files: readonly WorkingFile[];
+	readonly stagedCount: number;
+	isStaged: (path: string) => boolean;
+	hasUnstaged: (category: WorkingGroupCategory) => boolean;
+	toggleStage: (path: string) => void;
+	stageAll: (category: WorkingGroupCategory) => void;
+	unstageAll: (category: WorkingGroupCategory) => void;
+	discard: (path: string) => void;
+	discardAll: (category: WorkingGroupCategory) => void;
+};
+
 export type Repo = {
 	branch: string;
 	sections: SidebarSection[];

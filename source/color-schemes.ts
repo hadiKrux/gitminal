@@ -27,6 +27,8 @@ export type ThemeTokens = {
 	fileCount: string;
 	add: string;
 	del: string;
+	success: string;
+	warn: string;
 	codeBg: string;
 	codeText: string;
 	codeGutterFg: string;
@@ -88,6 +90,8 @@ export const mocha: ColorScheme = {
 		fileCount: '#fab387', // Peach
 		add: '#a6e3a1', // Green
 		del: '#f38ba8', // Red
+		success: '#a6e3a1', // Green
+		warn: '#f9e2af', // Yellow
 		codeBg: '#181825', // Mantle
 		codeText: '#cdd6f4', // Text
 		codeGutterFg: '#6c7086', // Overlay0
@@ -152,6 +156,8 @@ export const latte: ColorScheme = {
 		fileCount: '#fe640b', // Peach
 		add: '#40a02b', // Green
 		del: '#d20f39', // Red
+		success: '#40a02b', // Green
+		warn: '#df8e1d', // Yellow
 		codeBg: '#e6e9ef', // Mantle
 		codeText: '#4c4f69', // Text
 		codeGutterFg: '#9ca0b0', // Overlay0

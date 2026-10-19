@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Box, type DOMElement } from 'ink';
 import { ScrollView, type ScrollViewRef } from 'ink-scroll-view';
-import { useMouse } from '@zenobius/ink-mouse';
 import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
-import { useMouseHover } from '../hooks/use-mouse.js';
+import { useMouseTarget } from '../hooks/use-mouse.js';
 import Scrollbar from './scrollbar.js';
 
 type Props = {
@@ -30,8 +29,8 @@ const wheelStep = 1;
 /**
  * A vertically scrollable viewport with a scrollbar.
  *
- * Scrolls from the arrow keys (by `step` rows) and the mouse wheel (only while
- * the pointer is over the area). Both are disabled while an overlay is open.
+ * Scrolls from the arrow keys (by `step` rows) and the mouse wheel while the
+ * pointer is over the area; both are disabled while an overlay owns input.
  */
 export default function ScrollableArea({
 	width,
@@ -45,10 +44,6 @@ export default function ScrollableArea({
 
 	const scrollRef = useRef<ScrollViewRef>(null);
 	const containerRef = useRef<DOMElement>(null);
-	// A ref, not state: the scroll event and its position update arrive in the
-	// same tick, so reading state here would miss the very first wheel event.
-	const isHoveredRef = useRef(false);
-	const { events } = useMouse();
 
 	const [offset, setOffset] = useState(0);
 	const [contentHeight, setContentHeight] = useState(0);
@@ -77,32 +72,18 @@ export default function ScrollableArea({
 		{ isActive },
 	);
 
-	useMouseHover(containerRef, hovered => {
-		isHoveredRef.current = hovered;
-	});
-
-	useEffect(() => {
-		if (!isActive) {
-			return;
-		}
-
-		const handleScroll = (_position: unknown, direction: unknown): void => {
-			if (!isHoveredRef.current) {
+	// The wheel only reaches the area under the pointer: the registry picks the
+	// closest scroll target, so a wheel over this area never also scrolls the
+	// other panel the way the arrow keys would.
+	useMouseTarget(containerRef, {
+		onScroll(direction) {
+			if (!isActive) {
 				return;
 			}
 
-			if (direction === 'scrolldown') {
-				scrollBy(wheelStep);
-			} else if (direction === 'scrollup') {
-				scrollBy(-wheelStep);
-			}
-		};
-
-		events.on('scroll', handleScroll);
-		return () => {
-			events.off('scroll', handleScroll);
-		};
-	}, [events, isActive]);
+			scrollBy(direction === 'scrolldown' ? wheelStep : -wheelStep);
+		},
+	});
 
 	return (
 		<Box

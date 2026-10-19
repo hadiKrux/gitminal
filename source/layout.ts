@@ -14,7 +14,7 @@ const clamp = (value: number, min: number, max: number): number =>
 	Math.max(min, Math.min(max, value));
 
 export const getLayout = (columns: number, rows: number): Layout => {
-	// Toolbar content and bottom border (2).
+	// Toolbar content row (it now carries the status) and its bottom border (2).
 	const chromeHeight = 2;
 	let sidebarWidth = clamp(Math.round(columns * 0.15), 16, 26);
 	let commitsWidth = clamp(Math.round(columns * 0.3), 28, 46);

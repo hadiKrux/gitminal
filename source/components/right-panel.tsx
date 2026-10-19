@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box } from 'ink';
-import type { WorkingTree as WorkingTreeState } from '../hooks/use-working-tree.js';
+import type { WorkingTree as WorkingTreeState } from '../data/types.js';
 import CommitBox, { commitBoxHeight } from './commit-box.js';
 import WorkingTree from './working-tree.js';
 

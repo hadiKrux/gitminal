@@ -69,9 +69,15 @@ const statusColor = (status: WorkingFileStatus): string => {
 	}
 };
 
-/** Width the two row actions occupy, including the gap between them. */
-const actionsWidth = (stageLabel: string): number =>
-	' Discard '.length + 1 + (stageLabel.length + 2);
+/**
+ * Width the row actions occupy, including the gap between them.
+ *
+ * The Discard button only exists while the file has a worktree change; without
+ * that, `git restore --worktree` would exit 0 without changing anything, so the
+ * label gets the freed columns instead.
+ */
+const actionsWidth = (stageLabel: string, hasDiscard: boolean): number =>
+	stageLabel.length + 2 + (hasDiscard ? ' Discard '.length + 1 : 0);
 
 /**
  * A working-tree file row.
@@ -93,7 +99,9 @@ export default function WorkingFileRow({
 	useMouseClick(rowRef, onToggle);
 
 	const stageLabel = isStaged ? 'Unstage' : 'Stage';
-	const labelWidth = Math.max(0, width - actionsWidth(stageLabel));
+	// Matches the group header's rule: no worktree change, no Discard.
+	const hasDiscard = file.hasUnstaged;
+	const labelWidth = Math.max(0, width - actionsWidth(stageLabel, hasDiscard));
 	const disclosure = isExpanded
 		? icons.sectionExpanded
 		: icons.sectionCollapsed;
@@ -123,7 +131,9 @@ export default function WorkingFileRow({
 					</Text>
 				</Box>
 				<Box flexDirection="row" flexShrink={0} gap={1}>
-					<ToolbarButton label="Discard" tone="danger" onPress={onDiscard} />
+					{hasDiscard ? (
+						<ToolbarButton label="Discard" tone="danger" onPress={onDiscard} />
+					) : null}
 					<ToolbarButton label={stageLabel} onPress={onStage} />
 				</Box>
 			</Box>
