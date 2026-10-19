@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from 'ink';
 import type { WorkingTree as WorkingTreeState } from '../data/types.js';
-import CommitBox, { commitBoxHeight } from './commit-box.js';
+import CommitBox, { commitBoxHeight, commitMessageRows } from './commit-box.js';
 import WorkingTree from './working-tree.js';
 
 type Props = {
@@ -43,7 +43,11 @@ export default function RightPanel({
 	onOpenCommitMenu,
 	onCommit,
 }: Props) {
-	const listHeight = Math.max(1, height - commitBoxHeight - commitGapHeight);
+	const messageRows = commitMessageRows(message, width, height);
+	const listHeight = Math.max(
+		1,
+		height - commitBoxHeight(messageRows) - commitGapHeight,
+	);
 
 	return (
 		<Box width={width} height={height} flexDirection="column">
@@ -51,6 +55,7 @@ export default function RightPanel({
 				author={author}
 				width={width}
 				message={message}
+				messageRows={messageRows}
 				stagedCount={workingTree.stagedCount}
 				isFocused={isCommitFocused}
 				isActive={isActive}

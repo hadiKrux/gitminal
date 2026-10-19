@@ -33,7 +33,14 @@ export type RepoProbe = {
 	readonly identity: Identity;
 };
 
-const missingIdentityHint = 'set user.name and user.email to commit';
+/**
+ * Shared identity setup hint.
+ *
+ * The commit box author line, the repo probe, and the failure classifier all
+ * show the same sentence, so an unset identity cannot explain itself three
+ * different ways.
+ */
+export const missingIdentityHint = 'set user.name and user.email to commit';
 
 /** The one `rev-parse` failure that is a normal state rather than an error. */
 const notInRepositoryMessage = 'not a git repository';

@@ -32,17 +32,6 @@ export type FileGroup = {
 	readonly files: readonly string[];
 };
 
-export type CommitMeta = {
-	hash: string;
-	tree: string;
-	author: string;
-	date: string;
-	parent: string;
-	filesChanged: number;
-	additions: number;
-	deletions: number;
-};
-
 export type DiffLineKind = 'context' | 'add' | 'del' | 'header';
 
 export type DiffLine = {
@@ -124,6 +113,5 @@ export type Repo = {
 	commits: Commit[];
 	selectedCommit: number;
 	fileGroups: FileGroup[];
-	meta: CommitMeta;
 	workingFiles: WorkingFile[];
 };

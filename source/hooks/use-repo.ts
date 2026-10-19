@@ -17,8 +17,9 @@ import {
 	unstage as unstagePaths,
 	type WorkingTreePaths,
 } from '../git/working-tree.js';
+import { commit as commitPaths, type CommitOptions } from '../git/commit.js';
+import { failureSummary } from '../git/errors.js';
 import { mapStatus } from '../data/map.js';
-import { sanitizeOutput } from '../data/format.js';
 import {
 	categoryOf,
 	type DiffLine,
@@ -148,6 +149,12 @@ export type RepoState = {
 	refresh: () => void;
 	/** Load a row's diff on demand; no-op when cached or already in flight. */
 	ensureDiff: (path: string) => void;
+	/**
+	 * Commit the staged index; resolves false when there is no repository
+	 * root, the message is empty, the index is empty, or git rejects the
+	 * commit. Rejections still land in the operation log and the error overlay.
+	 */
+	commit: (message: string, options?: CommitOptions) => Promise<boolean>;
 };
 
 type RepoSnapshot = Omit<
@@ -164,6 +171,7 @@ type RepoSnapshot = Omit<
 	| 'discardAll'
 	| 'refresh'
 	| 'ensureDiff'
+	| 'commit'
 >;
 
 /** Entries kept in the ring buffer; older runs fall off the front. */
@@ -266,26 +274,6 @@ const mutationLabels = (
 	const count = `${paths.length} file${paths.length === 1 ? '' : 's'}`;
 	const words = mutationWords[verb];
 	return { busy: `${words.busy} ${count}`, done: `${words.done} ${count}` };
-};
-
-/**
- * The single line the status line shows for a failure.
- *
- * Classification into readable summaries arrives with ticket 09; until then
- * git's own stderr is the most honest summary, sanitized because the status
- * line renders it literally, and the full output stays in the error overlay.
- * CR-framed progress can put many updates on one logical line, so the search
- * splits on both CR and LF and prefers a line that names the failure over
- * whichever progress line happened to come first.
- */
-const failureSummary = (error: GitError): string => {
-	const lines = error.stderr
-		.split(/[\r\n]+/)
-		.map(text => sanitizeOutput(text).trim())
-		.filter(text => text.length > 0);
-	const failure = lines.find(text => /fatal|error|failed/i.test(text));
-
-	return failure ?? lines[0] ?? sanitizeOutput(error.message);
 };
 
 /**
@@ -466,6 +454,12 @@ type QueuedRun = {
 	readonly run: (
 		reportCommand: (args: readonly string[]) => void,
 	) => Promise<readonly GitResult[]>;
+	/**
+	 * Resolve the promise `enqueue` returned. A caller that shows its own
+	 * result (the commit message clearing only on success) needs the outcome,
+	 * not just the log entry.
+	 */
+	readonly settle: (succeeded: boolean) => void;
 };
 
 /**
@@ -867,6 +861,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 		const completedArgs: string[][] = [];
 		let finished: OperationLogEntry;
+		let succeeded = false;
 
 		try {
 			const results = await queued.run(args => {
@@ -881,6 +876,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				status: 'ok',
 				summary: queued.summary,
 			};
+			succeeded = true;
 		} catch (error: unknown) {
 			const gitError = toGitError(error);
 			finished = {
@@ -895,6 +891,10 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				error: gitError,
 			};
 		}
+
+		// Settle before the unmount check: the caller is awaiting this outcome
+		// even when the component disappeared while git was running.
+		queued.settle(succeeded);
 
 		if (!mountedRef.current) {
 			return;
@@ -1348,10 +1348,23 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	}, [load, refreshFromWatch, runQueued, runRefresh, scheduleWatchRetry]);
 
 	const enqueue = useCallback(
-		(label: string, summary: string, run: QueuedRun['run']): void => {
+		async (
+			label: string,
+			summary: string,
+			run: QueuedRun['run'],
+		): Promise<boolean> => {
 			nextIdRef.current += 1;
-			queueRef.current.push({ id: nextIdRef.current, label, summary, run });
+			const outcome = new Promise<boolean>(resolve => {
+				queueRef.current.push({
+					id: nextIdRef.current,
+					label,
+					summary,
+					run,
+					settle: resolve,
+				});
+			});
 			void drain();
+			return outcome;
 		},
 		[drain],
 	);
@@ -1369,7 +1382,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 			const { busy, done } = mutationLabels(verb, paths);
 			const cwd = state.root;
-			enqueue(busy, done, async reportCommand =>
+			void enqueue(busy, done, async reportCommand =>
 				run({ cwd, paths, onCommand: reportCommand }),
 			);
 		},
@@ -1489,6 +1502,80 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			});
 		},
 		[bulkPaths, requestConfirm, runMutation],
+	);
+
+	/**
+	 * Record a validation failure that never reached git.
+	 *
+	 * The status line and the error overlay both read the same entry, so a
+	 * rejected commit is explained in both places: the summary is the status
+	 * line's one line, and the synthetic `GitError` gives the overlay its
+	 * stderr. No argv and no exit code, because nothing ran.
+	 */
+	const recordFailure = useCallback((label: string, summary: string): void => {
+		nextIdRef.current += 1;
+		const entry: OperationLogEntry = {
+			id: nextIdRef.current,
+			kind: 'git',
+			label,
+			args: [],
+			startedAt: Date.now(),
+			endedAt: Date.now(),
+			status: 'failed',
+			summary,
+			error: new GitError(
+				{ args: [], exitCode: undefined, stdout: '', stderr: summary },
+				summary,
+			),
+		};
+
+		setEntries(current => [...current, entry].slice(-operationLogCap));
+	}, []);
+
+	/**
+	 * Commit the staged index after checking the local preconditions git would
+	 * reject with a less useful message. Validation is local so the status line
+	 * can say exactly what is missing, and it never queues work that cannot run.
+	 * The order matches the commit hint: no repository, then nothing staged,
+	 * then an empty message.
+	 */
+	const commit = useCallback(
+		async (message: string, options: CommitOptions = {}): Promise<boolean> => {
+			// Read through the ref, not a render closure: the commit must act
+			// on the snapshot the panel is showing.
+			const { root, workingFiles } = stateRef.current;
+			const stagedCount = workingFiles.filter(file => file.staged).length;
+
+			if (root === undefined) {
+				recordFailure('commit', 'not in a repository');
+				return false;
+			}
+
+			if (stagedCount === 0) {
+				recordFailure('commit', 'nothing staged to commit');
+				return false;
+			}
+
+			if (message.trim().length === 0) {
+				recordFailure('commit', 'commit message is empty');
+				return false;
+			}
+
+			const summary = `committed ${stagedCount} file${
+				stagedCount === 1 ? '' : 's'
+			}`;
+
+			return enqueue('committing', summary, async reportCommand => {
+				const result = await commitPaths({
+					cwd: root,
+					message,
+					options: { noVerify: options.noVerify === true },
+				});
+				reportCommand(result.args);
+				return [result];
+			});
+		},
+		[enqueue, recordFailure],
 	);
 
 	const workingTree = useMemo<WorkingTree>(
@@ -1617,5 +1704,6 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		discardAll,
 		refresh,
 		ensureDiff,
+		commit,
 	};
 };

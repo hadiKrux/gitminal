@@ -120,6 +120,15 @@ const wrapText = (text: string, width: number): readonly WrappedLine[] => {
 	return lines;
 };
 
+/**
+ * Number of visual rows `value` occupies at `width`.
+ *
+ * Empty input still needs its one placeholder row, so the count never drops
+ * below one; the commit box clamps the result to its own floor and cap.
+ */
+export const countVisualRows = (value: string, width: number): number =>
+	Math.max(1, wrapText(value, Math.max(1, width)).length);
+
 /** Visual row that contains `cursor`. */
 const rowOf = (lines: readonly WrappedLine[], cursor: number): number => {
 	for (const [index, line] of lines.entries()) {

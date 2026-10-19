@@ -13,9 +13,10 @@ import {
 	type OperationLogEntry,
 	type RepoKind,
 } from './hooks/use-repo.js';
-import { identityLabel } from './git/repo-info.js';
+import { identityLabel, missingIdentityHint } from './git/repo-info.js';
 import { defaultKeybindings, type ResolvedKeybindings } from './keybindings.js';
 import { type CommandId } from './commands.js';
+import { type CommitOptionId } from './commit-options.js';
 import { theme } from './theme.js';
 import { getLayout } from './layout.js';
 import Toolbar from './components/toolbar.js';
@@ -174,13 +175,15 @@ export default function App({
 	}, []);
 
 	const repoState = useRepo({ requestConfirm });
-	const { failedOperation } = repoState;
+	const { failedOperation, commit: repoCommit } = repoState;
 	const latestEntry = repoState.entries.at(-1);
 
 	// The commit box author line: the real identity, or the setup hint when
-	// user.name/user.email are unset. Ticket 06 refines this into the commit flow.
+	// user.name/user.email are unset. The line must never render blank.
 	const author =
-		repoState.identity === undefined ? '' : identityLabel(repoState.identity);
+		repoState.identity === undefined
+			? missingIdentityHint
+			: identityLabel(repoState.identity);
 
 	const openOverlay = useCallback((next: Overlay) => {
 		setIsCommitFocused(false);
@@ -222,12 +225,27 @@ export default function App({
 		}
 	}, [failedOperation, openOverlay]);
 
-	// Real commits land with ticket 06. Closing the overlay is all this can do
-	// today, and the message is deliberately kept: clearing it here would fake
-	// a successful commit and silently drop what the user typed.
-	const commit = useCallback(() => {
-		setOverlay(undefined);
-	}, []);
+	/**
+	 * Start a commit and clear the message only when git confirms it.
+	 *
+	 * The submitted text is captured before the async run: if the user starts
+	 * a new draft while the commit is in flight, the updater leaves that newer
+	 * text alone instead of clearing something that was never committed.
+	 */
+	const commit = useCallback(
+		(option: CommitOptionId = 'commit'): void => {
+			setOverlay(undefined);
+			const submitted = message;
+			void repoCommit(submitted, {
+				noVerify: option === 'commit-no-verify',
+			}).then(succeeded => {
+				if (succeeded) {
+					setMessage(current => (current === submitted ? '' : current));
+				}
+			});
+		},
+		[message, repoCommit],
+	);
 
 	return (
 		<KeyboardProvider keybindings={keybindings}>
@@ -307,7 +325,9 @@ export default function App({
 									onOpenCommitMenu={() => {
 										openOverlay({ kind: 'commit' });
 									}}
-									onCommit={commit}
+									onCommit={() => {
+										commit('commit');
+									}}
 								/>
 							</Box>
 						) : (
@@ -333,12 +353,7 @@ export default function App({
 						<CommandMenu onSelect={handleCommand} onClose={closeOverlay} />
 					) : null}
 					{overlay?.kind === 'commit' ? (
-						<CommitMenu
-							onSelect={() => {
-								commit();
-							}}
-							onClose={closeOverlay}
-						/>
+						<CommitMenu onSelect={commit} onClose={closeOverlay} />
 					) : null}
 					{overlay?.kind === 'error' ? (
 						<ErrorOverlay
