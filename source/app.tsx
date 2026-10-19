@@ -26,6 +26,7 @@ import ExplorerPanel from './components/explorer-panel.js';
 import RightPanel from './components/right-panel.js';
 import ErrorOverlay from './components/error-overlay.js';
 import ConfirmOverlay from './components/confirm-overlay.js';
+import ConsolePanel from './components/console-panel.js';
 import { repo } from './data/sample.js';
 
 type Props = {
@@ -81,16 +82,24 @@ const edgeMessage = (kind: RepoKind, detail: string | undefined): string => {
  */
 function GlobalShortcuts({
 	isActive,
+	isConsoleOpen,
 	onCommand,
 	onOpenMenu,
 	onFocusCommit,
 	onOpenDetails,
+	onToggleConsole,
+	onCloseConsole,
+	onRefresh,
 }: {
 	readonly isActive: boolean;
+	readonly isConsoleOpen: boolean;
 	readonly onCommand: (id: CommandId) => void;
 	readonly onOpenMenu: () => void;
 	readonly onFocusCommit: () => void;
 	readonly onOpenDetails: () => void;
+	readonly onToggleConsole: () => void;
+	readonly onCloseConsole: () => void;
+	readonly onRefresh: () => void;
 }) {
 	const { exit } = useApp();
 	const mouse = useMouse();
@@ -107,6 +116,15 @@ function GlobalShortcuts({
 			'toggle-mouse': mouse.toggle,
 			'open-remote-menu': onOpenMenu,
 			'focus-commit': onFocusCommit,
+			refresh: onRefresh,
+			'toggle-console': onToggleConsole,
+			// Escape closes the non-modal console when it is the only thing
+			// open; overlays handle their own close action while displayed.
+			'close-overlay'() {
+				if (isConsoleOpen) {
+					onCloseConsole();
+				}
+			},
 			// Enter opens the failed run's error overlay. It only fires while no
 			// overlay is open and the commit box is blurred, so it can never
 			// steal the newline the commit message input needs.
@@ -126,14 +144,22 @@ export default function App({
 	const [measuredColumns, measuredRows] = useStdoutDimensions();
 	const columns = columnsProp ?? measuredColumns ?? 100;
 	const rows = rowsProp ?? measuredRows ?? 30;
-	const layout = getLayout(columns, rows);
 
 	const [activeCommand, setActiveCommand] = useState<CommandId | undefined>(
 		undefined,
 	);
 	const [overlay, setOverlay] = useState<Overlay | undefined>(undefined);
+	// Deliberately outside the exclusive `Overlay` union: the console is
+	// non-modal, so it coexists with the rest of the UI and with no dialog.
+	const [isConsoleOpen, setIsConsoleOpen] = useState(false);
 	const [isCommitFocused, setIsCommitFocused] = useState(false);
 	const [message, setMessage] = useState('');
+
+	const layout = getLayout(columns, rows, { isConsoleOpen });
+	// On a terminal too short for a usable console the layout gives it zero
+	// rows; do not mount a panel that would then overflow the screen.
+	const isConsoleVisible = isConsoleOpen && layout.consoleHeight > 0;
+	const isConsoleActive = isConsoleVisible && overlay === undefined;
 
 	const requestConfirm = useCallback((request: ConfirmRequest) => {
 		// Confirming means leaving the message box: enter must reach the overlay
@@ -165,6 +191,26 @@ export default function App({
 		setOverlay(undefined);
 	}, []);
 
+	/**
+	 * Focusing the commit box closes the console: two owners of the arrow keys
+	 * is exactly the input-routing bug the console has to avoid.
+	 */
+	const focusCommit = useCallback(() => {
+		setIsConsoleOpen(false);
+		setIsCommitFocused(true);
+	}, []);
+
+	const toggleConsole = useCallback(() => {
+		// Opening the console blurs the message input, so typing cannot leak
+		// into the log's key handlers.
+		setIsCommitFocused(false);
+		setIsConsoleOpen(current => !current);
+	}, []);
+
+	const closeConsole = useCallback(() => {
+		setIsConsoleOpen(false);
+	}, []);
+
 	const handleCommand = useCallback((id: CommandId) => {
 		setActiveCommand(id);
 		setOverlay(undefined);
@@ -189,14 +235,16 @@ export default function App({
 				<MouseDispatcher />
 				<GlobalShortcuts
 					isActive={overlay === undefined && !isCommitFocused}
+					isConsoleOpen={isConsoleOpen}
 					onCommand={handleCommand}
 					onOpenMenu={() => {
 						openOverlay({ kind: 'remote' });
 					}}
-					onFocusCommit={() => {
-						setIsCommitFocused(true);
-					}}
+					onFocusCommit={focusCommit}
 					onOpenDetails={openDetails}
+					onToggleConsole={toggleConsole}
+					onCloseConsole={closeConsole}
+					onRefresh={repoState.refresh}
 				/>
 				<Box flexDirection="column" width={layout.columns} height={layout.rows}>
 					{/*
@@ -236,7 +284,11 @@ export default function App({
 									fileGroups={repoState.fileGroups}
 									width={layout.commitsWidth}
 									height={layout.bodyHeight}
-									isActive={overlay === undefined && !isCommitFocused}
+									isActive={
+										overlay === undefined &&
+										!isCommitFocused &&
+										!isConsoleVisible
+									}
 								/>
 								<RightPanel
 									author={author}
@@ -244,12 +296,10 @@ export default function App({
 									height={layout.bodyHeight}
 									message={message}
 									isCommitFocused={isCommitFocused}
-									isActive={overlay === undefined}
+									isActive={overlay === undefined && !isConsoleVisible}
 									workingTree={repoState.workingTree}
 									onMessageChange={setMessage}
-									onFocusCommit={() => {
-										setIsCommitFocused(true);
-									}}
+									onFocusCommit={focusCommit}
 									onBlurCommit={() => {
 										setIsCommitFocused(false);
 									}}
@@ -266,6 +316,17 @@ export default function App({
 								</Text>
 							</Box>
 						)}
+						{isConsoleVisible ? (
+							<ConsolePanel
+								entries={repoState.entries}
+								width={layout.columns}
+								height={layout.consoleHeight}
+								isActive={isConsoleActive}
+								onOpenError={operation => {
+									openOverlay({ kind: 'error', operation });
+								}}
+							/>
+						) : null}
 					</MouseGateContext.Provider>
 					{overlay?.kind === 'remote' ? (
 						<CommandMenu onSelect={handleCommand} onClose={closeOverlay} />

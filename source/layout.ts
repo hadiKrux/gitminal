@@ -5,17 +5,40 @@ export type Layout = {
 	rows: number;
 	chromeHeight: number;
 	bodyHeight: number;
+	/** Rows reserved below the body for the operation console; 0 while closed. */
+	consoleHeight: number;
 	sidebarWidth: number;
 	commitsWidth: number;
 	rightWidth: number;
 };
 
+export type LayoutOptions = {
+	/** The console is non-modal but still takes flow space when shown. */
+	readonly isConsoleOpen?: boolean;
+};
+
 const clamp = (value: number, min: number, max: number): number =>
 	Math.max(min, Math.min(max, value));
 
-export const getLayout = (columns: number, rows: number): Layout => {
+export const getLayout = (
+	columns: number,
+	rows: number,
+	options: LayoutOptions = {},
+): Layout => {
+	// A third of the screen keeps the log readable without starving the work
+	// area; the floor keeps enough rows for a few entries and the cap keeps a
+	// tall terminal from turning the console into the main view. On a terminal
+	// too short for toolbar plus body plus a usable console, the console gives
+	// up its rows (and disappears below two) instead of overflowing the screen.
+	const desiredConsoleHeight =
+		options.isConsoleOpen === true ? clamp(Math.round(rows * 0.35), 5, 12) : 0;
+	const cappedConsoleHeight = Math.min(
+		desiredConsoleHeight,
+		Math.max(0, rows - 3),
+	);
+	const consoleHeight = cappedConsoleHeight < 2 ? 0 : cappedConsoleHeight;
 	// Toolbar content row (it now carries the status) and its bottom border (2).
-	const chromeHeight = 2;
+	const chromeHeight = 2 + consoleHeight;
 	let sidebarWidth = clamp(Math.round(columns * 0.15), 16, 26);
 	let commitsWidth = clamp(Math.round(columns * 0.3), 28, 46);
 	// On narrow terminals the explorer and sidebar give up width first, so the
@@ -35,6 +58,7 @@ export const getLayout = (columns: number, rows: number): Layout => {
 		rows,
 		chromeHeight,
 		bodyHeight: Math.max(1, rows - chromeHeight),
+		consoleHeight,
 		sidebarWidth,
 		commitsWidth,
 		rightWidth,

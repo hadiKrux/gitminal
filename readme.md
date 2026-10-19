@@ -34,10 +34,14 @@ Available actions:
 - `open-remote-menu` - open the remote operations menu (default: `.`).
 - `focus-commit` - focus the commit message input (default: `c`). Escape blurs it. Enter inserts a newline.
 - `commit` - commit the staged files while the message is focused (default: `ctrl+s`).
+- `refresh` - reload the repository status (default: `r`).
+- `toggle-console` - show or hide the operation console (default: `` ` ``).
 - `move-down` - move the menu selection down (default: `down`).
 - `move-up` - move the menu selection up (default: `up`).
+- `page-down` - scroll the operation console one page down while it is open (default: `ctrl+d`, `ctrl+f`).
+- `page-up` - scroll the operation console one page up while it is open (default: `ctrl+u`).
 - `activate-selection` - run the highlighted menu command (default: `enter`).
-- `close-overlay` - close the menu (default: `escape`).
+- `close-overlay` - close the menu or the operation console (default: `escape`).
 - `toggle-mouse` - enable or disable mouse reporting, for example to select text (default: `m`).
 
 An invalid or malformed config file is ignored and the defaults are used; a warning is printed to stderr.

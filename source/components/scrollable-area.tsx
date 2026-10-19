@@ -1,9 +1,21 @@
-import React, { useRef, useState } from 'react';
+import React, {
+	forwardRef,
+	useCallback,
+	useEffect,
+	useImperativeHandle,
+	useRef,
+	useState,
+} from 'react';
 import { Box, type DOMElement } from 'ink';
 import { ScrollView, type ScrollViewRef } from 'ink-scroll-view';
 import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
 import { useMouseTarget } from '../hooks/use-mouse.js';
 import Scrollbar from './scrollbar.js';
+
+export type ScrollableAreaHandle = {
+	/** Scroll by `delta` rows, clamped to the real content bounds. */
+	readonly scrollBy: (delta: number) => void;
+};
 
 type Props = {
 	/** Total width, including the one-column scrollbar. */
@@ -14,6 +26,14 @@ type Props = {
 	readonly isActive?: boolean;
 	/** Rows scrolled per arrow press. */
 	readonly step?: number;
+	/** Rows scrolled per page-up/page-down press; unbound when undefined. */
+	readonly pageStep?: number;
+	/**
+	 * Follow new content to the bottom while the viewport is already there;
+	 * opening forces one scroll so existing entries start at the bottom.
+	 */
+	// eslint-disable-next-line react/boolean-prop-naming
+	readonly stickToBottom?: boolean;
 	/** Receives the inner content width (the area left of the scrollbar). */
 	readonly children: (contentWidth: number) => React.ReactNode;
 };
@@ -24,21 +44,28 @@ const scrollbarWidth = 1;
  * Rows scrolled per wheel event. Kept small because terminals emit several
  * scroll events per physical notch, so a larger step overshoots.
  */
-const wheelStep = 1;
+export const wheelStep = 1;
 
 /**
  * A vertically scrollable viewport with a scrollbar.
  *
  * Scrolls from the arrow keys (by `step` rows) and the mouse wheel while the
  * pointer is over the area; both are disabled while an overlay owns input.
+ * The imperative handle lets a surrounding panel forward wheel events from
+ * cells outside this viewport (its border and padding) to the same scroll.
  */
-export default function ScrollableArea({
-	width,
-	height,
-	isActive = true,
-	step = 1,
-	children,
-}: Props) {
+function ScrollableAreaWithHandle(
+	{
+		width,
+		height,
+		isActive = true,
+		step = 1,
+		pageStep,
+		stickToBottom = false,
+		children,
+	}: Props,
+	ref: React.ForwardedRef<ScrollableAreaHandle>,
+) {
 	const viewportHeight = Math.max(1, height);
 	const contentWidth = Math.max(0, width - scrollbarWidth);
 
@@ -47,18 +74,41 @@ export default function ScrollableArea({
 
 	const [offset, setOffset] = useState(0);
 	const [contentHeight, setContentHeight] = useState(0);
+	const previousContentHeight = useRef(0);
 
-	const scrollBy = (delta: number): void => {
+	const scrollBy = useCallback((delta: number): void => {
 		const view = scrollRef.current;
 		if (view === null) {
 			return;
 		}
 
-		// The library clamps scrollBy to the content height, which lets the list
-		// scroll past its own end into empty space. Clamp to the real bottom.
+		// The library clamps scrollBy to the content height, which lets the
+		// list scroll past its own end into empty space. Clamp to the real
+		// bottom.
 		const next = view.getScrollOffset() + delta;
 		view.scrollTo(Math.max(0, Math.min(next, view.getBottomOffset())));
-	};
+	}, []);
+
+	useImperativeHandle(ref, () => ({ scrollBy }), [scrollBy]);
+
+	// Follow growth only when the viewport was already at the bottom: a user
+	// who scrolled up to read history must not be yanked back by the next
+	// entry. The first measurement is the open case, so it always lands at
+	// the bottom; shrinking content never moves the viewport.
+	useEffect(() => {
+		const previous = previousContentHeight.current;
+		const wasAtBottom = offset + viewportHeight >= previous - 1;
+		const isOpening = previous === 0;
+
+		if (
+			stickToBottom &&
+			(isOpening || (contentHeight > previous && wasAtBottom))
+		) {
+			scrollRef.current?.scrollToBottom();
+		}
+
+		previousContentHeight.current = contentHeight;
+	}, [contentHeight, offset, stickToBottom, viewportHeight]);
 
 	useKeyboardShortcuts(
 		{
@@ -68,13 +118,23 @@ export default function ScrollableArea({
 			'move-up'() {
 				scrollBy(-step);
 			},
+			...(pageStep === undefined
+				? {}
+				: {
+						'page-down'() {
+							scrollBy(pageStep);
+						},
+						'page-up'() {
+							scrollBy(-pageStep);
+						},
+				  }),
 		},
 		{ isActive },
 	);
 
-	// The wheel only reaches the area under the pointer: the registry picks the
-	// closest scroll target, so a wheel over this area never also scrolls the
-	// other panel the way the arrow keys would.
+	// The wheel only reaches the area under the pointer: the registry picks
+	// the closest scroll target, so a wheel over this area never also scrolls
+	// the other panel the way the arrow keys would.
 	useMouseTarget(containerRef, {
 		onScroll(direction) {
 			if (!isActive) {
@@ -111,3 +171,9 @@ export default function ScrollableArea({
 		</Box>
 	);
 }
+
+const ScrollableArea = forwardRef<ScrollableAreaHandle, Props>(
+	ScrollableAreaWithHandle,
+);
+
+export default ScrollableArea;

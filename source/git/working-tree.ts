@@ -18,6 +18,12 @@ export type WorkingTreePaths = {
 	readonly cwd: string;
 	/** Repository-relative paths; untracked directory rows end in `/`. */
 	readonly paths: readonly string[];
+	/**
+	 * Receives the argv of every command that completed successfully, in
+	 * order. A chunked run reports each chunk as it finishes, so a later
+	 * failure can still record the commands that already ran.
+	 */
+	readonly onCommand?: (args: readonly string[]) => void;
 };
 
 /**
@@ -49,17 +55,22 @@ export const chunkPaths = (
  * Run `operation` for every chunk, one command at a time.
  *
  * Serial is the contract: each command writes the index or the worktree of the
- * same repository, so overlapping chunks would race those writes.
+ * same repository, so overlapping chunks would race those writes. Each
+ * successful command is reported before the next one starts, so a failure
+ * partway through still leaves the completed argv history with the caller.
  */
 const runEach = async (
 	chunks: ReadonlyArray<readonly string[]>,
 	operation: (chunk: readonly string[]) => Promise<GitResult>,
+	onCommand?: WorkingTreePaths['onCommand'],
 ): Promise<readonly GitResult[]> => {
 	const results: GitResult[] = [];
 
 	for (const chunk of chunks) {
 		// eslint-disable-next-line no-await-in-loop -- see the note above
-		results.push(await operation(chunk));
+		const result = await operation(chunk);
+		onCommand?.(result.args);
+		results.push(result);
 	}
 
 	return results;
@@ -84,8 +95,10 @@ const isRestoreUnavailable = (error: unknown): boolean =>
 export const stage = async (
 	mutation: WorkingTreePaths,
 ): Promise<readonly GitResult[]> =>
-	runEach(chunkPaths(mutation.paths), async chunk =>
-		runGit(['add', '--', ...chunk], { cwd: mutation.cwd }),
+	runEach(
+		chunkPaths(mutation.paths),
+		async chunk => runGit(['add', '--', ...chunk], { cwd: mutation.cwd }),
+		mutation.onCommand,
 	);
 
 /**
@@ -95,21 +108,25 @@ export const stage = async (
 export const unstage = async (
 	mutation: WorkingTreePaths,
 ): Promise<readonly GitResult[]> =>
-	runEach(chunkPaths(mutation.paths), async chunk => {
-		try {
-			return await runGit(['restore', '--staged', '--', ...chunk], {
-				cwd: mutation.cwd,
-			});
-		} catch (error: unknown) {
-			if (!isRestoreUnavailable(error)) {
-				throw error;
-			}
+	runEach(
+		chunkPaths(mutation.paths),
+		async chunk => {
+			try {
+				return await runGit(['restore', '--staged', '--', ...chunk], {
+					cwd: mutation.cwd,
+				});
+			} catch (error: unknown) {
+				if (!isRestoreUnavailable(error)) {
+					throw error;
+				}
 
-			return runGit(['reset', 'HEAD', '--', ...chunk], {
-				cwd: mutation.cwd,
-			});
-		}
-	});
+				return runGit(['reset', 'HEAD', '--', ...chunk], {
+					cwd: mutation.cwd,
+				});
+			}
+		},
+		mutation.onCommand,
+	);
 
 /**
  * `git restore --worktree -- <paths>`, with the old-git fallback
@@ -121,19 +138,23 @@ export const unstage = async (
 export const discardTracked = async (
 	mutation: WorkingTreePaths,
 ): Promise<readonly GitResult[]> =>
-	runEach(chunkPaths(mutation.paths), async chunk => {
-		try {
-			return await runGit(['restore', '--worktree', '--', ...chunk], {
-				cwd: mutation.cwd,
-			});
-		} catch (error: unknown) {
-			if (!isRestoreUnavailable(error)) {
-				throw error;
-			}
+	runEach(
+		chunkPaths(mutation.paths),
+		async chunk => {
+			try {
+				return await runGit(['restore', '--worktree', '--', ...chunk], {
+					cwd: mutation.cwd,
+				});
+			} catch (error: unknown) {
+				if (!isRestoreUnavailable(error)) {
+					throw error;
+				}
 
-			return runGit(['checkout', '--', ...chunk], { cwd: mutation.cwd });
-		}
-	});
+				return runGit(['checkout', '--', ...chunk], { cwd: mutation.cwd });
+			}
+		},
+		mutation.onCommand,
+	);
 
 /**
  * Remove untracked files and directories from the worktree.
@@ -152,16 +173,22 @@ export const discardUntracked = async (
 
 	if (directories.length > 0) {
 		results.push(
-			...(await runEach(chunkPaths(directories), async chunk =>
-				runGit(['clean', '-f', '-d', '--', ...chunk], { cwd: mutation.cwd }),
+			...(await runEach(
+				chunkPaths(directories),
+				async chunk =>
+					runGit(['clean', '-f', '-d', '--', ...chunk], { cwd: mutation.cwd }),
+				mutation.onCommand,
 			)),
 		);
 	}
 
 	if (files.length > 0) {
 		results.push(
-			...(await runEach(chunkPaths(files), async chunk =>
-				runGit(['clean', '-f', '--', ...chunk], { cwd: mutation.cwd }),
+			...(await runEach(
+				chunkPaths(files),
+				async chunk =>
+					runGit(['clean', '-f', '--', ...chunk], { cwd: mutation.cwd }),
+				mutation.onCommand,
 			)),
 		);
 	}

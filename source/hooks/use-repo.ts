@@ -32,24 +32,34 @@ export type RepoKind =
 export type OperationStatus = 'running' | 'ok' | 'failed';
 
 /**
+ * Where an entry came from.
+ *
+ * Git runs, manual refreshes, and (from ticket 04) watcher degradation share
+ * the log but not the shape of their work; the kind lets the console label
+ * them without inferring intent from an empty argv.
+ */
+export type OperationLogKind = 'git' | 'refresh' | 'watch';
+
+/**
  * One entry in the operation log.
  *
- * The log is the shared history behind the status line (and, from ticket 03,
- * the console), so every run records what it did and what came back: the label
- * in present tense while it runs, the past-tense summary or the failure when it
- * ends, and every git argv that ran, in order.
+ * The log is the shared history behind the status line and the console, so
+ * every run records what it did and what came back: the label in present tense
+ * while it runs, the past-tense summary or the failure when it ends, and every
+ * git argv that ran, in order.
  */
 export type OperationLogEntry = {
 	readonly id: number;
+	readonly kind: OperationLogKind;
 	/** Present tense, e.g. `staging 3 files`. */
 	readonly label: string;
 	/**
 	 * Every git command that ran, in order; a chunked run has several, a plain
 	 * one has a single argv. Empty until the command starts.
 	 *
-	 * The ticket 03 console renders the first argv joined plus an "(+N more)"
-	 * marker when more than one command ran, so a chunked Stage All reads as
-	 * one command with a count instead of 500 paths of argv.
+	 * The console renders the first argv joined plus an "(+N more)" marker when
+	 * more than one command ran, so a chunked Stage All reads as one command
+	 * with a count instead of 500 paths of argv.
 	 */
 	readonly args: ReadonlyArray<readonly string[]>;
 	readonly startedAt: number;
@@ -58,6 +68,8 @@ export type OperationLogEntry = {
 	/** Past tense on success (`staged 3 files`), else the failure summary. */
 	readonly summary?: string;
 	readonly error?: GitError;
+	/** Reserved for streamed remote progress (ticket 09). */
+	readonly progress?: number;
 };
 
 /** Whether the queue is running something, and its present-tense label. */
@@ -98,7 +110,12 @@ export type RepoState = {
 	readonly operation: OperationState;
 	/** Append-only ring buffer; the newest entry is last. */
 	readonly entries: readonly OperationLogEntry[];
-	/** The newest failed run; cleared when the next operation starts. */
+	/**
+	 * The failure that the status hint, enter, and failed console rows all
+	 * point at: the newest failed entry, unless a later git run started or
+	 * finished ok first. Refresh entries never hide an older failure, and a
+	 * refresh failure is itself a valid target.
+	 */
 	readonly failedOperation: OperationLogEntry | undefined;
 	stage: (paths: readonly string[]) => void;
 	unstage: (paths: readonly string[]) => void;
@@ -168,17 +185,20 @@ const mutationLabels = (
  * The single line the status line shows for a failure.
  *
  * Classification into readable summaries arrives with ticket 09; until then
- * git's own first stderr line is the most honest summary, sanitized because the
- * status line renders it literally, and the full output stays in the error
- * overlay.
+ * git's own stderr is the most honest summary, sanitized because the status
+ * line renders it literally, and the full output stays in the error overlay.
+ * CR-framed progress can put many updates on one logical line, so the search
+ * splits on both CR and LF and prefers a line that names the failure over
+ * whichever progress line happened to come first.
  */
 const failureSummary = (error: GitError): string => {
-	const line = error.stderr
-		.split('\n')
+	const lines = error.stderr
+		.split(/[\r\n]+/)
 		.map(text => sanitizeOutput(text).trim())
-		.find(text => text.length > 0);
+		.filter(text => text.length > 0);
+	const failure = lines.find(text => /fatal|error|failed/i.test(text));
 
-	return line ?? sanitizeOutput(error.message);
+	return failure ?? lines[0] ?? sanitizeOutput(error.message);
 };
 
 /**
@@ -197,13 +217,37 @@ const toGitError = (error: unknown): GitError => {
 	);
 };
 
+/**
+ * What one `load` attempt observed.
+ *
+ * `load` keeps owning its error handling (it sets the edge states the app
+ * renders); returning the outcome lets a manual refresh record the same result
+ * in the log without duplicating any of that logic. A superseded request is
+ * distinct from success because it never applied its state: a refresh that
+ * logs it must say so instead of claiming it refreshed.
+ */
+type LoadOutcome =
+	| { readonly status: 'ok' }
+	| { readonly status: 'superseded' }
+	| {
+			readonly status: 'failed';
+			readonly summary: string;
+			readonly error?: GitError;
+	  };
+
 type QueuedRun = {
 	readonly id: number;
 	/** Present-tense label for the busy state and the log entry. */
 	readonly label: string;
 	/** Past-tense summary recorded when the run succeeds. */
 	readonly summary: string;
-	readonly run: () => Promise<readonly GitResult[]>;
+	/**
+	 * `reportCommand` receives each command's argv as soon as it completes, so
+	 * a run that fails partway still knows which earlier commands succeeded.
+	 */
+	readonly run: (
+		reportCommand: (args: readonly string[]) => void,
+	) => Promise<readonly GitResult[]>;
 };
 
 /**
@@ -214,24 +258,19 @@ type QueuedRun = {
  * have been launched from a nested subdirectory), loads status, and serializes
  * every mutation through a single queue so concurrent clicks cannot race the
  * index. The queue refreshes exactly once when it drains, and records every run
- * in an append-only log that the status line (and the ticket 03 console) reads.
+ * in an append-only log that the status line and the console read.
  */
 export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	const [state, setState] = useState<RepoSnapshot>(() => edge('loading'));
-	const [operation, setOperation] = useState<OperationState>({
-		busy: false,
-		label: '',
-	});
 	const [entries, setEntries] = useState<readonly OperationLogEntry[]>([]);
-	const [failedOperation, setFailedOperation] = useState<
-		OperationLogEntry | undefined
-	>(undefined);
 
 	const mountedRef = useRef(true);
 	const requestId = useRef(0);
 	const filesRef = useRef<readonly WorkingFile[]>([]);
 	const queueRef = useRef<QueuedRun[]>([]);
 	const isDrainingRef = useRef(false);
+	const isRefreshingRef = useRef(false);
+	const refreshPendingRef = useRef(false);
 	const nextIdRef = useRef(0);
 
 	// Actions read this instead of closing over `state`, so a click right after
@@ -240,7 +279,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	// view had new files and the ref still had the old ones.
 	filesRef.current = state.workingFiles;
 
-	const load = useCallback(async (): Promise<void> => {
+	const load = useCallback(async (): Promise<LoadOutcome> => {
 		requestId.current += 1;
 		const request = requestId.current;
 		const isCurrent = (): boolean =>
@@ -250,24 +289,24 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			const probe = await resolveRepoInfo({ cwd: process.cwd() });
 
 			if (!isCurrent()) {
-				return;
+				return { status: 'superseded' };
 			}
 
 			if (probe.repo.kind === 'not-a-repo') {
 				setState(edge('not-a-repo'));
-				return;
+				return { status: 'ok' };
 			}
 
 			if (probe.repo.kind === 'bare') {
 				setState(edge('bare'));
-				return;
+				return { status: 'ok' };
 			}
 
 			const { root } = probe.repo;
 			const status = await readStatus({ cwd: root });
 
 			if (!isCurrent()) {
-				return;
+				return { status: 'superseded' };
 			}
 
 			const view = mapStatus(status);
@@ -280,19 +319,28 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				identity: probe.identity,
 				detail: undefined,
 			});
+			return { status: 'ok' };
 		} catch (error: unknown) {
 			if (!isCurrent()) {
-				return;
+				return { status: 'superseded' };
 			}
 
 			if (error instanceof GitNotFoundError) {
 				setState(edge('git-not-found'));
-				return;
+				return {
+					status: 'failed',
+					summary: 'git not found',
+					error: toGitError(error),
+				};
 			}
 
-			setState(
-				edge('error', error instanceof Error ? error.message : String(error)),
-			);
+			const message = error instanceof Error ? error.message : String(error);
+			setState(edge('error', message));
+			return {
+				status: 'failed',
+				summary: message,
+				error: toGitError(error),
+			};
 		}
 	}, []);
 
@@ -310,26 +358,24 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	const runQueued = useCallback(async (queued: QueuedRun): Promise<void> => {
 		const entry: OperationLogEntry = {
 			id: queued.id,
+			kind: 'git',
 			label: queued.label,
 			args: [],
 			startedAt: Date.now(),
 			status: 'running',
 		};
 
-		setOperation({ busy: true, label: queued.label });
-		// Starting an operation clears the previous failure: otherwise enter
-		// would open a stale error overlay for a problem already moved past. A
-		// plain refresh deliberately does not clear it; ticket 04 decides
-		// whether a manual refresh should.
-		setFailedOperation(undefined);
 		// A queued run gets no entry until it starts, so the status line only
-		// ever shows the running one; ticket 03's console owns queued visibility.
+		// ever shows the running one; the console records the same start.
 		setEntries(current => [...current, entry].slice(-operationLogCap));
 
+		const completedArgs: string[][] = [];
 		let finished: OperationLogEntry;
 
 		try {
-			const results = await queued.run();
+			const results = await queued.run(args => {
+				completedArgs.push([...args]);
+			});
 			finished = {
 				...entry,
 				// Every git command the run spawned, in order (chunked runs have
@@ -343,9 +389,10 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			const gitError = toGitError(error);
 			finished = {
 				...entry,
-				// Only the failing command is knowable: after chunk N failed the
-				// earlier chunks' results were never collected.
-				args: [gitError.args],
+				// Keep the chunks that completed before the failing command, so
+				// a failed chunked run shows the same "(+N more)" history as a
+				// successful one; the failing argv comes from the error itself.
+				args: [...completedArgs, gitError.args],
 				endedAt: Date.now(),
 				status: 'failed',
 				summary: failureSummary(gitError),
@@ -360,10 +407,6 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		setEntries(current =>
 			current.map(item => (item.id === entry.id ? finished : item)),
 		);
-
-		if (finished.status === 'failed') {
-			setFailedOperation(finished);
-		}
 	}, []);
 
 	/**
@@ -410,19 +453,11 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			}
 		} finally {
 			isDrainingRef.current = false;
-
-			if (mountedRef.current) {
-				setOperation({ busy: false, label: '' });
-			}
 		}
 	}, [load, runQueued]);
 
 	const enqueue = useCallback(
-		(
-			label: string,
-			summary: string,
-			run: () => Promise<readonly GitResult[]>,
-		): void => {
+		(label: string, summary: string, run: QueuedRun['run']): void => {
 			nextIdRef.current += 1;
 			queueRef.current.push({ id: nextIdRef.current, label, summary, run });
 			void drain();
@@ -443,7 +478,9 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 			const { busy, done } = mutationLabels(verb, paths);
 			const cwd = state.root;
-			enqueue(busy, done, async () => run({ cwd, paths }));
+			enqueue(busy, done, async reportCommand =>
+				run({ cwd, paths, onCommand: reportCommand }),
+			);
 		},
 		[enqueue, state.root],
 	);
@@ -606,9 +643,126 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		],
 	);
 
-	const refresh = useCallback(() => {
-		void load();
+	/**
+	 * Status line state, derived from the log rather than tracked beside it.
+	 *
+	 * The newest running entry is the busy head; when none is running the line
+	 * falls back to the newest finished entry. One source means the console and
+	 * the status line cannot disagree about what is happening.
+	 */
+	const operation = useMemo<OperationState>(() => {
+		for (let index = entries.length - 1; index >= 0; index -= 1) {
+			const entry = entries[index];
+			if (entry?.status === 'running') {
+				return { busy: true, label: entry.label };
+			}
+		}
+
+		return { busy: false, label: '' };
+	}, [entries]);
+
+	/**
+	 * The one failure the status hint, enter, and failed row clicks point at.
+	 *
+	 * Scanned newest-first from the same log the console renders: the newest
+	 * failed entry wins regardless of kind, but a later git run that started or
+	 * finished ok means the previous failure is history. A refresh entry is not
+	 * a git run, so it never hides an older failure and a refresh failure can
+	 * itself be the target.
+	 */
+	const failedOperation = useMemo<OperationLogEntry | undefined>(() => {
+		for (let index = entries.length - 1; index >= 0; index -= 1) {
+			const entry = entries[index];
+			if (entry === undefined) {
+				continue;
+			}
+
+			if (entry.status === 'failed') {
+				return entry;
+			}
+
+			if (entry.kind === 'git') {
+				return undefined;
+			}
+		}
+
+		return undefined;
+	}, [entries]);
+
+	/**
+	 * Run at most one manual refresh at a time, with a single pending slot.
+	 *
+	 * Repeated `r` presses must not each spawn a `git status` chain; a press
+	 * while one is running only asks for one more after it finishes, and any
+	 * number of presses in that window collapse into that one request. Each
+	 * actual run logs its own entry and its real outcome, including a load that
+	 * a newer request superseded.
+	 */
+	const runRefresh = useCallback(async (): Promise<void> => {
+		if (isRefreshingRef.current) {
+			return;
+		}
+
+		isRefreshingRef.current = true;
+
+		try {
+			while (refreshPendingRef.current && mountedRef.current) {
+				refreshPendingRef.current = false;
+				nextIdRef.current += 1;
+				const entry: OperationLogEntry = {
+					id: nextIdRef.current,
+					kind: 'refresh',
+					label: 'refreshing',
+					args: [],
+					startedAt: Date.now(),
+					status: 'running',
+				};
+
+				setEntries(current => [...current, entry].slice(-operationLogCap));
+
+				// Serial by design: this slot is what turns a burst of presses
+				// into one git status chain.
+				// eslint-disable-next-line no-await-in-loop
+				const outcome = await load();
+
+				if (!mountedRef.current) {
+					return;
+				}
+
+				let finished: OperationLogEntry;
+				if (outcome.status === 'failed') {
+					finished = {
+						...entry,
+						endedAt: Date.now(),
+						status: 'failed',
+						summary: outcome.summary,
+						error: outcome.error,
+					};
+				} else {
+					finished = {
+						...entry,
+						endedAt: Date.now(),
+						status: 'ok',
+						summary:
+							outcome.status === 'superseded'
+								? 'superseded by a newer load'
+								: 'refreshed',
+					};
+				}
+
+				setEntries(current =>
+					current.map(item => (item.id === entry.id ? finished : item)),
+				);
+			}
+		} finally {
+			isRefreshingRef.current = false;
+		}
 	}, [load]);
+
+	const refresh = useCallback(() => {
+		refreshPendingRef.current = true;
+		void runRefresh();
+	}, [runRefresh]);
 
 	return {
 		...state,
