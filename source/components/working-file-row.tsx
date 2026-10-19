@@ -33,6 +33,18 @@ const statusLabel = (status: WorkingFileStatus): string => {
 			return '?';
 		}
 
+		case 'conflicted': {
+			return 'U';
+		}
+
+		case 'renamed': {
+			return 'R';
+		}
+
+		case 'typechange': {
+			return 'T';
+		}
+
 		default: {
 			return 'M';
 		}
@@ -46,7 +58,8 @@ const statusColor = (status: WorkingFileStatus): string => {
 			return theme.add;
 		}
 
-		case 'deleted': {
+		case 'deleted':
+		case 'conflicted': {
 			return theme.del;
 		}
 

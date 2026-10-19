@@ -31,23 +31,46 @@ const pathsIn = (
 	);
 
 /**
- * Owns the pending working-tree changes.
+ * A thin view model over the real working files.
  *
- * Staging is tracked separately from the files themselves so a staged file
- * keeps its place in the list; discarding and committing remove files, because
- * both operations take the change out of the working tree.
+ * The files are owned by `useRepo` and passed in on every render: copying them
+ * into local state would freeze the panel at first render and make every
+ * refresh invisible. Only the temporary stage/discard sets live here, so the
+ * buttons have somewhere to point until real actions exist.
+ *
+ * Temporary until ticket 02: `toggleStage`, `stageAll`, `unstageAll`,
+ * `discard`, `discardAll`, and `commit` only mutate those sets and never touch
+ * git; the next refresh restores the real state.
  */
-export const useWorkingTree = (
-	initialFiles: readonly WorkingFile[],
-): WorkingTree => {
-	const [files, setFiles] = useState<readonly WorkingFile[]>(initialFiles);
-	const [stagedPaths, setStagedPaths] = useState<ReadonlySet<string>>(
+export const useWorkingTree = (files: readonly WorkingFile[]): WorkingTree => {
+	const [temporaryStaged, setTemporaryStaged] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
+	const [temporaryDiscarded, setTemporaryDiscarded] = useState<
+		ReadonlySet<string>
+	>(() => new Set());
+
+	const visibleFiles = useMemo(
+		() => files.filter(file => !temporaryDiscarded.has(file.path)),
+		[files, temporaryDiscarded],
+	);
+
+	/** The union of what git really staged and what was temporarily staged. */
+	const stagedPaths = useMemo(() => {
+		const paths = new Set(temporaryStaged);
+
+		for (const file of files) {
+			if (file.staged) {
+				paths.add(file.path);
+			}
+		}
+
+		return paths;
+	}, [files, temporaryStaged]);
 
 	const stagedCount = useMemo(
-		() => files.filter(file => stagedPaths.has(file.path)).length,
-		[files, stagedPaths],
+		() => visibleFiles.filter(file => stagedPaths.has(file.path)).length,
+		[visibleFiles, stagedPaths],
 	);
 
 	const isStaged = useCallback(
@@ -55,16 +78,24 @@ export const useWorkingTree = (
 		[stagedPaths],
 	);
 
+	/**
+	 * A group has unstaged work when any of its files is not (temporarily)
+	 * staged, or still carries a worktree change beyond its staged state. This
+	 * is what decides between the Stage All / Discard All and Unstage All
+	 * buttons on the group header.
+	 */
 	const hasUnstaged = useCallback(
 		(category: WorkingGroupCategory) =>
-			files.some(
-				file => categoryOf(file) === category && !stagedPaths.has(file.path),
+			visibleFiles.some(
+				file =>
+					categoryOf(file) === category &&
+					(!stagedPaths.has(file.path) || file.hasUnstaged),
 			),
-		[files, stagedPaths],
+		[visibleFiles, stagedPaths],
 	);
 
 	const toggleStage = useCallback((path: string) => {
-		setStagedPaths(current => {
+		setTemporaryStaged(current => {
 			const next = new Set(current);
 			if (next.has(path)) {
 				next.delete(path);
@@ -78,45 +109,47 @@ export const useWorkingTree = (
 
 	const stageAll = useCallback(
 		(category: WorkingGroupCategory) => {
-			setStagedPaths(
-				current => new Set([...current, ...pathsIn(files, category)]),
+			setTemporaryStaged(
+				current => new Set([...current, ...pathsIn(visibleFiles, category)]),
 			);
 		},
-		[files],
+		[visibleFiles],
 	);
 
 	const unstageAll = useCallback(
 		(category: WorkingGroupCategory) => {
-			setStagedPaths(current => without(current, pathsIn(files, category)));
+			setTemporaryStaged(current =>
+				without(current, pathsIn(visibleFiles, category)),
+			);
 		},
-		[files],
+		[visibleFiles],
 	);
 
-	const discard = useCallback((path: string) => {
-		setFiles(current => current.filter(file => file.path !== path));
-		setStagedPaths(current => without(current, new Set([path])));
+	const hide = useCallback((paths: ReadonlySet<string>) => {
+		setTemporaryDiscarded(current => new Set([...current, ...paths]));
+		setTemporaryStaged(current => without(current, paths));
 	}, []);
+
+	const discard = useCallback(
+		(path: string) => {
+			hide(new Set([path]));
+		},
+		[hide],
+	);
 
 	const discardAll = useCallback(
 		(category: WorkingGroupCategory) => {
-			setFiles(current =>
-				current.filter(file => categoryOf(file) !== category),
-			);
-			setStagedPaths(current => without(current, pathsIn(files, category)));
+			hide(pathsIn(visibleFiles, category));
 		},
-		[files],
+		[visibleFiles, hide],
 	);
 
 	const commit = useCallback(() => {
-		const committed = new Set(
-			files.filter(file => stagedPaths.has(file.path)).map(file => file.path),
-		);
-		setFiles(current => current.filter(file => !committed.has(file.path)));
-		setStagedPaths(new Set());
-	}, [files, stagedPaths]);
+		hide(new Set(stagedPaths));
+	}, [hide, stagedPaths]);
 
 	return {
-		files,
+		files: visibleFiles,
 		stagedCount,
 		isStaged,
 		hasUnstaged,

@@ -1,15 +1,18 @@
 import { EventEmitter } from 'node:events';
 import React, { useCallback, useState } from 'react';
-import { Box, useApp } from 'ink';
+import { Box, Text, useApp } from 'ink';
 import { MouseProvider, useMouse } from '@zenobius/ink-mouse';
 import { useStdoutDimensions } from './hooks/use-stdout-dimensions.js';
 import {
 	KeyboardProvider,
 	useKeyboardShortcuts,
 } from './hooks/use-keyboard-shortcuts.js';
+import { useRepo, type RepoKind } from './hooks/use-repo.js';
 import { useWorkingTree } from './hooks/use-working-tree.js';
+import { identityLabel } from './git/repo-info.js';
 import { defaultKeybindings, type ResolvedKeybindings } from './keybindings.js';
 import { type CommandId } from './commands.js';
+import { theme } from './theme.js';
 import { getLayout } from './layout.js';
 import Toolbar from './components/toolbar.js';
 import CommandMenu from './components/command-menu.js';
@@ -33,6 +36,31 @@ type Props = {
 };
 
 type Overlay = 'remote' | 'commit';
+
+/** Body text for every repository state except a normal worktree. */
+const edgeMessage = (kind: RepoKind, detail: string | undefined): string => {
+	switch (kind) {
+		case 'not-a-repo': {
+			return 'not a git repository';
+		}
+
+		case 'bare': {
+			return 'bare repository is not supported yet';
+		}
+
+		case 'git-not-found': {
+			return 'git not found';
+		}
+
+		case 'error': {
+			return detail ?? 'git failed';
+		}
+
+		default: {
+			return 'loading repository...';
+		}
+	}
+};
 
 /**
  * App-wide shortcuts. They are disabled while an overlay is open or the commit
@@ -87,7 +115,13 @@ export default function App({
 	const [overlay, setOverlay] = useState<Overlay | undefined>(undefined);
 	const [isCommitFocused, setIsCommitFocused] = useState(false);
 	const [message, setMessage] = useState('');
-	const workingTree = useWorkingTree(repo.workingFiles);
+	const repoState = useRepo();
+	const workingTree = useWorkingTree(repoState.workingFiles);
+
+	// The commit box author line: the real identity, or the setup hint when
+	// user.name/user.email are unset. Ticket 06 refines this into the commit flow.
+	const author =
+		repoState.identity === undefined ? '' : identityLabel(repoState.identity);
 
 	const openOverlay = useCallback((next: Overlay) => {
 		setIsCommitFocused(false);
@@ -124,7 +158,7 @@ export default function App({
 				/>
 				<Box flexDirection="column" width={layout.columns} height={layout.rows}>
 					<Toolbar
-						branch={repo.branch}
+						branch={repoState.branch}
 						width={layout.columns}
 						activeCommand={activeCommand}
 						onCommand={handleCommand}
@@ -132,39 +166,49 @@ export default function App({
 							openOverlay('remote');
 						}}
 					/>
-					<Box flexDirection="row" height={layout.bodyHeight}>
-						<Sidebar
-							sections={repo.sections}
-							width={layout.sidebarWidth}
-							height={layout.bodyHeight}
-						/>
-						<ExplorerPanel
-							repo={repo}
-							width={layout.commitsWidth}
-							height={layout.bodyHeight}
-							isActive={overlay === undefined && !isCommitFocused}
-						/>
-						<RightPanel
-							repo={repo}
-							width={layout.rightWidth}
-							height={layout.bodyHeight}
-							message={message}
-							isCommitFocused={isCommitFocused}
-							isActive={overlay === undefined}
-							workingTree={workingTree}
-							onMessageChange={setMessage}
-							onFocusCommit={() => {
-								setIsCommitFocused(true);
-							}}
-							onBlurCommit={() => {
-								setIsCommitFocused(false);
-							}}
-							onOpenCommitMenu={() => {
-								openOverlay('commit');
-							}}
-							onCommit={commit}
-						/>
-					</Box>
+					{repoState.kind === 'repo' ? (
+						<Box flexDirection="row" height={layout.bodyHeight}>
+							<Sidebar
+								sections={repo.sections}
+								width={layout.sidebarWidth}
+								height={layout.bodyHeight}
+							/>
+							<ExplorerPanel
+								commits={repo.commits}
+								selectedCommit={repo.selectedCommit}
+								fileGroups={repoState.fileGroups}
+								width={layout.commitsWidth}
+								height={layout.bodyHeight}
+								isActive={overlay === undefined && !isCommitFocused}
+							/>
+							<RightPanel
+								author={author}
+								width={layout.rightWidth}
+								height={layout.bodyHeight}
+								message={message}
+								isCommitFocused={isCommitFocused}
+								isActive={overlay === undefined}
+								workingTree={workingTree}
+								onMessageChange={setMessage}
+								onFocusCommit={() => {
+									setIsCommitFocused(true);
+								}}
+								onBlurCommit={() => {
+									setIsCommitFocused(false);
+								}}
+								onOpenCommitMenu={() => {
+									openOverlay('commit');
+								}}
+								onCommit={commit}
+							/>
+						</Box>
+					) : (
+						<Box height={layout.bodyHeight} paddingX={1}>
+							<Text color={theme.dim}>
+								{edgeMessage(repoState.kind, repoState.detail)}
+							</Text>
+						</Box>
+					)}
 					{overlay === 'remote' ? (
 						<CommandMenu onSelect={handleCommand} onClose={closeOverlay} />
 					) : null}

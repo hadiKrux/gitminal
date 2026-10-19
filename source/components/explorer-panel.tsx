@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { Box } from 'ink';
-import type { Repo } from '../data/types.js';
+import type { Commit, FileGroup } from '../data/types.js';
 import CommitList from './commit-list.js';
 import FileList from './file-list.js';
 import TabBar, { type TabDef } from './tab-bar.js';
 
 type Props = {
-	readonly repo: Repo;
+	/** Sample data until milestone 7 replaces it with the real log. */
+	readonly commits: readonly Commit[];
+	readonly selectedCommit: number;
+	readonly fileGroups: readonly FileGroup[];
 	readonly width: number;
 	readonly height: number;
 	/** When false, e.g. while an overlay owns input, interaction is disabled. */
@@ -25,7 +28,9 @@ const tabs: readonly TabDef[] = [
  * list and the file list each own their own scrolling.
  */
 export default function ExplorerPanel({
-	repo,
+	commits,
+	selectedCommit,
+	fileGroups,
 	width,
 	height,
 	isActive = true,
@@ -44,15 +49,15 @@ export default function ExplorerPanel({
 			/>
 			{active === 'files' ? (
 				<FileList
-					groups={repo.fileGroups}
+					groups={fileGroups}
 					width={width}
 					height={bodyHeight}
 					isActive={isActive}
 				/>
 			) : (
 				<CommitList
-					commits={repo.commits}
-					selectedIndex={repo.selectedCommit}
+					commits={commits}
+					selectedIndex={selectedCommit}
 					width={width}
 					height={bodyHeight}
 					isActive={isActive}

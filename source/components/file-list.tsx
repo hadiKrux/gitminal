@@ -8,7 +8,7 @@ import ScrollableArea from './scrollable-area.js';
 import TextRow from './text-row.js';
 
 type Props = {
-	readonly groups: FileGroup[];
+	readonly groups: readonly FileGroup[];
 	readonly width: number;
 	readonly height: number;
 	/** When false, e.g. while an overlay owns input, interaction is disabled. */

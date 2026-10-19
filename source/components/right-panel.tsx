@@ -1,12 +1,12 @@
 import React from 'react';
 import { Box } from 'ink';
-import type { Repo } from '../data/types.js';
 import type { WorkingTree as WorkingTreeState } from '../hooks/use-working-tree.js';
 import CommitBox, { commitBoxHeight } from './commit-box.js';
 import WorkingTree from './working-tree.js';
 
 type Props = {
-	readonly repo: Repo;
+	/** Author line for the commit box: the repo identity or its setup hint. */
+	readonly author: string;
 	readonly width: number;
 	readonly height: number;
 	readonly message: string;
@@ -30,7 +30,7 @@ const commitGapHeight = 1;
  * diff.
  */
 export default function RightPanel({
-	repo,
+	author,
 	width,
 	height,
 	message,
@@ -48,7 +48,7 @@ export default function RightPanel({
 	return (
 		<Box width={width} height={height} flexDirection="column">
 			<CommitBox
-				author={repo.meta.author}
+				author={author}
 				width={width}
 				message={message}
 				stagedCount={workingTree.stagedCount}

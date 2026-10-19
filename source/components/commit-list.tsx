@@ -7,7 +7,7 @@ import ScrollableArea from './scrollable-area.js';
 import TextRow, { type Cell } from './text-row.js';
 
 type Props = {
-	readonly commits: Commit[];
+	readonly commits: readonly Commit[];
 	readonly selectedIndex: number;
 	readonly width: number;
 	readonly height: number;

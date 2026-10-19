@@ -633,6 +633,8 @@ export const repo: Repo = {
 		{
 			path: 'source/app.tsx',
 			status: 'modified',
+			staged: false,
+			hasUnstaged: true,
 			additions: 4,
 			deletions: 4,
 			diff: appDiff,
@@ -640,6 +642,8 @@ export const repo: Repo = {
 		{
 			path: 'source/components/commit-list.tsx',
 			status: 'modified',
+			staged: false,
+			hasUnstaged: true,
 			additions: 2,
 			deletions: 1,
 			diff: commitListDiff,
@@ -647,6 +651,8 @@ export const repo: Repo = {
 		{
 			path: 'source/data/sample.ts',
 			status: 'modified',
+			staged: false,
+			hasUnstaged: true,
 			additions: 1,
 			deletions: 1,
 			diff: sampleDiff,
@@ -654,6 +660,8 @@ export const repo: Repo = {
 		{
 			path: 'source/data/types.ts',
 			status: 'modified',
+			staged: false,
+			hasUnstaged: true,
 			additions: 1,
 			deletions: 1,
 			diff: typesDiff,
@@ -661,6 +669,8 @@ export const repo: Repo = {
 		{
 			path: 'source/theme.ts',
 			status: 'modified',
+			staged: false,
+			hasUnstaged: true,
 			additions: 2,
 			deletions: 0,
 			diff: themeDiff,
@@ -668,6 +678,8 @@ export const repo: Repo = {
 		{
 			path: 'source/components/diff-view.tsx',
 			status: 'untracked',
+			staged: false,
+			hasUnstaged: true,
 			additions: 3,
 			deletions: 0,
 			diff: diffViewDiff,
@@ -675,6 +687,8 @@ export const repo: Repo = {
 		{
 			path: 'source/components/working-tree.tsx',
 			status: 'untracked',
+			staged: false,
+			hasUnstaged: true,
 			additions: 2,
 			deletions: 0,
 			diff: workingTreeDiff,
@@ -682,6 +696,8 @@ export const repo: Repo = {
 		{
 			path: 'source/hooks/use-working-tree.ts',
 			status: 'untracked',
+			staged: false,
+			hasUnstaged: true,
 			additions: 2,
 			deletions: 0,
 			diff: workingTreeHookDiff,

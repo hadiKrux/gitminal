@@ -53,12 +53,26 @@ export type DiffLine = {
 };
 
 /** Git status of a file in the working tree. */
-export type WorkingFileStatus = 'modified' | 'added' | 'deleted' | 'untracked';
+export type WorkingFileStatus =
+	| 'modified'
+	| 'added'
+	| 'deleted'
+	| 'untracked'
+	| 'conflicted'
+	| 'renamed'
+	| 'typechange';
 
 /** A single file in the working tree, with the diff of its pending change. */
 export type WorkingFile = {
 	readonly path: string;
 	readonly status: WorkingFileStatus;
+	/** True when the index holds a change for the path (git's X side). */
+	readonly staged: boolean;
+	/**
+	 * True when the worktree differs from the index (git's Y side); untracked
+	 * and conflicted rows count as unstaged, since nothing of them is recorded.
+	 */
+	readonly hasUnstaged: boolean;
 	readonly additions: number;
 	readonly deletions: number;
 	readonly diff: readonly DiffLine[];
