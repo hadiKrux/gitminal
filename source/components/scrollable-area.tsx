@@ -15,6 +15,12 @@ import Scrollbar from './scrollbar.js';
 export type ScrollableAreaHandle = {
 	/** Scroll by `delta` rows, clamped to the real content bounds. */
 	readonly scrollBy: (delta: number) => void;
+	/**
+	 * Scroll the minimum amount that brings the `index`-th direct child fully
+	 * into view; a list that moves a selection uses this to keep the selected
+	 * row visible without jumping the viewport.
+	 */
+	readonly reveal: (index: number) => void;
 };
 
 type Props = {
@@ -28,6 +34,13 @@ type Props = {
 	readonly step?: number;
 	/** Rows scrolled per page-up/page-down press; unbound when undefined. */
 	readonly pageStep?: number;
+	/**
+	 * Whether the arrow keys scroll this area. A list whose arrows move a
+	 * selection passes false so its own handler owns them; page-up/page-down
+	 * still scroll when `pageStep` is given.
+	 */
+	// eslint-disable-next-line react/boolean-prop-naming
+	readonly scrollOnArrows?: boolean;
 	/**
 	 * Follow new content to the bottom while the viewport is already there;
 	 * opening forces one scroll so existing entries start at the bottom.
@@ -61,6 +74,7 @@ function ScrollableAreaWithHandle(
 		isActive = true,
 		step = 1,
 		pageStep,
+		scrollOnArrows = true,
 		stickToBottom = false,
 		children,
 	}: Props,
@@ -89,7 +103,42 @@ function ScrollableAreaWithHandle(
 		view.scrollTo(Math.max(0, Math.min(next, view.getBottomOffset())));
 	}, []);
 
-	useImperativeHandle(ref, () => ({ scrollBy }), [scrollBy]);
+	/**
+	 * Bring one direct child fully into view with the smallest scroll.
+	 *
+	 * A selection moves one row at a time, so the target is usually already
+	 * visible or just off an edge: only the overflow scrolls, and the same
+	 * bottom clamp as `scrollBy` keeps the viewport from landing past the end
+	 * of the list.
+	 */
+	const reveal = useCallback((index: number): void => {
+		const view = scrollRef.current;
+		if (view === null) {
+			return;
+		}
+
+		const item = view.getItemPosition(index);
+		if (item === null) {
+			return;
+		}
+
+		const offset = view.getScrollOffset();
+		const bottom = item.top + item.height;
+		const viewportHeight = view.getViewportHeight();
+
+		if (item.top < offset) {
+			view.scrollTo(Math.max(0, Math.min(item.top, view.getBottomOffset())));
+			return;
+		}
+
+		if (bottom > offset + viewportHeight) {
+			view.scrollTo(
+				Math.max(0, Math.min(bottom - viewportHeight, view.getBottomOffset())),
+			);
+		}
+	}, []);
+
+	useImperativeHandle(ref, () => ({ scrollBy, reveal }), [scrollBy, reveal]);
 
 	// Follow growth only when the viewport was already at the bottom: a user
 	// who scrolled up to read history must not be yanked back by the next
@@ -112,12 +161,16 @@ function ScrollableAreaWithHandle(
 
 	useKeyboardShortcuts(
 		{
-			'move-down'() {
-				scrollBy(step);
-			},
-			'move-up'() {
-				scrollBy(-step);
-			},
+			...(scrollOnArrows
+				? {
+						'move-down'() {
+							scrollBy(step);
+						},
+						'move-up'() {
+							scrollBy(-step);
+						},
+				  }
+				: {}),
 			...(pageStep === undefined
 				? {}
 				: {

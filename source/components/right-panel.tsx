@@ -13,6 +13,14 @@ type Props = {
 	readonly isCommitFocused: boolean;
 	/** False while an overlay owns input. */
 	readonly isActive: boolean;
+	/**
+	 * Whether the working-tree list owns the arrow keys. The commit list owns
+	 * them while the COMMITS tab is active, so both lists never scroll from
+	 * one press. This gates the arrow keys only: the wheel, the overlay gate,
+	 * and the console still follow `isActive`, and the commit box is
+	 * unaffected.
+	 */
+	readonly isWorkingTreeActive?: boolean;
 	readonly workingTree: WorkingTreeState;
 	readonly onMessageChange: (value: string) => void;
 	readonly onFocusCommit: () => void;
@@ -36,6 +44,7 @@ export default function RightPanel({
 	message,
 	isCommitFocused,
 	isActive,
+	isWorkingTreeActive = true,
 	workingTree,
 	onMessageChange,
 	onFocusCommit,
@@ -71,6 +80,7 @@ export default function RightPanel({
 				width={width}
 				height={listHeight}
 				isActive={isActive && !isCommitFocused}
+				scrollOnArrows={isWorkingTreeActive}
 			/>
 		</Box>
 	);

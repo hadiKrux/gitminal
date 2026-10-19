@@ -19,7 +19,15 @@ type Props = {
 	readonly tree: WorkingTreeState;
 	readonly width: number;
 	readonly height: number;
+	/** When false, e.g. while an overlay owns input, scrolling is disabled. */
 	readonly isActive: boolean;
+	/**
+	 * Whether the arrow keys scroll this list. A list whose arrows move a
+	 * commit selection passes false so only its own handler reacts; the wheel
+	 * still scrolls the list under the pointer.
+	 */
+	// eslint-disable-next-line react/boolean-prop-naming
+	readonly scrollOnArrows?: boolean;
 };
 
 type HeaderProps = {
@@ -131,7 +139,13 @@ const toGroups = (tree: WorkingTreeState): WorkingGroup[] => {
  * "Untracked Files". Group headers and individual file rows both collapse, and
  * an expanded row renders the file's diff underneath it.
  */
-export default function WorkingTree({ tree, width, height, isActive }: Props) {
+export default function WorkingTree({
+	tree,
+	width,
+	height,
+	isActive,
+	scrollOnArrows = true,
+}: Props) {
 	const [collapsedGroups, setCollapsedGroups] = useState<
 		ReadonlySet<WorkingGroupCategory>
 	>(() => new Set());
@@ -230,7 +244,12 @@ export default function WorkingTree({ tree, width, height, isActive }: Props) {
 	}
 
 	return (
-		<ScrollableArea width={width} height={height} isActive={isActive}>
+		<ScrollableArea
+			width={width}
+			height={height}
+			isActive={isActive}
+			scrollOnArrows={scrollOnArrows}
+		>
 			{contentWidth =>
 				groups.map((group, index) => {
 					const isCollapsed = collapsedGroups.has(group.category);

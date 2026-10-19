@@ -13,6 +13,13 @@ type Props = {
 	readonly height: number;
 	/** When false, e.g. while an overlay owns input, interaction is disabled. */
 	readonly isActive?: boolean;
+	/**
+	 * Whether the arrow keys scroll this list. A list whose arrows move a
+	 * commit selection passes false so only its own handler reacts; the wheel
+	 * still scrolls the list under the pointer.
+	 */
+	// eslint-disable-next-line react/boolean-prop-naming
+	readonly scrollOnArrows?: boolean;
 };
 
 type HeaderProps = {
@@ -59,6 +66,7 @@ export default function FileList({
 	width,
 	height,
 	isActive = true,
+	scrollOnArrows = true,
 }: Props) {
 	const [collapsed, setCollapsed] = useState<Readonly<Record<string, boolean>>>(
 		{},
@@ -69,7 +77,12 @@ export default function FileList({
 	};
 
 	return (
-		<ScrollableArea width={width} height={height} isActive={isActive}>
+		<ScrollableArea
+			width={width}
+			height={height}
+			isActive={isActive}
+			scrollOnArrows={scrollOnArrows}
+		>
 			{contentWidth =>
 				groups.map((group, index) => {
 					const isCollapsed = collapsed[group.category] === true;

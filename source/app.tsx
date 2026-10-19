@@ -23,12 +23,14 @@ import Toolbar from './components/toolbar.js';
 import CommandMenu from './components/command-menu.js';
 import CommitMenu from './components/commit-menu.js';
 import Sidebar from './components/sidebar.js';
-import ExplorerPanel from './components/explorer-panel.js';
+import ExplorerPanel, {
+	type ExplorerTab,
+} from './components/explorer-panel.js';
 import RightPanel from './components/right-panel.js';
 import ErrorOverlay from './components/error-overlay.js';
 import ConfirmOverlay from './components/confirm-overlay.js';
 import ConsolePanel from './components/console-panel.js';
-import { repo } from './data/sample.js';
+import { sidebarSections } from './data/sample.js';
 
 type Props = {
 	readonly columns?: number;
@@ -155,6 +157,10 @@ export default function App({
 	const [isConsoleOpen, setIsConsoleOpen] = useState(false);
 	const [isCommitFocused, setIsCommitFocused] = useState(false);
 	const [message, setMessage] = useState('');
+	// The active explorer tab lives here because it also decides which panel
+	// owns the arrow keys: COMMITS moves the commit selection, FILES scrolls
+	// the working tree below the commit box.
+	const [activeTab, setActiveTab] = useState<ExplorerTab>('commits');
 
 	const layout = getLayout(columns, rows, { isConsoleOpen });
 	// On a terminal too short for a usable console the layout gives it zero
@@ -293,21 +299,24 @@ export default function App({
 						{repoState.kind === 'repo' ? (
 							<Box flexDirection="row" height={layout.bodyHeight}>
 								<Sidebar
-									sections={repo.sections}
+									sections={sidebarSections}
 									width={layout.sidebarWidth}
 									height={layout.bodyHeight}
 								/>
 								<ExplorerPanel
-									commits={repo.commits}
-									selectedCommit={repo.selectedCommit}
+									commits={repoState.commits}
+									selectedCommit={repoState.selectedCommit}
 									fileGroups={repoState.fileGroups}
 									width={layout.commitsWidth}
 									height={layout.bodyHeight}
+									activeTab={activeTab}
 									isActive={
 										overlay === undefined &&
 										!isCommitFocused &&
 										!isConsoleVisible
 									}
+									onTabChange={setActiveTab}
+									onSelectCommit={repoState.selectCommit}
 								/>
 								<RightPanel
 									author={author}
@@ -316,6 +325,7 @@ export default function App({
 									message={message}
 									isCommitFocused={isCommitFocused}
 									isActive={overlay === undefined && !isConsoleVisible}
+									isWorkingTreeActive={activeTab === 'files'}
 									workingTree={repoState.workingTree}
 									onMessageChange={setMessage}
 									onFocusCommit={focusCommit}

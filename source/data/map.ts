@@ -6,7 +6,7 @@ import type {
 	WorkingFileStatus,
 } from './types.js';
 
-/** The slices of `Repo` that come from real git state, ready for the UI. */
+/** The working-tree slices of the repo state, ready for the UI. */
 export type RepoView = {
 	readonly branch: string;
 	readonly workingFiles: readonly WorkingFile[];

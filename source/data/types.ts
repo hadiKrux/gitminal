@@ -15,8 +15,14 @@ export type Commit = {
 	hash: string;
 	message: string;
 	author: string;
+	/** Display date from `formatDate`; empty for the pending row. */
 	date: string;
+	/** Files changed, from the commit's numstat block; undefined for pending. */
 	fileCount?: number;
+	/** Lines added, summed over the numstat block; undefined for pending. */
+	additions?: number;
+	/** Lines removed, summed over the numstat block; undefined for pending. */
+	deletions?: number;
 	tags: string[];
 	/** Parent hashes in history order; empty for the root (and for pending). */
 	parents: string[];
@@ -105,13 +111,4 @@ export type WorkingTree = {
 	unstageAll: (category: WorkingGroupCategory) => void;
 	discard: (path: string) => void;
 	discardAll: (category: WorkingGroupCategory) => void;
-};
-
-export type Repo = {
-	branch: string;
-	sections: SidebarSection[];
-	commits: Commit[];
-	selectedCommit: number;
-	fileGroups: FileGroup[];
-	workingFiles: WorkingFile[];
 };

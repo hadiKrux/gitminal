@@ -1,9 +1,13 @@
-import React from 'react';
-import { Box } from 'ink';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { Box, type DOMElement } from 'ink';
 import { theme, colorAt, tagColors, graphColors, tint } from '../theme.js';
 import type { Commit } from '../data/types.js';
 import { buildGraph, type GraphRow } from '../data/graph.js';
-import ScrollableArea from './scrollable-area.js';
+import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
+import { useMouseClick } from '../hooks/use-mouse.js';
+import ScrollableArea, {
+	type ScrollableAreaHandle,
+} from './scrollable-area.js';
 import TextRow, { type Cell } from './text-row.js';
 
 type Props = {
@@ -11,12 +15,11 @@ type Props = {
 	readonly selectedIndex: number;
 	readonly width: number;
 	readonly height: number;
-	/** When false, e.g. while an overlay owns input, scrolling is disabled. */
+	/** When false, e.g. while an overlay owns input, interaction is disabled. */
 	readonly isActive?: boolean;
+	/** Select a commit by hash; the pending row participates like any other. */
+	readonly onSelectCommit: (hash: string) => void;
 };
-
-/** Rows scrolled per arrow press (a tagless commit row is 2 rows tall). */
-const commitStep = 2;
 
 type RowProps = {
 	readonly commit: Commit;
@@ -27,6 +30,7 @@ type RowProps = {
 	readonly laneCount: number;
 	/** One palette color per lane; off for a linear history, which is one line. */
 	readonly isColored: boolean;
+	readonly onSelect: () => void;
 };
 
 /**
@@ -66,7 +70,11 @@ function CommitRow({
 	graph,
 	laneCount,
 	isColored,
+	onSelect,
 }: RowProps) {
+	const rowRef = useRef<DOMElement>(null);
+	useMouseClick(rowRef, onSelect);
+
 	const background = isSelected ? theme.accentBg : undefined;
 	const lane = (chars: readonly string[], nodeChar: string): Cell[] =>
 		gutter(chars, nodeChar, laneCount, isColored);
@@ -76,6 +84,21 @@ function CommitRow({
 			? []
 			: [chip(String(commit.fileCount), theme.fileCount)];
 
+	/*
+	 * The pending row is a work in progress without a diff, so it carries no
+	 * stats; a real commit always read a numstat block (even a zero), so the
+	 * presence of the counts is what decides the chips.
+	 */
+	const statCells: Cell[] =
+		commit.pending === true ||
+		commit.additions === undefined ||
+		commit.deletions === undefined
+			? []
+			: [
+					chip(`+${commit.additions}`, theme.add),
+					chip(`-${commit.deletions}`, theme.del),
+			  ];
+
 	// Tags and branches ride above the message as chips, one per row, so a
 	// commit's message and file count keep the full row width.
 	const tagRows: Cell[] = commit.tags.map((tag, tagIndex) =>
@@ -83,7 +106,7 @@ function CommitRow({
 	);
 
 	return (
-		<Box flexDirection="column">
+		<Box ref={rowRef} flexDirection="column">
 			{tagRows.map((cell, tagIndex) => (
 				<TextRow
 					// eslint-disable-next-line react/no-array-index-key
@@ -104,7 +127,7 @@ function CommitRow({
 						bold: true,
 					},
 				]}
-				right={countCells}
+				right={[...countCells, ...statCells]}
 			/>
 			<TextRow
 				width={width}
@@ -123,13 +146,24 @@ function CommitRow({
 	);
 }
 
+/**
+ * The commit history list.
+ *
+ * While the COMMITS tab is active the arrow keys move the selection (clamped
+ * to the list) instead of scrolling, and the list scrolls just enough to keep
+ * the selected row in view; page-up/page-down still scroll by a viewport. The
+ * whole row is a click target, so the pointer and the arrows drive the same
+ * selection.
+ */
 export default function CommitList({
 	commits,
 	selectedIndex,
 	width,
 	height,
 	isActive = true,
+	onSelectCommit,
 }: Props) {
+	const areaRef = useRef<ScrollableAreaHandle>(null);
 	const graph = buildGraph(commits);
 	// One width for every row keeps messages aligned even as branches come and go.
 	let laneCount = 1;
@@ -142,23 +176,62 @@ export default function CommitList({
 		return graphRow === undefined ? [] : [{ commit, graphRow }];
 	});
 
+	const move = useCallback(
+		(delta: number) => {
+			const lastIndex = Math.max(0, commits.length - 1);
+			const next = Math.max(0, Math.min(selectedIndex + delta, lastIndex));
+			const commit = commits[next];
+
+			if (next === selectedIndex || commit === undefined) {
+				return;
+			}
+
+			onSelectCommit(commit.hash);
+		},
+		[commits, onSelectCommit, selectedIndex],
+	);
+
+	// Revealing after the render that applies the new selection covers every
+	// way it can move (arrows, clicks, refresh, resize) with one path. A click
+	// selects through the row, not through `move`, so this must not live there.
+	useEffect(() => {
+		areaRef.current?.reveal(selectedIndex);
+	}, [commits, height, selectedIndex]);
+
+	useKeyboardShortcuts(
+		{
+			'move-down'() {
+				move(1);
+			},
+			'move-up'() {
+				move(-1);
+			},
+		},
+		{ isActive },
+	);
+
 	return (
 		<ScrollableArea
+			ref={areaRef}
 			width={width}
 			height={height}
 			isActive={isActive}
-			step={commitStep}
+			scrollOnArrows={false}
+			pageStep={Math.max(1, height)}
 		>
 			{contentWidth =>
 				rows.map(({ commit, graphRow }, index) => (
 					<CommitRow
-						key={`${commit.hash}-${commit.message}`}
+						key={commit.hash}
 						commit={commit}
 						isSelected={index === selectedIndex}
 						width={contentWidth}
 						graph={graphRow}
 						laneCount={laneCount}
 						isColored={laneCount > 1}
+						onSelect={() => {
+							onSelectCommit(commit.hash);
+						}}
 					/>
 				))
 			}

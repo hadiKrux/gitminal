@@ -5,7 +5,15 @@ import process from 'node:process';
 /** Shared cap for accumulated stdout/stderr. */
 const maxOutputBytes = 10 * 1024 * 1024;
 
-const truncationMarker = `\n[... output truncated at ${maxOutputBytes} bytes ...]`;
+/**
+ * Prefix of the marker appended when a capture hits the cap.
+ *
+ * Exported so a line-oriented parser can recognize the marker instead of
+ * treating it as data; the full marker adds only the cap to this text.
+ */
+export const truncationMarkerPrefix = '[... output truncated';
+
+const truncationMarker = `\n${truncationMarkerPrefix} at ${maxOutputBytes} bytes ...]`;
 
 /**
  * Environment every spawned git process gets, no matter the caller.

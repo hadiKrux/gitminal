@@ -9,6 +9,7 @@ import {
 	type DiffStat,
 } from '../git/diff.js';
 import { resolveRepoInfo, type Identity } from '../git/repo-info.js';
+import { readLog, readRefsFingerprint } from '../git/log.js';
 import { readStatus } from '../git/status.js';
 import {
 	discardTracked as discardTrackedPaths,
@@ -22,6 +23,7 @@ import { failureSummary } from '../git/errors.js';
 import { mapStatus } from '../data/map.js';
 import {
 	categoryOf,
+	type Commit,
 	type DiffLine,
 	type FileGroup,
 	type WorkingFile,
@@ -125,11 +127,24 @@ export type RepoState = {
 	readonly branch: string;
 	readonly workingFiles: readonly WorkingFile[];
 	readonly fileGroups: readonly FileGroup[];
+	/**
+	 * HEAD's history, newest first, with the pending pseudo-commit on top.
+	 * Empty outside a normal worktree view.
+	 */
+	readonly commits: readonly Commit[];
 	readonly identity: Identity | undefined;
 	/** Failure detail for the `error` kind; undefined otherwise. */
 	readonly detail: string | undefined;
 	/** The state the commit panel renders and acts through. */
 	readonly workingTree: WorkingTree;
+	/** Index of the selected row in `commits`, for the list's highlight. */
+	readonly selectedCommit: number;
+	/**
+	 * Select a commit by hash; a hash that is not in the current list is
+	 * ignored, because a stale click must not point the highlight at a row
+	 * that no longer exists.
+	 */
+	selectCommit: (hash: string) => void;
 	readonly operation: OperationState;
 	/** Append-only ring buffer; the newest entry is last. */
 	readonly entries: readonly OperationLogEntry[];
@@ -160,6 +175,8 @@ export type RepoState = {
 type RepoSnapshot = Omit<
 	RepoState,
 	| 'workingTree'
+	| 'selectedCommit'
+	| 'selectCommit'
 	| 'operation'
 	| 'entries'
 	| 'failedOperation'
@@ -172,7 +189,13 @@ type RepoSnapshot = Omit<
 	| 'refresh'
 	| 'ensureDiff'
 	| 'commit'
->;
+> & {
+	/**
+	 * The selected commit's hash, kept in the snapshot rather than exposed as
+	 * an index so a refresh can re-resolve it against the newest list.
+	 */
+	readonly selectedCommitHash: string | undefined;
+};
 
 /** Entries kept in the ring buffer; older runs fall off the front. */
 const operationLogCap = 200;
@@ -246,9 +269,66 @@ const edge = (kind: RepoKind, detail?: string): RepoSnapshot => ({
 	branch: '',
 	workingFiles: [],
 	fileGroups: [],
+	commits: [],
+	selectedCommitHash: undefined,
 	identity: undefined,
 	detail,
 });
+
+/**
+ * The pseudo-commit that stands for the uncommitted working tree.
+ *
+ * Its count is the number of status entries, which is exactly what
+ * `git status --short | wc -l` prints. The hash is a stable literal rather
+ * than a real oid, so the pending row can be selected and keeps its highlight
+ * like any other row. It carries no file or line stats because nothing is
+ * committed yet.
+ */
+const pendingCommit = (count: number): Commit => ({
+	hash: 'pending',
+	message: `${count} changed file${count === 1 ? '' : 's'}`,
+	author: 'Commit Changes',
+	date: '',
+	tags: [],
+	parents: [],
+	pending: true,
+});
+
+/**
+ * Re-resolve the selected hash against a freshly read commit list.
+ *
+ * Comparing hashes rather than an index is what keeps the highlight on the
+ * same commit when a refresh lands a new row on top. On the first load the
+ * pending row is selected, because the working tree is what the user is about
+ * to act on. A stored hash that is still present wins; a vanished one (rebase,
+ * reset, fetch) falls back to the newest real commit, or to the pending row
+ * when the repository has no commits yet, so the list is never left with
+ * nothing selected.
+ */
+const nextSelectedHash = (
+	commits: readonly Commit[],
+	previous: string | undefined,
+): string | undefined => {
+	if (previous === undefined) {
+		return commits[0]?.hash;
+	}
+
+	if (commits.some(commit => commit.hash === previous)) {
+		return previous;
+	}
+
+	const newest = commits.find(commit => commit.pending !== true);
+	return newest?.hash ?? commits[0]?.hash;
+};
+
+/** The last log read plus the state that still makes it current. */
+type CommitsCache = {
+	readonly root: string;
+	readonly headOid: string;
+	readonly branch: string;
+	readonly fingerprint: string;
+	readonly commits: readonly Commit[];
+};
 
 type MutationVerb = 'stage' | 'unstage' | 'discard';
 
@@ -496,6 +576,27 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	 * may only clear its own marker, never the newer request's.
 	 */
 	const diffInFlightRef = useRef<Map<string, InFlightDiff>>(new Map());
+	/**
+	 * The last log read, keyed by the state that still makes it current.
+	 *
+	 * A refresh re-reads the log only when the key moves (root, HEAD oid,
+	 * branch label, refs fingerprint): worktree edits keep HEAD and the refs, so
+	 * a plain file change never pays the numstat log read; a fetch, tag, or
+	 * branch change moves the key and the decoration chips refresh without a
+	 * commit. The branch label is part of the key because two branches can
+	 * point at the same oid: `%D` then differs while the oid and refs digest
+	 * alone would look unchanged.
+	 */
+	const commitsCacheRef = useRef<CommitsCache | undefined>(undefined);
+	/**
+	 * The selected commit's hash, outside React state.
+	 *
+	 * The list is replaced on every refresh, so the selection is tracked by
+	 * hash: the ref lets `load` re-resolve it against the fresh list, and a
+	 * click updates it together with the state so a refresh landing right
+	 * after a click keeps the new selection.
+	 */
+	const selectedCommitHashRef = useRef<string | undefined>(undefined);
 	const stateRef = useRef(state);
 	const queueRef = useRef<QueuedRun[]>([]);
 	const isDrainingRef = useRef(false);
@@ -615,6 +716,53 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		}, delay);
 	}, []);
 
+	/**
+	 * Read HEAD's history, reusing the last read unless the log key moved.
+	 *
+	 * The key is the root, HEAD's oid, the status branch label, and a
+	 * fingerprint of every ref, so a worktree-only refresh pays one cheap
+	 * `for-each-ref` and skips the expensive numstat log entirely. The branch
+	 * label distinguishes two branches that share an oid, whose `%D`
+	 * decorations differ even when the refs digest does not. An unborn HEAD has
+	 * no history to read and `git log` would fail on it, so that case is an
+	 * empty list.
+	 */
+	const readCommits = useCallback(
+		async (
+			root: string,
+			headOid: string | undefined,
+			branch: string,
+		): Promise<readonly Commit[]> => {
+			if (headOid === undefined) {
+				return [];
+			}
+
+			const fingerprint = await readRefsFingerprint({ cwd: root });
+			const cached = commitsCacheRef.current;
+
+			if (
+				cached !== undefined &&
+				cached.root === root &&
+				cached.headOid === headOid &&
+				cached.branch === branch &&
+				cached.fingerprint === fingerprint
+			) {
+				return cached.commits;
+			}
+
+			const commits = await readLog({ cwd: root });
+			commitsCacheRef.current = {
+				root,
+				headOid,
+				branch,
+				fingerprint,
+				commits,
+			};
+			return commits;
+		},
+		[],
+	);
+
 	const load = useCallback(
 		async (mode: LoadMode): Promise<LoadOutcome> => {
 			const loadWatchSeq = watchEventSeqRef.current;
@@ -675,10 +823,18 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				}
 
 				const view = mapStatus(status);
-				const stats = await readWorkingFileStats({
-					cwd: root,
-					files: view.workingFiles,
-				});
+				/*
+				 * Status stats are always needed; the log read runs only when
+				 * its key moved, so both are awaited together and a
+				 * worktree-only refresh skips the expensive numstat read.
+				 */
+				const [stats, logCommits] = await Promise.all([
+					readWorkingFileStats({
+						cwd: root,
+						files: view.workingFiles,
+					}),
+					readCommits(root, status.branch.oid, view.branch),
+				]);
 
 				if (!isCurrent()) {
 					return { status: 'superseded' };
@@ -689,6 +845,19 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					stats,
 					diffCacheRef.current,
 				);
+
+				// The pending row counts real status entries, so it matches
+				// `git status --short | wc -l` exactly, collapsed untracked
+				// directories included.
+				const commits: readonly Commit[] = [
+					pendingCommit(status.entries.length),
+					...logCommits,
+				];
+				const selectedCommitHash = nextSelectedHash(
+					commits,
+					selectedCommitHashRef.current,
+				);
+				selectedCommitHashRef.current = selectedCommitHash;
 
 				// Keep `ensureDiff` and the actions in sync before React renders:
 				// a diff resolving in this window must compare against the new
@@ -704,6 +873,8 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					branch: view.branch,
 					workingFiles,
 					fileGroups: view.fileGroups,
+					commits,
+					selectedCommitHash,
 					identity: probe.identity,
 					detail: undefined,
 				}));
@@ -743,7 +914,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				};
 			}
 		},
-		[cancelWatchRetry],
+		[cancelWatchRetry, readCommits],
 	);
 
 	useEffect(() => {
@@ -1578,6 +1749,40 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		[enqueue, recordFailure],
 	);
 
+	/**
+	 * Select one commit by hash.
+	 *
+	 * The hash is validated against the current list, so a click that lands
+	 * after a refresh replaced the list cannot point the highlight at a row
+	 * that is gone. The ref and the state are updated together, which is what
+	 * lets a refresh already in flight re-resolve the newest selection instead
+	 * of restoring the previous row.
+	 */
+	const selectCommit = useCallback((hash: string): void => {
+		if (stateRef.current.commits.every(commit => commit.hash !== hash)) {
+			return;
+		}
+
+		selectedCommitHashRef.current = hash;
+		setState(current =>
+			current.selectedCommitHash === hash
+				? current
+				: { ...current, selectedCommitHash: hash },
+		);
+	}, []);
+
+	/**
+	 * The selected row's index, derived from the hash so it always names the
+	 * row the list is rendering; an edge snapshot has no commits, so the
+	 * clamp to zero only ever shows an empty list.
+	 */
+	const selectedCommit = useMemo<number>(() => {
+		const index = state.commits.findIndex(
+			commit => commit.hash === state.selectedCommitHash,
+		);
+		return index === -1 ? 0 : index;
+	}, [state.commits, state.selectedCommitHash]);
+
 	const workingTree = useMemo<WorkingTree>(
 		() => ({
 			files: state.workingFiles,
@@ -1693,6 +1898,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	return {
 		...state,
 		workingTree,
+		selectedCommit,
 		operation,
 		entries,
 		failedOperation,
@@ -1705,5 +1911,6 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		refresh,
 		ensureDiff,
 		commit,
+		selectCommit,
 	};
 };
