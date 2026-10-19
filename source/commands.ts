@@ -1,8 +1,10 @@
 /**
- * Remote operations the app can run.
+ * Operations the app can run.
  *
- * A single list backs both the toolbar buttons and the "more" menu, so adding
- * an operation is one entry here rather than a new bespoke button.
+ * A single list backs both the toolbar buttons and the command menu, so adding
+ * an operation is one entry here rather than a new bespoke button. Sections are
+ * derived from the entries themselves: the menu can then render a Branch group
+ * beside the remote groups without a second hardcoded title list.
  */
 export type CommandId =
 	| 'pull'
@@ -10,13 +12,16 @@ export type CommandId =
 	| 'fetch-prune'
 	| 'push'
 	| 'push-force'
-	| 'push-no-verify';
+	| 'push-no-verify'
+	| 'switch-branch'
+	| 'new-branch';
 
 export type Command = {
 	readonly id: CommandId;
 	readonly label: string;
 	readonly section: string;
 	readonly isToolbar: boolean;
+	readonly isDanger?: boolean;
 };
 
 export const commands: readonly Command[] = [
@@ -34,11 +39,24 @@ export const commands: readonly Command[] = [
 		label: 'push --force',
 		section: 'Push',
 		isToolbar: false,
+		isDanger: true,
 	},
 	{
 		id: 'push-no-verify',
 		label: 'push --no-verify',
 		section: 'Push',
+		isToolbar: false,
+	},
+	{
+		id: 'switch-branch',
+		label: 'switch branch',
+		section: 'Branch',
+		isToolbar: false,
+	},
+	{
+		id: 'new-branch',
+		label: 'new branch',
+		section: 'Branch',
 		isToolbar: false,
 	},
 ];
@@ -48,7 +66,13 @@ export type CommandSection = {
 	readonly commands: readonly Command[];
 };
 
-const sectionTitles = ['Pull', 'Push'] as const;
+/**
+ * Section titles in first-appearance order.
+ *
+ * Remote groups stay first so the menu's initial selection is still `pull`;
+ * the Branch group follows them.
+ */
+const sectionTitles = [...new Set(commands.map(command => command.section))];
 
 export const commandSections: readonly CommandSection[] = sectionTitles.map(
 	title => ({

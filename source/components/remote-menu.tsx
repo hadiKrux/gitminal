@@ -13,16 +13,22 @@ const sections: ReadonlyArray<MenuSection<CommandId>> = commandSections.map(
 		items: section.commands.map(command => ({
 			id: command.id,
 			label: command.label,
-			isDanger: command.id === 'push-force',
+			isDanger: command.isDanger,
 		})),
 	}),
 );
 
-/** The remote operations menu: pull and push variants, grouped by direction. */
-export default function CommandMenu({ onSelect, onClose }: Props) {
+/**
+ * The command list opened from the toolbar's `...` button.
+ *
+ * It started as the remote operations menu and keeps that name for the command
+ * palette ticket; the Branch section reuses the same modal and keybindings so
+ * branch actions are reachable without the mouse.
+ */
+export default function RemoteMenu({ onSelect, onClose }: Props) {
 	return (
 		<MenuModal
-			title="Remote operations"
+			title="Commands"
 			sections={sections}
 			onSelect={onSelect}
 			onClose={onClose}

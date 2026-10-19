@@ -19,6 +19,11 @@ import {
 	type WorkingTreePaths,
 } from '../git/working-tree.js';
 import { commit as commitPaths, type CommitOptions } from '../git/commit.js';
+import {
+	checkout as checkoutBranch,
+	createBranch as createBranchAtHead,
+} from '../git/branch.js';
+import { readRefs } from '../git/refs.js';
 import { failureSummary } from '../git/errors.js';
 import { mapStatus } from '../data/map.js';
 import {
@@ -26,6 +31,7 @@ import {
 	type Commit,
 	type DiffLine,
 	type FileGroup,
+	type SidebarSection,
 	type WorkingFile,
 	type WorkingGroupCategory,
 	type WorkingTree,
@@ -125,6 +131,8 @@ export type RepoState = {
 	 */
 	readonly watchDegraded: boolean;
 	readonly branch: string;
+	/** Every sidebar section, read from refs on each successful load. */
+	readonly sections: readonly SidebarSection[];
 	readonly workingFiles: readonly WorkingFile[];
 	readonly fileGroups: readonly FileGroup[];
 	/**
@@ -170,6 +178,18 @@ export type RepoState = {
 	 * commit. Rejections still land in the operation log and the error overlay.
 	 */
 	commit: (message: string, options?: CommitOptions) => Promise<boolean>;
+	/**
+	 * Switch to an existing branch. Resolves the failed log entry so the app
+	 * can open the error overlay with git's real message, or undefined when the
+	 * switch succeeded.
+	 */
+	checkout: (name: string) => Promise<OperationLogEntry | undefined>;
+	/**
+	 * Validate a name, create the branch at HEAD, and switch to it. Same
+	 * failure contract as `checkout`: a rejected name never reaches the
+	 * worktree and the app receives the entry that explains why.
+	 */
+	createBranch: (name: string) => Promise<OperationLogEntry | undefined>;
 };
 
 type RepoSnapshot = Omit<
@@ -189,6 +209,8 @@ type RepoSnapshot = Omit<
 	| 'refresh'
 	| 'ensureDiff'
 	| 'commit'
+	| 'checkout'
+	| 'createBranch'
 > & {
 	/**
 	 * The selected commit's hash, kept in the snapshot rather than exposed as
@@ -267,6 +289,7 @@ const edge = (kind: RepoKind, detail?: string): RepoSnapshot => ({
 	watchDir: undefined,
 	watchDegraded: false,
 	branch: '',
+	sections: [],
 	workingFiles: [],
 	fileGroups: [],
 	commits: [],
@@ -380,6 +403,15 @@ const toGitError = (error: unknown): GitError => {
 		message,
 	);
 };
+
+/**
+ * The failed entry a branch action returns, or undefined on success.
+ *
+ * Returning the entry lets the app open the error overlay with git's real
+ * output, which a boolean could not carry.
+ */
+const failureOf = (entry: OperationLogEntry): OperationLogEntry | undefined =>
+	entry.status === 'ok' ? undefined : entry;
 
 /**
  * Why a load is running.
@@ -536,10 +568,10 @@ type QueuedRun = {
 	) => Promise<readonly GitResult[]>;
 	/**
 	 * Resolve the promise `enqueue` returned. A caller that shows its own
-	 * result (the commit message clearing only on success) needs the outcome,
-	 * not just the log entry.
+	 * result (the commit message clearing only on success, a branch failure
+	 * opening the error overlay) needs the finished entry, not just a boolean.
 	 */
-	readonly settle: (succeeded: boolean) => void;
+	readonly settle: (entry: OperationLogEntry) => void;
 };
 
 /**
@@ -826,14 +858,22 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				/*
 				 * Status stats are always needed; the log read runs only when
 				 * its key moved, so both are awaited together and a
-				 * worktree-only refresh skips the expensive numstat read.
+				 * worktree-only refresh skips the expensive numstat read. The
+				 * sidebar refs are small read-only reads and refresh together
+				 * with status so an external branch, tag, or stash change is
+				 * visible on the next load.
 				 */
-				const [stats, logCommits] = await Promise.all([
+				const [stats, logCommits, sections] = await Promise.all([
 					readWorkingFileStats({
 						cwd: root,
 						files: view.workingFiles,
 					}),
 					readCommits(root, status.branch.oid, view.branch),
+					readRefs({
+						cwd: root,
+						currentBranch:
+							status.branch.kind === 'branch' ? status.branch.name : undefined,
+					}),
 				]);
 
 				if (!isCurrent()) {
@@ -871,6 +911,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					// carrying it through here keeps the hint until a watch is live.
 					watchDegraded: current.watchDegraded,
 					branch: view.branch,
+					sections,
 					workingFiles,
 					fileGroups: view.fileGroups,
 					commits,
@@ -1032,7 +1073,6 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 		const completedArgs: string[][] = [];
 		let finished: OperationLogEntry;
-		let succeeded = false;
 
 		try {
 			const results = await queued.run(args => {
@@ -1047,7 +1087,6 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				status: 'ok',
 				summary: queued.summary,
 			};
-			succeeded = true;
 		} catch (error: unknown) {
 			const gitError = toGitError(error);
 			finished = {
@@ -1055,7 +1094,12 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				// Keep the chunks that completed before the failing command, so
 				// a failed chunked run shows the same "(+N more)" history as a
 				// successful one; the failing argv comes from the error itself.
-				args: [...completedArgs, gitError.args],
+				// A synthetic error (local validation, no command run) has no
+				// argv and must not add a blank command to the log.
+				args:
+					gitError.args.length > 0
+						? [...completedArgs, gitError.args]
+						: [...completedArgs],
 				endedAt: Date.now(),
 				status: 'failed',
 				summary: failureSummary(gitError),
@@ -1065,7 +1109,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 		// Settle before the unmount check: the caller is awaiting this outcome
 		// even when the component disappeared while git was running.
-		queued.settle(succeeded);
+		queued.settle(finished);
 
 		if (!mountedRef.current) {
 			return;
@@ -1523,9 +1567,9 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			label: string,
 			summary: string,
 			run: QueuedRun['run'],
-		): Promise<boolean> => {
+		): Promise<OperationLogEntry> => {
 			nextIdRef.current += 1;
-			const outcome = new Promise<boolean>(resolve => {
+			const outcome = new Promise<OperationLogEntry>(resolve => {
 				queueRef.current.push({
 					id: nextIdRef.current,
 					label,
@@ -1683,25 +1727,29 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	 * line's one line, and the synthetic `GitError` gives the overlay its
 	 * stderr. No argv and no exit code, because nothing ran.
 	 */
-	const recordFailure = useCallback((label: string, summary: string): void => {
-		nextIdRef.current += 1;
-		const entry: OperationLogEntry = {
-			id: nextIdRef.current,
-			kind: 'git',
-			label,
-			args: [],
-			startedAt: Date.now(),
-			endedAt: Date.now(),
-			status: 'failed',
-			summary,
-			error: new GitError(
-				{ args: [], exitCode: undefined, stdout: '', stderr: summary },
+	const recordFailure = useCallback(
+		(label: string, summary: string): OperationLogEntry => {
+			nextIdRef.current += 1;
+			const entry: OperationLogEntry = {
+				id: nextIdRef.current,
+				kind: 'git',
+				label,
+				args: [],
+				startedAt: Date.now(),
+				endedAt: Date.now(),
+				status: 'failed',
 				summary,
-			),
-		};
+				error: new GitError(
+					{ args: [], exitCode: undefined, stdout: '', stderr: summary },
+					summary,
+				),
+			};
 
-		setEntries(current => [...current, entry].slice(-operationLogCap));
-	}, []);
+			setEntries(current => [...current, entry].slice(-operationLogCap));
+			return entry;
+		},
+		[],
+	);
 
 	/**
 	 * Commit the staged index after checking the local preconditions git would
@@ -1736,15 +1784,80 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				stagedCount === 1 ? '' : 's'
 			}`;
 
-			return enqueue('committing', summary, async reportCommand => {
-				const result = await commitPaths({
-					cwd: root,
-					message,
-					options: { noVerify: options.noVerify === true },
-				});
-				reportCommand(result.args);
-				return [result];
-			});
+			const entry = await enqueue(
+				'committing',
+				summary,
+				async reportCommand => {
+					const result = await commitPaths({
+						cwd: root,
+						message,
+						options: { noVerify: options.noVerify === true },
+					});
+					reportCommand(result.args);
+					return [result];
+				},
+			);
+			return entry.status === 'ok';
+		},
+		[enqueue, recordFailure],
+	);
+
+	/**
+	 * Switch to an existing branch.
+	 *
+	 * The switch runs through the same queue as every other mutation, so it
+	 * cannot race a stage or commit, and the drain's post-run load refreshes
+	 * the badge, the branch list, and the worktree from git's real result.
+	 */
+	const checkout = useCallback(
+		async (name: string): Promise<OperationLogEntry | undefined> => {
+			const { root } = stateRef.current;
+			if (root === undefined) {
+				return recordFailure('checkout', 'not in a repository');
+			}
+
+			const entry = await enqueue(
+				`switching to ${name}`,
+				`switched to ${name}`,
+				async reportCommand => {
+					const result = await checkoutBranch({
+						cwd: root,
+						name,
+						onCommand: reportCommand,
+					});
+					return [result];
+				},
+			);
+			return failureOf(entry);
+		},
+		[enqueue, recordFailure],
+	);
+
+	/**
+	 * Create a branch at HEAD and switch to it.
+	 *
+	 * Validation lives in `git/branch.ts`; a rejected name still lands in the
+	 * operation log, so the status line and the error overlay explain the
+	 * failure exactly like a dirty-tree checkout rejection does.
+	 */
+	const createBranch = useCallback(
+		async (name: string): Promise<OperationLogEntry | undefined> => {
+			const { root } = stateRef.current;
+			if (root === undefined) {
+				return recordFailure('new branch', 'not in a repository');
+			}
+
+			const entry = await enqueue(
+				`creating ${name}`,
+				`created and switched to ${name}`,
+				async reportCommand =>
+					createBranchAtHead({
+						cwd: root,
+						name,
+						onCommand: reportCommand,
+					}),
+			);
+			return failureOf(entry);
 		},
 		[enqueue, recordFailure],
 	);
@@ -1911,6 +2024,8 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		refresh,
 		ensureDiff,
 		commit,
+		checkout,
+		createBranch,
 		selectCommit,
 	};
 };

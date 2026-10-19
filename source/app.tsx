@@ -17,11 +17,14 @@ import { identityLabel, missingIdentityHint } from './git/repo-info.js';
 import { defaultKeybindings, type ResolvedKeybindings } from './keybindings.js';
 import { type CommandId } from './commands.js';
 import { type CommitOptionId } from './commit-options.js';
+import { branchesSectionTitle } from './git/refs.js';
 import { theme } from './theme.js';
 import { getLayout } from './layout.js';
 import Toolbar from './components/toolbar.js';
-import CommandMenu from './components/command-menu.js';
+import RemoteMenu from './components/remote-menu.js';
 import CommitMenu from './components/commit-menu.js';
+import BranchMenu from './components/branch-menu.js';
+import BranchNameInput from './components/branch-name-input.js';
 import Sidebar from './components/sidebar.js';
 import ExplorerPanel, {
 	type ExplorerTab,
@@ -30,7 +33,7 @@ import RightPanel from './components/right-panel.js';
 import ErrorOverlay from './components/error-overlay.js';
 import ConfirmOverlay from './components/confirm-overlay.js';
 import ConsolePanel from './components/console-panel.js';
-import { sidebarSections } from './data/sample.js';
+import type { SidebarSection, TreeNode } from './data/types.js';
 
 type Props = {
 	readonly columns?: number;
@@ -46,6 +49,12 @@ type Props = {
 type Overlay =
 	| { readonly kind: 'remote' }
 	| { readonly kind: 'commit' }
+	| {
+			readonly kind: 'branch-menu';
+			/** The clicked branch, or undefined for the switch-branch picker. */
+			readonly ref: string | undefined;
+	  }
+	| { readonly kind: 'new-branch' }
 	| { readonly kind: 'error'; readonly operation: OperationLogEntry }
 	| {
 			readonly kind: 'confirm';
@@ -78,6 +87,94 @@ const edgeMessage = (kind: RepoKind, detail: string | undefined): string => {
 		}
 	}
 };
+
+/**
+ * The overlay a command id opens, or undefined when the command runs a git
+ * operation directly. Branch commands only collect input here; the actual
+ * action runs after the modal's checkout/create handler.
+ */
+const commandOverlay = (id: CommandId): Overlay | undefined => {
+	switch (id) {
+		case 'switch-branch': {
+			return { kind: 'branch-menu', ref: undefined };
+		}
+
+		case 'new-branch': {
+			return { kind: 'new-branch' };
+		}
+
+		default: {
+			return undefined;
+		}
+	}
+};
+
+/**
+ * Local branch rows are the only refs with an action today. Tags and remote
+ * branches stay visible but deferred, so both the click handler and the
+ * sidebar's affordance use this one predicate.
+ */
+const isLocalBranchRow = (section: SidebarSection, item: TreeNode): boolean =>
+	section.title === branchesSectionTitle && item.depth === 0;
+
+/** The per-ref menu for a clicked local branch; other refs have no action. */
+const branchMenuFor = (
+	section: SidebarSection,
+	item: TreeNode,
+): Overlay | undefined =>
+	isLocalBranchRow(section, item)
+		? { kind: 'branch-menu', ref: item.label }
+		: undefined;
+
+/** Local branch names for the switch-branch picker. */
+const localBranchNames = (
+	sections: readonly SidebarSection[],
+): readonly string[] =>
+	sections
+		.find(section => section.title === branchesSectionTitle)
+		?.items.map(item => item.label) ?? [];
+
+type BranchOverlaysProps = {
+	readonly overlay: Overlay | undefined;
+	readonly branches: readonly string[];
+	readonly onCheckout: (name: string) => void;
+	readonly onCreate: (name: string) => void;
+	readonly onNewBranch: () => void;
+	readonly onCancel: () => void;
+};
+
+/**
+ * The two branch modals.
+ *
+ * Kept as one component so the app's render stays a list of overlay slots and
+ * the payload narrowing lives beside the components it feeds.
+ */
+function BranchOverlays({
+	overlay,
+	branches,
+	onCheckout,
+	onCreate,
+	onNewBranch,
+	onCancel,
+}: BranchOverlaysProps) {
+	if (overlay?.kind === 'branch-menu') {
+		return (
+			<BranchMenu
+				refName={overlay.ref}
+				branches={branches}
+				onCheckout={onCheckout}
+				onNewBranch={onNewBranch}
+				onClose={onCancel}
+			/>
+		);
+	}
+
+	if (overlay?.kind === 'new-branch') {
+		return <BranchNameInput onSubmit={onCreate} onCancel={onCancel} />;
+	}
+
+	return null;
+}
 
 /**
  * App-wide shortcuts. They are disabled while an overlay is open or the commit
@@ -181,7 +278,12 @@ export default function App({
 	}, []);
 
 	const repoState = useRepo({ requestConfirm });
-	const { failedOperation, commit: repoCommit } = repoState;
+	const {
+		failedOperation,
+		commit: repoCommit,
+		checkout,
+		createBranch,
+	} = repoState;
 	const latestEntry = repoState.entries.at(-1);
 
 	// The commit box author line: the real identity, or the setup hint when
@@ -220,10 +322,22 @@ export default function App({
 		setIsConsoleOpen(false);
 	}, []);
 
-	const handleCommand = useCallback((id: CommandId) => {
-		setActiveCommand(id);
-		setOverlay(undefined);
-	}, []);
+	const handleCommand = useCallback(
+		(id: CommandId) => {
+			// Branch commands open their own modal instead of running a git
+			// operation directly; the same handlers are used by the sidebar,
+			// so mouse and keyboard reach identical flows.
+			const next = commandOverlay(id);
+			if (next !== undefined) {
+				openOverlay(next);
+				return;
+			}
+
+			setActiveCommand(id);
+			setOverlay(undefined);
+		},
+		[openOverlay],
+	);
 
 	const openDetails = useCallback(() => {
 		if (failedOperation !== undefined) {
@@ -252,6 +366,53 @@ export default function App({
 		},
 		[message, repoCommit],
 	);
+
+	/**
+	 * Open the error overlay when a branch action reports a failure.
+	 *
+	 * The action already wrote the entry to the operation log; the overlay is
+	 * the same one enter and failed console rows open, so git's dirty-tree
+	 * message and a rejected branch name are shown in full. A successful
+	 * checkout needs nothing: the drain load refreshes the badge and sidebar.
+	 */
+	const showBranchFailure = useCallback(
+		(failure: OperationLogEntry | undefined): void => {
+			if (failure !== undefined) {
+				openOverlay({ kind: 'error', operation: failure });
+			}
+		},
+		[openOverlay],
+	);
+
+	const handleCheckout = useCallback(
+		(name: string): void => {
+			closeOverlay();
+			void checkout(name).then(showBranchFailure);
+		},
+		[checkout, closeOverlay, showBranchFailure],
+	);
+
+	const handleCreateBranch = useCallback(
+		(name: string): void => {
+			closeOverlay();
+			void createBranch(name).then(showBranchFailure);
+		},
+		[createBranch, closeOverlay, showBranchFailure],
+	);
+
+	const handleSelectRef = useCallback(
+		(section: SidebarSection, item: TreeNode): void => {
+			// Only local branches have an action today; tags and remote branches
+			// are visible refs whose checkout flows are explicitly deferred.
+			const next = branchMenuFor(section, item);
+			if (next !== undefined) {
+				openOverlay(next);
+			}
+		},
+		[openOverlay],
+	);
+
+	const branchNames = localBranchNames(repoState.sections);
 
 	return (
 		<KeyboardProvider keybindings={keybindings}>
@@ -299,9 +460,11 @@ export default function App({
 						{repoState.kind === 'repo' ? (
 							<Box flexDirection="row" height={layout.bodyHeight}>
 								<Sidebar
-									sections={sidebarSections}
+									sections={repoState.sections}
 									width={layout.sidebarWidth}
 									height={layout.bodyHeight}
+									isRefActionable={isLocalBranchRow}
+									onSelectRef={handleSelectRef}
 								/>
 								<ExplorerPanel
 									commits={repoState.commits}
@@ -360,8 +523,18 @@ export default function App({
 						) : null}
 					</MouseGateContext.Provider>
 					{overlay?.kind === 'remote' ? (
-						<CommandMenu onSelect={handleCommand} onClose={closeOverlay} />
+						<RemoteMenu onSelect={handleCommand} onClose={closeOverlay} />
 					) : null}
+					<BranchOverlays
+						overlay={overlay}
+						branches={branchNames}
+						onCheckout={handleCheckout}
+						onCreate={handleCreateBranch}
+						onNewBranch={() => {
+							openOverlay({ kind: 'new-branch' });
+						}}
+						onCancel={closeOverlay}
+					/>
 					{overlay?.kind === 'commit' ? (
 						<CommitMenu onSelect={commit} onClose={closeOverlay} />
 					) : null}

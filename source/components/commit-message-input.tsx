@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { stripMouseReports } from '../mouse-reports.js';
+import { nextBoundary, previousBoundary, segmenter } from '../text-segments.js';
 import { textWidth, truncate } from '../layout.js';
 
 type Props = {
@@ -23,9 +24,6 @@ type WrappedLine = {
 	/** True when the message has a newline after this line rather than a wrap. */
 	readonly endsAtNewline: boolean;
 };
-
-/** Grapheme boundaries, so wide characters and emoji are never split. */
-const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 /**
  * Wrap one logical line (the text between newlines) into visual lines,
@@ -143,31 +141,6 @@ const rowOf = (lines: readonly WrappedLine[], cursor: number): number => {
 	}
 
 	return lines.length - 1;
-};
-
-/** Greatest grapheme boundary at or before `cursor`. */
-const previousBoundary = (text: string, cursor: number): number => {
-	let previous = 0;
-	for (const { index } of segmenter.segment(text)) {
-		if (index >= cursor) {
-			break;
-		}
-
-		previous = index;
-	}
-
-	return previous;
-};
-
-/** Smallest grapheme boundary after `cursor`. */
-const nextBoundary = (text: string, cursor: number): number => {
-	for (const { index } of segmenter.segment(text)) {
-		if (index > cursor) {
-			return index;
-		}
-	}
-
-	return text.length;
 };
 
 /** Terminal cells from the start of `lineText` to `charOffset`. */
@@ -288,7 +261,7 @@ export default function CommitMessageInput({
 				return;
 			}
 
-			if (key.backspace || key.delete) {
+			if (key.backspace) {
 				if (cursor === 0) {
 					return;
 				}
@@ -296,6 +269,16 @@ export default function CommitMessageInput({
 				const previous = previousBoundary(value, cursor);
 				onChange(value.slice(0, previous) + value.slice(cursor));
 				setCursorOffset(previous);
+				return;
+			}
+
+			if (key.delete) {
+				const next = nextBoundary(value, cursor);
+				if (next === cursor) {
+					return;
+				}
+
+				onChange(value.slice(0, cursor) + value.slice(next));
 				return;
 			}
 

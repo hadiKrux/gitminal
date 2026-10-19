@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { theme } from '../theme.js';
 import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
 import MenuRow from './menu-row.js';
@@ -42,13 +42,30 @@ export default function MenuModal<Id extends string>({
 	onClose,
 }: Props<Id>) {
 	const items = sections.flatMap(section => section.items);
-	const [selected, setSelected] = useState(0);
-	const selectedItem = items[selected];
+
+	// Track the highlighted item by id, not index: the branch picker can
+	// refresh while it is open, and the same index then names a different
+	// branch. An id keeps the highlight on the item the user picked.
+	const [selectedId, setSelectedId] = useState(items[0]?.id);
+	const selectedIndex = items.findIndex(item => item.id === selectedId);
+	// A vanished selection falls back to the first item; the effect below
+	// writes that fallback back into state so later moves start from it.
+	const activeIndex = selectedIndex === -1 ? 0 : selectedIndex;
+	const selectedItem = items[activeIndex];
+	const activeId = selectedItem?.id;
+
+	useEffect(() => {
+		if (activeId !== selectedId) {
+			setSelectedId(activeId);
+		}
+	}, [activeId, selectedId]);
 
 	const move = (delta: number): void => {
-		setSelected(current =>
-			Math.min(items.length - 1, Math.max(0, current + delta)),
-		);
+		const next = Math.min(items.length - 1, Math.max(0, activeIndex + delta));
+		const item = items[next];
+		if (item !== undefined) {
+			setSelectedId(item.id);
+		}
 	};
 
 	useKeyboardShortcuts({
@@ -92,7 +109,7 @@ export default function MenuModal<Id extends string>({
 									onSelect(item.id);
 								}}
 								onHover={() => {
-									setSelected(items.indexOf(item));
+									setSelectedId(item.id);
 								}}
 							/>
 						</FrameRow>
