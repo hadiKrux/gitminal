@@ -1,5 +1,5 @@
 import type { Buffer } from 'node:buffer';
-import { runGitReadOnly } from './exec.js';
+import { GitError, runGitReadOnly, truncationMarkerPrefix } from './exec.js';
 
 /** One side of a changed path: `.` means unchanged on that side. */
 export type StatusCode = '.' | 'M' | 'A' | 'D' | 'R' | 'C' | 'T';
@@ -243,6 +243,59 @@ export const parseStatus = (stdout: string | Buffer): RepoStatus => {
 		behind: headers.behind,
 		entries,
 	};
+};
+
+/**
+ * Read the paths that currently have unmerged index entries.
+ *
+ * A rendered status snapshot is observation, not authority: an external
+ * `git add`, merge, or checkout can change the index after the last load.
+ * `git ls-files -u -z` is the authoritative answer a destructive action must
+ * read right before it runs, because `git restore --staged` on an unmerged
+ * path drops its stages. Every record is `mode SP oid SP stage TAB path`, so
+ * the path is everything after the first tab; a path with several stages is
+ * one path, hence the set.
+ */
+export const readUnmergedPaths = async (options: {
+	readonly cwd: string;
+}): Promise<ReadonlySet<string>> => {
+	const result = await runGitReadOnly(['ls-files', '-u', '-z'], {
+		cwd: options.cwd,
+	});
+
+	/*
+	 * Fail closed on a truncated capture. The marker exists only on the
+	 * decoded `stdout`; `stdoutBytes` is a hard-capped prefix that can end
+	 * mid-record, so parsing it would silently omit unmerged paths and let a
+	 * later restore reach them. Failing the read makes the queued unstage
+	 * record an error and run no command.
+	 */
+	if (result.stdout.includes(truncationMarkerPrefix)) {
+		throw new GitError(
+			{
+				args: result.args,
+				exitCode: result.exitCode,
+				stdout: result.stdout,
+				stderr: result.stderr,
+			},
+			'git ls-files -u output was truncated; refusing to unstage because unmerged paths may be missing',
+		);
+	}
+
+	const paths = new Set<string>();
+
+	for (const record of result.stdoutBytes.toString('utf8').split('\0')) {
+		if (record.length === 0) {
+			continue;
+		}
+
+		const tab = record.indexOf('\t');
+		if (tab !== -1) {
+			paths.add(record.slice(tab + 1));
+		}
+	}
+
+	return paths;
 };
 
 /**

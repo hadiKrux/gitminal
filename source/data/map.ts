@@ -106,8 +106,8 @@ const toWorkingFile = (entry: StatusEntry): WorkingFile => ({
  * twice would offer the same file under two headers; the partial state stays
  * visible in the working-tree panel through `hasUnstaged`.
  *
- * Conflicted rows land in Modified as the catch-all "needs attention" group
- * until milestone 10 gives conflicts their own semantics.
+ * Conflicted rows stay in Modified here: the FILES tab keeps its existing
+ * categories, while the commit panel gives conflicts their own group.
  */
 const groupOf = (entry: StatusEntry): FileCategory => {
 	if (entry.kind === 'untracked') {
@@ -183,10 +183,27 @@ export const syncOf = (status: RepoStatus): BranchSync => {
 	return { ...counts, state: 'up-to-date' };
 };
 
-/** Map the git-side status into the shapes the components already render. */
-export const mapStatus = (status: RepoStatus): RepoView => ({
-	branch: branchLabel(status.branch),
-	workingFiles: status.entries.map(entry => toWorkingFile(entry)),
-	fileGroups: toFileGroups(status.entries),
-	sync: syncOf(status),
-});
+/**
+ * Map the git-side status into the shapes the components already render.
+ *
+ * A merge in progress is a conflicted working tree even when every path has
+ * been resolved and no unmerged entry remains: the merge commit is still
+ * missing, and the badge must not claim the branch is clean. The ahead/behind
+ * counts stay the ones git reported.
+ */
+export const mapStatus = (
+	status: RepoStatus,
+	mergeInProgress = false,
+): RepoView => {
+	const sync = syncOf(status);
+
+	return {
+		branch: branchLabel(status.branch),
+		workingFiles: status.entries.map(entry => toWorkingFile(entry)),
+		fileGroups: toFileGroups(status.entries),
+		sync:
+			mergeInProgress && sync.state !== 'conflict'
+				? { ...sync, state: 'conflict' }
+				: sync,
+	};
+};

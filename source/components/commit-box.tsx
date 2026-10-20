@@ -15,6 +15,8 @@ type Props = {
 	/** Visible rows of the message input, computed by `commitMessageRows`. */
 	readonly messageRows: number;
 	readonly stagedCount: number;
+	/** Unresolved merge conflicts still in the index. */
+	readonly conflictCount: number;
 	readonly isFocused: boolean;
 	/** False while an overlay owns input. */
 	readonly isActive: boolean;
@@ -83,12 +85,20 @@ const minAuthorWidth = 7;
  *
  * The hint is deliberately short because it shares one row with the author;
  * the full wording (`commit message is empty`, `nothing staged to commit`)
- * lives in the status line.
+ * lives in the status line. A conflicted index is not a missing index: the
+ * action stays available so git can classify the refusal, and the hint warns
+ * what has to happen first. An empty message is still the immediate local
+ * blocker, so it keeps its own hint until one is typed.
  */
 const commitHint = (
 	message: string,
 	stagedCount: number,
+	conflictCount: number,
 ): string | undefined => {
+	if (conflictCount > 0) {
+		return message.trim().length === 0 ? 'no message' : 'resolve conflicts';
+	}
+
 	if (stagedCount === 0) {
 		return 'stage';
 	}
@@ -111,6 +121,7 @@ export default function CommitBox({
 	message,
 	messageRows,
 	stagedCount,
+	conflictCount,
 	isFocused,
 	isActive,
 	onMessageChange,
@@ -122,7 +133,8 @@ export default function CommitBox({
 	const inputRef = useRef<DOMElement>(null);
 	const contentWidth = Math.max(1, width - inset);
 	const messageWidth = messageWidthOf(width);
-	const isCommitReady = stagedCount > 0 && message.trim().length > 0;
+	const isCommitReady =
+		message.trim().length > 0 && (stagedCount > 0 || conflictCount > 0);
 
 	useMouseClick(inputRef, onFocus);
 
@@ -139,9 +151,9 @@ export default function CommitBox({
 		{ isActive: isActive && isFocused },
 	);
 
-	const label = commitLabel(stagedCount);
+	const label = commitLabel(stagedCount, conflictCount);
 	const authorWidth = Math.max(0, contentWidth - (label.length + 2));
-	const hint = commitHint(message, stagedCount);
+	const hint = commitHint(message, stagedCount, conflictCount);
 	const hintGap = hint !== undefined && author.length > 0 ? 1 : 0;
 	// Reserve the author prefix before the hint takes its cells: the hint must
 	// stay readable without erasing the identity line.

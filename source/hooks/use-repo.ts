@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import process from 'node:process';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GitError, GitNotFoundError, type GitResult } from '../git/exec.js';
@@ -10,10 +11,11 @@ import {
 } from '../git/diff.js';
 import { resolveRepoInfo, type Identity } from '../git/repo-info.js';
 import { readLog, readRefsFingerprint } from '../git/log.js';
-import { readStatus } from '../git/status.js';
+import { readStatus, readUnmergedPaths } from '../git/status.js';
 import {
 	discardTracked as discardTrackedPaths,
 	discardUntracked as discardUntrackedPaths,
+	recreateConflict as recreateConflictPaths,
 	stage as stagePaths,
 	unstage as unstagePaths,
 	type WorkingTreePaths,
@@ -155,6 +157,11 @@ export type RepoState = {
 	 * watcher is re-established.
 	 */
 	readonly watchDegraded: boolean;
+	/**
+	 * True while `MERGE_HEAD` exists in this worktree's git dir, including the
+	 * resolved-but-uncommitted state where no unmerged path remains.
+	 */
+	readonly mergeInProgress: boolean;
 	readonly branch: string;
 	/** How the checked-out branch relates to its upstream, for the badge. */
 	readonly sync: BranchSync;
@@ -340,6 +347,7 @@ const edge = (kind: RepoKind, detail?: string): RepoSnapshot => ({
 	root: undefined,
 	watchDir: undefined,
 	watchDegraded: false,
+	mergeInProgress: false,
 	branch: '',
 	sync: { state: 'unknown', upstream: undefined, ahead: 0, behind: 0 },
 	sections: [],
@@ -407,7 +415,7 @@ type CommitsCache = {
 	readonly commits: readonly Commit[];
 };
 
-type MutationVerb = 'stage' | 'unstage' | 'discard';
+type MutationVerb = 'stage' | 'unstage' | 'discard' | 'recreate-conflict';
 
 /**
  * Present and past tense per verb.
@@ -421,6 +429,10 @@ const mutationWords: Readonly<
 	stage: { busy: 'staging', done: 'staged' },
 	unstage: { busy: 'unstaging', done: 'unstaged' },
 	discard: { busy: 'discarding', done: 'discarded' },
+	'recreate-conflict': {
+		busy: 'recreating conflict in',
+		done: 'recreated conflict in',
+	},
 };
 
 /** `staging 3 files` / `staged 3 files`, singular at exactly one path. */
@@ -627,8 +639,12 @@ type QueuedRun = {
 	readonly id: number;
 	/** Present-tense label for the busy state and the log entry. */
 	readonly label: string;
-	/** Past-tense summary recorded when the run succeeds. */
-	readonly summary: string;
+	/**
+	 * Past-tense summary recorded when the run succeeds, or a resolver for a
+	 * run that decides after reading git what it actually changed (for example
+	 * an unstage that skips paths the authoritative index reports unmerged).
+	 */
+	readonly summary: string | ((results: readonly GitResult[]) => string);
 	/**
 	 * `reportCommand` receives each command's argv as soon as it completes, so
 	 * a run that fails partway still knows which earlier commands succeeded.
@@ -665,6 +681,16 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	const mountedRef = useRef(true);
 	const requestId = useRef(0);
 	const filesRef = useRef<readonly WorkingFile[]>([]);
+	/**
+	 * Paths that were unmerged at some point during the current merge.
+	 *
+	 * `MERGE_HEAD` says a merge is in progress; this set remembers which paths
+	 * it touched. A path resolved with `git add` no longer appears as unmerged,
+	 * but it is still merge-origin: plain unstaging would silently drop its
+	 * unresolved stages, so only `git checkout -m` may undo it. The set is
+	 * cleared as soon as `MERGE_HEAD` disappears.
+	 */
+	const mergeOriginPathsRef = useRef<Set<string>>(new Set());
 	/**
 	 * Parsed diffs, keyed by path and guarded by the signature they describe.
 	 *
@@ -802,6 +828,37 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	}, []);
 
 	/**
+	 * Adopt an edge snapshot and drop merge-origin tracking with it.
+	 *
+	 * Every edge state means no merge survives it, so a stale set must not
+	 * leak into the next repository view. The cleanup lives here rather than in
+	 * a `setState` updater because updaters must stay pure; a load that keeps
+	 * the last good repository view deliberately does not call this, so the
+	 * tracked paths behind the rendered rows survive a transient failure.
+	 */
+	const adoptEdge = useCallback((next: RepoSnapshot): void => {
+		mergeOriginPathsRef.current.clear();
+		setState(next);
+	}, []);
+
+	/**
+	 * Adopt an edge state only when the load owns that transition.
+	 *
+	 * An initial load, or one already outside a repository, replaces the view;
+	 * any other failed load keeps the last good repository view and its
+	 * merge-origin tracking. Keeping the decision here means `load`'s catch
+	 * path stays a plain call and no `setState` updater carries a side effect.
+	 */
+	const adoptLoadEdge = useCallback(
+		(mode: LoadMode, next: RepoSnapshot): void => {
+			if (mode === 'initial' || stateRef.current.kind !== 'repo') {
+				adoptEdge(next);
+			}
+		},
+		[adoptEdge],
+	);
+
+	/**
 	 * Retry a watch event the failed load left unapplied.
 	 *
 	 * Called after a failed automatic load. The timer asks the normal watch
@@ -922,7 +979,9 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 						return probeFailure('repository is no longer available');
 					}
 
-					setState(edge('not-a-repo'));
+					// An adopted edge state has no merge any more; a stale set must
+					// not survive into the next repository view.
+					adoptEdge(edge('not-a-repo'));
 					markApplied();
 					return { status: 'ok' };
 				}
@@ -932,19 +991,48 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 						return probeFailure('repository is now bare');
 					}
 
-					setState(edge('bare'));
+					adoptEdge(edge('bare'));
 					markApplied();
 					return { status: 'ok' };
 				}
 
-				const { root, commonDir } = probe.repo;
+				const { root, commonDir, gitDir } = probe.repo;
+				/*
+				 * `MERGE_HEAD` is the one file that says a merge is still open,
+				 * even after every path is resolved: until the merge commit
+				 * exists the branch is not clean. It lives in the per-worktree
+				 * git dir, so a linked worktree reads its own merge state.
+				 */
+				const mergeInProgress = fs.existsSync(path.join(gitDir, 'MERGE_HEAD'));
 				const status = await readStatus({ cwd: root });
 
 				if (!isCurrent()) {
 					return { status: 'superseded' };
 				}
 
-				const view = mapStatus(status);
+				/*
+				 * Accumulate every path this merge ever left unmerged in a
+				 * local set. Once a path is resolved it leaves the status
+				 * stream, but its staging history cannot be undone with a plain
+				 * restore; the set is dropped only when the merge ends. Keeping
+				 * the next set local until the load applies means a later read
+				 * (stats, refs) or a superseding load cannot leave tracking
+				 * ahead of the view it explains.
+				 */
+				const nextMergeOriginPaths = new Set<string>();
+				if (mergeInProgress) {
+					for (const path of mergeOriginPathsRef.current) {
+						nextMergeOriginPaths.add(path);
+					}
+
+					for (const entry of status.entries) {
+						if (entry.kind === 'unmerged') {
+							nextMergeOriginPaths.add(entry.path);
+						}
+					}
+				}
+
+				const view = mapStatus(status, mergeInProgress);
 				/*
 				 * Status stats are always needed; the log read runs only when
 				 * its key moved, so both are awaited together and a
@@ -991,7 +1079,10 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 				// Keep `ensureDiff` and the actions in sync before React renders:
 				// a diff resolving in this window must compare against the new
-				// signature, not the previous snapshot's.
+				// signature, not the previous snapshot's. The merge-origin set
+				// commits here too, with the view it describes: every earlier
+				// failure path leaves the previous ref untouched.
+				mergeOriginPathsRef.current = nextMergeOriginPaths;
 				filesRef.current = workingFiles;
 				setState(current => ({
 					kind: 'repo',
@@ -1000,6 +1091,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					// Degradation is owned by the watcher effect, not by a reload:
 					// carrying it through here keeps the hint until a watch is live.
 					watchDegraded: current.watchDegraded,
+					mergeInProgress,
 					branch: view.branch,
 					sync: view.sync,
 					sections,
@@ -1020,12 +1112,14 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					return { status: 'superseded' };
 				}
 
+				/*
+				 * Only an initial load or a load already outside a repository
+				 * adopts an edge state; a reload that fails keeps the last good
+				 * view. Adoption also clears merge-origin tracking, which
+				 * cannot describe a view with no repository.
+				 */
 				if (error instanceof GitNotFoundError) {
-					setState(current =>
-						mode === 'initial' || current.kind !== 'repo'
-							? edge('git-not-found')
-							: current,
-					);
+					adoptLoadEdge(mode, edge('git-not-found'));
 					return {
 						status: 'failed',
 						summary: 'git not found',
@@ -1035,11 +1129,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 				const message = error instanceof Error ? error.message : String(error);
 				const gitError = toGitError(error);
-				setState(current =>
-					mode === 'initial' || current.kind !== 'repo'
-						? edge('error', message)
-						: current,
-				);
+				adoptLoadEdge(mode, edge('error', message));
 				return {
 					status: 'failed',
 					// The log and status line show this, so prefer git's own line
@@ -1049,7 +1139,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				};
 			}
 		},
-		[cancelWatchRetry, readCommits],
+		[cancelWatchRetry, readCommits, adoptEdge, adoptLoadEdge],
 	);
 
 	useEffect(() => {
@@ -1305,7 +1395,10 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					args: results.map(result => result.args),
 					endedAt: Date.now(),
 					status: 'ok',
-					summary: queued.summary,
+					summary:
+						typeof queued.summary === 'function'
+							? queued.summary(results)
+							: queued.summary,
 				};
 			} catch (error: unknown) {
 				const gitError = toGitError(error);
@@ -1793,7 +1886,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	const enqueue = useCallback(
 		async (
 			label: string,
-			summary: string,
+			summary: QueuedRun['summary'],
 			run: QueuedRun['run'],
 		): Promise<OperationLogEntry> => {
 			nextIdRef.current += 1;
@@ -1839,11 +1932,93 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		[runMutation],
 	);
 
+	/**
+	 * Enqueue a plain unstage that first re-reads the authoritative index.
+	 *
+	 * The rendered snapshot cannot decide this: an external `git add`, merge, or
+	 * checkout can make a path unmerged after the last load, and
+	 * `git restore --staged` on such a path drops its stages irreversibly.
+	 * Reading `ls-files -u` inside the queued run serializes the check with the
+	 * destructive command; a currently unmerged path has nothing staged, so
+	 * skipping it is safe. No command runs when the filter leaves nothing.
+	 */
+	const enqueuePlainUnstage = useCallback(
+		(paths: readonly string[]) => {
+			const cwd = stateRef.current.root;
+			if (cwd === undefined || paths.length === 0) {
+				return;
+			}
+
+			let applied: readonly string[] = paths;
+			const { busy } = mutationLabels('unstage', paths);
+			void enqueue(
+				busy,
+				() =>
+					applied.length === 0
+						? 'nothing to unstage'
+						: mutationLabels('unstage', applied).done,
+				async reportCommand => {
+					const unmerged = await readUnmergedPaths({ cwd });
+					applied = paths.filter(path => !unmerged.has(path));
+
+					if (applied.length === 0) {
+						return [];
+					}
+
+					return unstagePaths({
+						cwd,
+						paths: applied,
+						onCommand: reportCommand,
+					});
+				},
+			);
+		},
+		[enqueue],
+	);
+
+	/**
+	 * Unstage the staged paths among `paths`, splitting by merge origin.
+	 *
+	 * The snapshot filters out rows the index does not hold staged, but it is
+	 * not the authority for a destructive command: the queued plain unstage
+	 * re-reads unmerged paths immediately before `git restore --staged`. A
+	 * staged merge-origin path must never reach that command; while
+	 * `MERGE_HEAD` exists it is routed to `checkout -m` instead. The same
+	 * current merge state gates the label, so action and label cannot disagree
+	 * after a merge ends.
+	 */
+	const unstageStaged = useCallback(
+		(paths: readonly string[]) => {
+			const staged = new Set(
+				filesRef.current.filter(file => file.staged).map(file => file.path),
+			);
+			const target = paths.filter(path => staged.has(path));
+
+			if (target.length === 0) {
+				return;
+			}
+
+			const { mergeInProgress } = stateRef.current;
+			const mergeOrigin = mergeInProgress
+				? target.filter(path => mergeOriginPathsRef.current.has(path))
+				: [];
+			const mergeOriginSet = new Set(mergeOrigin);
+			const plain = target.filter(path => !mergeOriginSet.has(path));
+
+			enqueuePlainUnstage(plain);
+
+			if (mergeOrigin.length > 0) {
+				runMutation('recreate-conflict', mergeOrigin, recreateConflictPaths);
+			}
+		},
+		[enqueuePlainUnstage, runMutation],
+	);
+
 	const unstage = useCallback(
 		(paths: readonly string[]) => {
-			runMutation('unstage', paths, unstagePaths);
+			unstageStaged(paths);
 		},
-		[runMutation],
+		[unstageStaged],
 	);
 
 	/**
@@ -1857,6 +2032,13 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		(path: string) => {
 			const file = filesRef.current.find(item => item.path === path);
 			if (file === undefined) {
+				return;
+			}
+
+			// A conflicted path has no resolved side to restore: the worktree
+			// file holds the only copy of the conflict, and a programmatic
+			// caller must not be able to discard it.
+			if (categoryOf(file) === 'conflicted') {
 				return;
 			}
 
@@ -1910,19 +2092,40 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		[bulkPaths, runMutation],
 	);
 
+	/**
+	 * Unstage a category's plain staged paths, never its merge-origin ones.
+	 *
+	 * Bulk unstage is not a conflict action: including a resolved merge path
+	 * would silently rebuild its conflict and throw away the staged resolution.
+	 * Those rows keep their explicit `Recreate Conflict` action instead, and
+	 * the group header only offers this one when every staged path is plain.
+	 * The filter below stays as a defense: a programmatic caller must not be
+	 * able to smuggle a merge-origin path into the bulk path.
+	 */
 	const unstageAll = useCallback(
 		(category: WorkingGroupCategory) => {
-			runMutation(
-				'unstage',
-				bulkPaths(category, file => file.staged),
-				unstagePaths,
+			const { mergeInProgress } = stateRef.current;
+			const mergeOrigin = mergeInProgress
+				? mergeOriginPathsRef.current
+				: undefined;
+			const paths = bulkPaths(
+				category,
+				file => file.staged && !(mergeOrigin?.has(file.path) ?? false),
 			);
+
+			enqueuePlainUnstage(paths);
 		},
-		[bulkPaths, runMutation],
+		[bulkPaths, enqueuePlainUnstage],
 	);
 
 	const discardAll = useCallback(
 		(category: WorkingGroupCategory) => {
+			// Conflicts never expose a bulk discard; refusing the category here
+			// also stops a programmatic caller from bypassing the UI.
+			if (category === 'conflicted') {
+				return;
+			}
+
 			const paths = bulkPaths(category, file => file.hasUnstaged);
 			if (paths.length === 0) {
 				return;
@@ -1984,7 +2187,9 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	 * reject with a less useful message. Validation is local so the status line
 	 * can say exactly what is missing, and it never queues work that cannot run.
 	 * The order matches the commit hint: no repository, then nothing staged,
-	 * then an empty message.
+	 * then an empty message. An unresolved merge is deliberately left to git:
+	 * `git commit` already refuses it, and the classifier turns that into the
+	 * actionable "unmerged files" summary instead of a misleading staged count.
 	 */
 	const commit = useCallback(
 		async (message: string, options: CommitOptions = {}): Promise<boolean> => {
@@ -1992,13 +2197,16 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			// on the snapshot the panel is showing.
 			const { root, workingFiles } = stateRef.current;
 			const stagedCount = workingFiles.filter(file => file.staged).length;
+			const hasConflicts = workingFiles.some(
+				file => file.status === 'conflicted',
+			);
 
 			if (root === undefined) {
 				recordFailure('commit', 'not in a repository');
 				return false;
 			}
 
-			if (stagedCount === 0) {
+			if (stagedCount === 0 && !hasConflicts) {
 				recordFailure('commit', 'nothing staged to commit');
 				return false;
 			}
@@ -2176,10 +2384,37 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					file => file.path === path && file.staged,
 				);
 			},
+			isMergeOrigin(path: string) {
+				return state.mergeInProgress && mergeOriginPathsRef.current.has(path);
+			},
 			hasUnstaged(category: WorkingGroupCategory) {
 				return state.workingFiles.some(
 					file =>
 						categoryOf(file) === category && (!file.staged || file.hasUnstaged),
+				);
+			},
+			/**
+			 * Whether the category's staged set can be undone as a whole.
+			 *
+			 * The group header labels this `Unstage All`, so it must appear only when
+			 * that promise holds: at least one staged path and all of them plain. A
+			 * mixed group would leave its merge-origin rows staged, and those rows
+			 * keep their explicit `Recreate Conflict` action instead.
+			 */
+			hasUnstageable(category: WorkingGroupCategory) {
+				const staged = state.workingFiles.filter(
+					file => categoryOf(file) === category && file.staged,
+				);
+
+				return (
+					staged.length > 0 &&
+					staged.every(
+						file =>
+							!(
+								state.mergeInProgress &&
+								mergeOriginPathsRef.current.has(file.path)
+							),
+					)
 				);
 			},
 			toggleStage(path: string) {
@@ -2201,6 +2436,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		}),
 		[
 			state.workingFiles,
+			state.mergeInProgress,
 			ensureDiff,
 			stage,
 			unstage,

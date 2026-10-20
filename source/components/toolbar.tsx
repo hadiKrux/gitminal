@@ -18,6 +18,7 @@ type Props = {
 	readonly operation: OperationState;
 	readonly entry: OperationLogEntry | undefined;
 	readonly isWatchDegraded: boolean;
+	readonly isMergeInProgress: boolean;
 	readonly hasDetailsHint: boolean;
 	readonly busyHint: string | undefined;
 	readonly onCommand: (id: CommandId) => void;
@@ -106,6 +107,7 @@ export default function Toolbar({
 	operation,
 	entry,
 	isWatchDegraded,
+	isMergeInProgress,
 	hasDetailsHint,
 	busyHint,
 	onCommand,
@@ -176,6 +178,7 @@ export default function Toolbar({
 						operation={operation}
 						entry={entry}
 						isWatchDegraded={isWatchDegraded}
+						isMergeInProgress={isMergeInProgress}
 						hasDetailsHint={hasDetailsHint}
 						busyHint={busyHint}
 						width={statusWidth}

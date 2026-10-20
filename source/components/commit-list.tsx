@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Box, type DOMElement } from 'ink';
+import { Box, Text, type DOMElement } from 'ink';
 import { theme, colorAt, tagColors, graphColors, tint } from '../theme.js';
 import type { Commit } from '../data/types.js';
 import { buildGraph, type GraphRow } from '../data/graph.js';
@@ -154,6 +154,10 @@ function CommitRow({
  * the selected row in view; page-up/page-down still scroll by a viewport. The
  * whole row is a click target, so the pointer and the arrows drive the same
  * selection.
+ *
+ * An unborn branch has no history but still has a pending row: the quiet
+ * "no commits yet" line sits above that row, which stays selectable and keeps
+ * counting the working tree until the first commit exists.
  */
 export default function CommitList({
 	commits,
@@ -165,6 +169,9 @@ export default function CommitList({
 }: Props) {
 	const areaRef = useRef<ScrollableAreaHandle>(null);
 	const graph = buildGraph(commits);
+	const hasHistory = commits.some(commit => commit.pending !== true);
+	const showEmptyState = !hasHistory && height > 1;
+	const listHeight = showEmptyState ? height - 1 : height;
 	// One width for every row keeps messages aligned even as branches come and go.
 	let laneCount = 1;
 	for (const row of graph) {
@@ -211,30 +218,37 @@ export default function CommitList({
 	);
 
 	return (
-		<ScrollableArea
-			ref={areaRef}
-			width={width}
-			height={height}
-			isActive={isActive}
-			scrollOnArrows={false}
-			pageStep={Math.max(1, height)}
-		>
-			{contentWidth =>
-				rows.map(({ commit, graphRow }, index) => (
-					<CommitRow
-						key={commit.hash}
-						commit={commit}
-						isSelected={index === selectedIndex}
-						width={contentWidth}
-						graph={graphRow}
-						laneCount={laneCount}
-						isColored={laneCount > 1}
-						onSelect={() => {
-							onSelectCommit(commit.hash);
-						}}
-					/>
-				))
-			}
-		</ScrollableArea>
+		<Box flexDirection="column" width={width} height={height}>
+			{showEmptyState ? (
+				<Box paddingLeft={2} flexShrink={0}>
+					<Text color={theme.dimmer}>no commits yet</Text>
+				</Box>
+			) : null}
+			<ScrollableArea
+				ref={areaRef}
+				width={width}
+				height={listHeight}
+				isActive={isActive}
+				scrollOnArrows={false}
+				pageStep={Math.max(1, listHeight)}
+			>
+				{contentWidth =>
+					rows.map(({ commit, graphRow }, index) => (
+						<CommitRow
+							key={commit.hash}
+							commit={commit}
+							isSelected={index === selectedIndex}
+							width={contentWidth}
+							graph={graphRow}
+							laneCount={laneCount}
+							isColored={laneCount > 1}
+							onSelect={() => {
+								onSelectCommit(commit.hash);
+							}}
+						/>
+					))
+				}
+			</ScrollableArea>
+		</Box>
 	);
 }

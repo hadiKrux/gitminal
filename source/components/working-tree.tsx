@@ -36,6 +36,10 @@ type HeaderProps = {
 	readonly width: number;
 	readonly isCollapsed: boolean;
 	readonly hasUnstaged: boolean;
+	/** True when the group has staged paths and all of them are plain. */
+	readonly hasUnstageable: boolean;
+	/** False for conflicts, which can be staged but never discarded. */
+	readonly isDiscardAllowed: boolean;
 	readonly onToggle: () => void;
 	readonly onDiscardAll: () => void;
 	readonly onStageAll: () => void;
@@ -43,6 +47,7 @@ type HeaderProps = {
 };
 
 const groupActionsWidth = ' Discard All '.length + 1 + ' Stage All '.length;
+const stageAllWidth = ' Stage All '.length;
 const unstageAllWidth = ' Unstage All '.length;
 
 /**
@@ -50,7 +55,12 @@ const unstageAllWidth = ' Unstage All '.length;
  *
  * While the group still has unstaged files it offers the bulk stage/discard
  * actions; once everything in it is staged, discard no longer applies and the
- * pair gives way to a single unstage action that puts the files back.
+ * pair gives way to a single unstage action that puts the files back. A group
+ * with any merge-origin file staged gets no bulk unstage: the action would
+ * leave those rows staged, and recreating their conflicts is a row-level
+ * action with its own warning. Conflicts keep Stage All but never Discard All:
+ * `git add` resolves them, while a discard would destroy the only copy of the
+ * conflicted worktree file.
  */
 function GroupHeader({
 	label,
@@ -58,6 +68,8 @@ function GroupHeader({
 	width,
 	isCollapsed,
 	hasUnstaged,
+	hasUnstageable,
+	isDiscardAllowed,
 	onToggle,
 	onDiscardAll,
 	onStageAll,
@@ -69,7 +81,13 @@ function GroupHeader({
 	useMouseHover(ref, setIsHovered);
 	useMouseClick(ref, onToggle);
 
-	const actionsWidth = hasUnstaged ? groupActionsWidth : unstageAllWidth;
+	const actionsWidth = hasUnstaged
+		? isDiscardAllowed
+			? groupActionsWidth
+			: stageAllWidth
+		: hasUnstageable
+		? unstageAllWidth
+		: 0;
 	const labelWidth = Math.max(0, width - actionsWidth);
 	const disclosure = isCollapsed
 		? icons.sectionCollapsed
@@ -101,28 +119,35 @@ function GroupHeader({
 			<Box flexDirection="row" flexShrink={0} gap={1}>
 				{hasUnstaged ? (
 					<>
-						<ToolbarButton
-							label="Discard All"
-							tone="danger"
-							onPress={onDiscardAll}
-						/>
+						{isDiscardAllowed ? (
+							<ToolbarButton
+								label="Discard All"
+								tone="danger"
+								onPress={onDiscardAll}
+							/>
+						) : null}
 						<ToolbarButton label="Stage All" onPress={onStageAll} />
 					</>
-				) : (
+				) : hasUnstageable ? (
 					<ToolbarButton label="Unstage All" onPress={onUnstageAll} />
-				)}
+				) : null}
 			</Box>
 		</Box>
 	);
 }
 
-/** Split the remaining files into the two groups the panel displays. */
+/** Split the files into the groups the panel displays. */
 const toGroups = (tree: WorkingTreeState): WorkingGroup[] => {
 	const groups: WorkingGroup[] = [
 		{
 			category: 'working',
 			label: 'Working Directory',
 			files: tree.files.filter(file => categoryOf(file) === 'working'),
+		},
+		{
+			category: 'conflicted',
+			label: 'Merge Conflicts',
+			files: tree.files.filter(file => categoryOf(file) === 'conflicted'),
 		},
 		{
 			category: 'untracked',
@@ -135,9 +160,10 @@ const toGroups = (tree: WorkingTreeState): WorkingGroup[] => {
 };
 
 /**
- * The working tree: modified files in "Working Directory" and new files in
- * "Untracked Files". Group headers and individual file rows both collapse, and
- * an expanded row renders the file's diff underneath it.
+ * The working tree: modified files in "Working Directory", unresolved merges in
+ * "Merge Conflicts", and new files in "Untracked Files". Group headers and
+ * individual file rows both collapse, and an expanded row renders the file's
+ * diff underneath it.
  */
 export default function WorkingTree({
 	tree,
@@ -266,6 +292,8 @@ export default function WorkingTree({
 								width={contentWidth}
 								isCollapsed={isCollapsed}
 								hasUnstaged={tree.hasUnstaged(group.category)}
+								hasUnstageable={tree.hasUnstageable(group.category)}
+								isDiscardAllowed={group.category !== 'conflicted'}
 								onToggle={() => {
 									toggleGroup(group.category);
 								}}
@@ -289,6 +317,7 @@ export default function WorkingTree({
 											width={contentWidth}
 											isExpanded={expandedFiles.has(file.path)}
 											isStaged={tree.isStaged(file.path)}
+											isMergeOrigin={tree.isMergeOrigin(file.path)}
 											onToggle={() => {
 												toggleFile(file.path);
 											}}

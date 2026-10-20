@@ -34,8 +34,8 @@ const commitGapHeight = 1;
 
 /**
  * The commit panel: message and commit action on top, then the working tree
- * grouped into tracked changes and untracked files, each file expandable to its
- * diff.
+ * grouped into tracked changes, merge conflicts, and untracked files, each
+ * file expandable to its diff.
  */
 export default function RightPanel({
 	author,
@@ -57,6 +57,9 @@ export default function RightPanel({
 		1,
 		height - commitBoxHeight(messageRows) - commitGapHeight,
 	);
+	const conflictCount = workingTree.files.filter(
+		file => file.status === 'conflicted',
+	).length;
 
 	return (
 		<Box width={width} height={height} flexDirection="column">
@@ -66,6 +69,7 @@ export default function RightPanel({
 				message={message}
 				messageRows={messageRows}
 				stagedCount={workingTree.stagedCount}
+				conflictCount={conflictCount}
 				isFocused={isCommitFocused}
 				isActive={isActive}
 				onMessageChange={onMessageChange}

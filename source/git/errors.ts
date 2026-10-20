@@ -6,9 +6,10 @@ import { missingIdentityHint } from './repo-info.js';
  * Turn a failed git run into the one line the status line shows.
  *
  * Classification starts with what a user can act on: a timeout is the
- * process, not git's message; an unset identity gets the shared setup hint;
- * and a commit or push that failed without git's own `fatal:` line is a
- * rejected hook only when the output names it. The transport failures a
+ * process, not git's message; an unset identity gets the shared setup hint; an
+ * unmerged index names the conflict instead of the raw fatal line; and a commit
+ * or push that failed without git's own `fatal:` line is a rejected hook only
+ * when the output names it. The transport failures a
  * remote operation produces come next, each as a short summary plus the one
  * action that resolves it. Everything else falls back to git's own output,
  * sanitized because the status line renders it literally. CR-framed progress
@@ -143,6 +144,17 @@ const isStaleLease = (output: string): boolean =>
 const noUpstreamPattern = /has no upstream branch/i;
 
 /**
+ * Git's refusal to commit while the index still holds unmerged entries.
+ *
+ * A merge conflict is not a generic commit failure, so the status line names
+ * the actual blocker instead of echoing whichever `error:`/`fatal:` line came
+ * first. Both wordings come from git's commit path.
+ */
+const isUnmergedCommitFailure = (output: string): boolean =>
+	/committing is not possible because you have unmerged files/i.test(output) ||
+	/exiting because of an unresolved conflict/i.test(output);
+
+/**
  * The branch git named in a missing-upstream message, or HEAD when the
  * wording is not one this git version prints. Branch names cannot contain
  * spaces, so the capture stops at whitespace; `HEAD` keeps the hint valid
@@ -170,6 +182,10 @@ export const failureSummary = (error: GitError): string => {
 
 	if (isIdentityFailure(output)) {
 		return missingIdentityHint;
+	}
+
+	if (isUnmergedCommitFailure(output)) {
+		return 'unmerged files; resolve them before committing';
 	}
 
 	const subcommand = subcommandOf(error.args);

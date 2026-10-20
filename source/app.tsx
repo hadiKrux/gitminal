@@ -465,6 +465,7 @@ export default function App({
 							operation={repoState.operation}
 							entry={latestEntry}
 							isWatchDegraded={repoState.watchDegraded}
+							isMergeInProgress={repoState.mergeInProgress}
 							hasDetailsHint={
 								overlay === undefined &&
 								failedOperation !== undefined &&

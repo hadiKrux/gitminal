@@ -14,6 +14,8 @@ type Props = {
 	readonly width: number;
 	readonly isExpanded: boolean;
 	readonly isStaged: boolean;
+	/** True for a path this merge started with, resolved or still unmerged. */
+	readonly isMergeOrigin: boolean;
 	readonly onToggle: () => void;
 	readonly onDiscard: () => void;
 	readonly onStage: () => void;
@@ -109,6 +111,7 @@ export default function WorkingFileRow({
 	width,
 	isExpanded,
 	isStaged,
+	isMergeOrigin,
 	onToggle,
 	onDiscard,
 	onStage,
@@ -117,9 +120,19 @@ export default function WorkingFileRow({
 
 	useMouseClick(rowRef, onToggle);
 
-	const stageLabel = isStaged ? 'Unstage' : 'Stage';
-	// Matches the group header's rule: no worktree change, no Discard.
-	const hasDiscard = file.hasUnstaged;
+	/*
+	 * A resolved merge path is still part of the merge: the only safe way back
+	 * is `checkout -m`, not an unstage that would silently discard its stages.
+	 * A still-unmerged row has nothing in the index, so it only offers Stage.
+	 */
+	const stageLabel = isStaged
+		? isMergeOrigin
+			? 'Recreate Conflict'
+			: 'Unstage'
+		: 'Stage';
+	// Matches the group header's rule: no worktree change, no Discard. A
+	// conflicted path has no resolved side to restore, so it never gets one.
+	const hasDiscard = file.status !== 'conflicted' && file.hasUnstaged;
 	const labelWidth = Math.max(0, width - actionsWidth(stageLabel, hasDiscard));
 	const disclosure = isExpanded
 		? icons.sectionExpanded

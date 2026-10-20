@@ -129,6 +129,25 @@ export const unstage = async (
 	);
 
 /**
+ * `git checkout -m -- <paths>`: recreate a conflict that was resolved in the
+ * index.
+ *
+ * This is the only safe undo for a merge-origin path. `git restore --staged`
+ * would drop the unmerged stages and leave an ordinary staged change that
+ * cannot be turned back into a conflict; `checkout -m` rebuilds the unmerged
+ * index entries and puts the markers back in the worktree.
+ */
+export const recreateConflict = async (
+	mutation: WorkingTreePaths,
+): Promise<readonly GitResult[]> =>
+	runEach(
+		chunkPaths(mutation.paths),
+		async chunk =>
+			runGit(['checkout', '-m', '--', ...chunk], { cwd: mutation.cwd }),
+		mutation.onCommand,
+	);
+
+/**
  * `git restore --worktree -- <paths>`, with the old-git fallback
  * `git checkout -- <paths>`.
  *

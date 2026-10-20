@@ -100,8 +100,8 @@ export type WorkingFile = {
 	readonly diff: readonly DiffLine[];
 };
 
-/** The two groups the commit panel splits the working tree into. */
-export type WorkingGroupCategory = 'working' | 'untracked';
+/** The groups the commit panel splits the working tree into. */
+export type WorkingGroupCategory = 'working' | 'untracked' | 'conflicted';
 
 export type WorkingGroup = {
 	readonly category: WorkingGroupCategory;
@@ -109,9 +109,18 @@ export type WorkingGroup = {
 	readonly files: readonly WorkingFile[];
 };
 
-/** Untracked files get their own group; everything else is a working change. */
-export const categoryOf = (file: WorkingFile): WorkingGroupCategory =>
-	file.status === 'untracked' ? 'untracked' : 'working';
+/**
+ * Conflicts keep their own group so staging one can never be mistaken for a
+ * normal change, untracked files keep theirs, and everything else is a working
+ * change.
+ */
+export const categoryOf = (file: WorkingFile): WorkingGroupCategory => {
+	if (file.status === 'conflicted') {
+		return 'conflicted';
+	}
+
+	return file.status === 'untracked' ? 'untracked' : 'working';
+};
 
 /**
  * The working-tree view the commit panel renders and acts through.
@@ -130,7 +139,22 @@ export type WorkingTree = {
 	 */
 	ensureDiff: (path: string) => void;
 	isStaged: (path: string) => boolean;
+	/**
+	 * Whether this session observed the path unmerged during the current
+	 * merge, even after it was resolved with `git add`; such a row can only
+	 * recreate its conflict, never use a plain unstage.
+	 */
+	isMergeOrigin: (path: string) => boolean;
 	hasUnstaged: (category: WorkingGroupCategory) => boolean;
+	/**
+	 * Whether a bulk unstage may revert the whole staged set in the category.
+	 *
+	 * True only when the category has at least one staged path and every
+	 * staged path is non-merge-origin. A merge-origin path's only safe undo is
+	 * its row-level `Recreate Conflict`, so a mixed or merge-origin-only group
+	 * must not offer `Unstage All` for the part that would be left behind.
+	 */
+	hasUnstageable: (category: WorkingGroupCategory) => boolean;
 	toggleStage: (path: string) => void;
 	stageAll: (category: WorkingGroupCategory) => void;
 	unstageAll: (category: WorkingGroupCategory) => void;

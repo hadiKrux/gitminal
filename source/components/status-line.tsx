@@ -20,6 +20,8 @@ type Props = {
 	 * "refreshed" while the watcher is still down.
 	 */
 	readonly isWatchDegraded: boolean;
+	/** True while `MERGE_HEAD` exists, resolved or not. */
+	readonly isMergeInProgress: boolean;
 	/** True while enter would open the error overlay; false while typing. */
 	readonly hasDetailsHint: boolean;
 	/** Short notice for a remote command ignored while the queue was busy. */
@@ -36,6 +38,15 @@ const detailsHint = ' enter: details';
 
 /** What a failed run says when git somehow produced no summary. */
 const failedFallback = 'operation failed';
+
+/**
+ * The standing hint while a merge is open.
+ *
+ * Resolving every path is not enough: the merge only ends when its commit
+ * exists, so the line keeps naming the next step even after a clean-looking
+ * index.
+ */
+const mergeHint = 'merge in progress - commit to conclude';
 
 /**
  * The progress bar's preferred cells. A wide slot gets the stable bar the
@@ -98,8 +109,9 @@ function BusyHint({ text }: { readonly text: string | undefined }) {
  * summary and phase shrink first while the details hint keeps its cells, and
  * the progress bar scales down or falls back to the spinner when the slot is
  * too narrow. Runs come from the newest operation-log entry; the watch warning
- * comes from its own sticky state, so it survives the refresh row `r` adds.
- * While a run streams progress the same row becomes a bar plus the phase, and
+ * comes from its own sticky state, so it survives the refresh row `r` adds, and
+ * an open merge adds a standing hint until its commit exists. While a run
+ * streams progress the same row becomes a bar plus the phase, and
  * an ignored remote click appends its warning without displacing the running
  * operation or a failure.
  */
@@ -107,6 +119,7 @@ export default function StatusLine({
 	operation,
 	entry,
 	isWatchDegraded,
+	isMergeInProgress,
 	hasDetailsHint,
 	busyHint,
 	width,
@@ -204,6 +217,24 @@ export default function StatusLine({
 						<Text color={theme.dim}>{detailsHint}</Text>
 					</Box>
 				) : null}
+			</Box>
+		);
+	}
+
+	/*
+	 * The merge hint outranks a routine success: `git add` clears the conflict
+	 * but not the merge. A failed run and a degraded watcher above still win,
+	 * because both are more urgent than the standing next step.
+	 */
+	if (isMergeInProgress) {
+		return (
+			<Box flexDirection="row" width={width} flexShrink={1} overflow="hidden">
+				<Box flexGrow={1} flexShrink={1}>
+					<Text wrap="truncate-end" color={theme.warn}>
+						{mergeHint}
+					</Text>
+				</Box>
+				<BusyHint text={busyHint} />
 			</Box>
 		);
 	}
