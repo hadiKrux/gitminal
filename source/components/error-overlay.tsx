@@ -4,7 +4,7 @@ import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
 import { useStdoutDimensions } from '../hooks/use-stdout-dimensions.js';
 import { theme } from '../theme.js';
 import { truncate } from '../layout.js';
-import { sanitizeOutput } from '../data/format.js';
+import { splitOutputLines } from '../data/format.js';
 import type { OperationLogEntry } from '../hooks/use-repo.js';
 import ModalFrame, { FrameRow, Line, contentWidth } from './modal-frame.js';
 import ScrollableArea from './scrollable-area.js';
@@ -60,10 +60,11 @@ export default function ErrorOverlay({ operation, onClose }: Props) {
 		.filter(text => text.length > 0)
 		.join('\n');
 	// A timeout or synthetic failure can have no captured output; show the
-	// error's own message instead of claiming there is no detail.
-	const output = sanitizeOutput(
-		captured.length > 0 ? captured : error?.message ?? '',
-	);
+	// error's own message instead of claiming there is no detail. Split the
+	// raw text before sanitizing so a CR-framed progress update and the fatal
+	// line after it stay separate rows.
+	const output = captured.length > 0 ? captured : error?.message ?? '';
+	const lines = splitOutputLines(output);
 
 	return (
 		<ModalFrame title="Error">
@@ -84,7 +85,7 @@ export default function ErrorOverlay({ operation, onClose }: Props) {
 							{output.length === 0 ? (
 								<Text color={theme.dimmer}>(no output captured)</Text>
 							) : (
-								output.split('\n').map((text, index) => (
+								lines.map((text, index) => (
 									<Text
 										// eslint-disable-next-line react/no-array-index-key
 										key={index}

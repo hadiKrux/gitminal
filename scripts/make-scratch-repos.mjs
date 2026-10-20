@@ -121,6 +121,15 @@ const assert = (condition, message) => {
 	}
 };
 
+/** The `# branch.ab +ahead -behind` line git prints for a branch. */
+const branchAb = repo => {
+	const status = git(repo, ['status', '--porcelain=v2', '--branch']);
+	const line = status.split('\n').find(item => item.startsWith('# branch.ab '));
+
+	assert(line !== undefined, `${repo} has no branch.ab header:\n${status}`);
+	return line.trim();
+};
+
 const write = (root, path, content) => {
 	const target = join(root, path);
 	mkdirSync(dirname(target), { recursive: true });
@@ -314,6 +323,9 @@ const createRemotePair = outputDir => {
 	const origin = join(outputDir, 'remote-origin.git');
 	const remote = join(outputDir, 'remote');
 	const remoteOther = join(outputDir, 'remote-other');
+	const remotePull = join(outputDir, 'remote-pull');
+	const remoteStale = join(outputDir, 'remote-stale');
+	const remoteClean = join(outputDir, 'remote-clean');
 
 	git(outputDir, ['init', '--bare', 'remote-origin.git']);
 	git(outputDir, ['init', 'remote']);
@@ -323,24 +335,65 @@ const createRemotePair = outputDir => {
 	git(remote, ['remote', 'add', 'origin', '../remote-origin.git']);
 	git(remote, ['push', '-u', 'origin', 'main']);
 
+	// Cloned before the other clone's commit on purpose: after the push and a
+	// fetch it is exactly one behind, so pull has a real fast-forward to make.
+	git(outputDir, ['clone', 'remote-origin.git', 'remote-pull']);
+	// Cloned on the same stale base and never fetched, so its origin/main
+	// tracking ref still points at the base after remote-other pushes.
+	git(outputDir, ['clone', 'remote-origin.git', 'remote-stale']);
 	git(outputDir, ['clone', 'remote-origin.git', 'remote-other']);
+
 	append(remoteOther, 'shared.txt', 'pushed from remote-other first\n');
 	git(remoteOther, ['commit', '-am', 'other clone change']);
 	git(remoteOther, ['push', 'origin', 'main']);
 
-	// The local commit is on the stale base on purpose: pushing it must be
-	// rejected as non-fast-forward because remote-other already moved the branch.
+	append(remoteStale, 'shared.txt', 'local change on the stale base\n');
+	git(remoteStale, ['commit', '-am', 'stale local change']);
+	assert(
+		branchAb(remoteStale) === '# branch.ab +1 -0',
+		`remote-stale/ is not ahead of its stale tracking ref: ${branchAb(
+			remoteStale,
+		)}`,
+	);
+
+	git(remotePull, ['fetch', 'origin']);
+	assert(
+		branchAb(remotePull) === '# branch.ab +0 -1',
+		`remote-pull/ is not behind by one: ${branchAb(remotePull)}`,
+	);
+
+	// Remote/ fetches first so its tracking ref is current, then commits on
+	// the stale base: the result is immediately ahead 1 and behind 1, and the
+	// push is the non-fast-forward fixture without any manual setup.
+	git(remote, ['fetch', 'origin']);
 	append(remote, 'shared.txt', 'local change without a fetch\n');
 	git(remote, ['commit', '-am', 'local clone change']);
+	assert(
+		branchAb(remote) === '# branch.ab +1 -1',
+		`remote/ is not divergent: ${branchAb(remote)}`,
+	);
+
+	// Cloned from the final origin state, then given one local commit: push
+	// succeeds and the ahead count drops to zero.
+	git(outputDir, ['clone', 'remote-origin.git', 'remote-clean']);
+	write(remoteClean, 'clean-local.txt', 'one local commit to push\n');
+	git(remoteClean, ['add', '-A']);
+	git(remoteClean, ['commit', '-m', 'clean local change']);
+	assert(
+		branchAb(remoteClean) === '# branch.ab +1 -0',
+		`remote-clean/ is not one ahead: ${branchAb(remoteClean)}`,
+	);
 
 	assert(existsSync(origin), 'remote-origin.git was not created');
 
 	return {
-		paths: [remote, remoteOther, origin],
+		paths: [remote, remoteOther, remotePull, remoteStale, remoteClean, origin],
 		lines: [
-			'remote-other/ has already pushed its commit; remote/ has a divergent local commit and a stale origin/main.',
-			'git push inside remote/ fails with a non-fast-forward rejection (milestone 9).',
-			'git fetch inside remote/ updates origin/main to +1/-1 (ahead and behind).',
+			'remote/ is ahead 1 and behind 1 with a current origin/main tracking ref: a plain push is rejected as non-fast-forward, while an immediate --force-with-lease push succeeds and rewrites the remote.',
+			"remote-stale/ is one local commit ahead of its stale origin/main tracking ref (+1 -0 seen locally): a plain push is rejected as non-fast-forward (`fetch first` in git's own output), and an immediate --force-with-lease push fails with `stale info` until a fetch refreshes the tracking ref.",
+			'remote-clean/ is one local commit ahead of origin: push succeeds with progress and the ahead count drops to 0.',
+			"remote-pull/ is behind by one after a fetch: pull fast-forwards in remote-other's non-conflicting commit.",
+			'git fetch inside remote-pull/ or big-clone/ updates remote refs; the sidebar shows the new refs and counts after refresh.',
 		],
 	};
 };
@@ -364,7 +417,8 @@ const createRemoteBadAuth = outputDir => {
 		paths: [repo],
 		lines: [
 			`origin points at ${url} (the fake auth server).`,
-			'start `node scripts/fake-auth-server.mjs --mode=401` in a second terminal, then fetch: the app must report the auth failure (milestone 9).',
+			'start `node scripts/fake-auth-server.mjs --mode=401` in a second terminal, then fetch with no credentials: GIT_TERMINAL_PROMPT=0 classifies it as `authentication required; terminal prompts disabled` (no prompt, no hang).',
+			'set the origin URL to `http://bad:bad@127.0.0.1:49321/repo.git` for the supplied-but-wrong credential case (`authentication failed`).',
 			'`--mode=stall` instead hangs the request so timeout handling can be verified.',
 		],
 	};
@@ -482,11 +536,30 @@ const createBig = outputDir => {
 		join(fixturesDir, 'push-progress.log'),
 	);
 
+	// The clone exists at the fixture-push state. More commits stay local so
+	// a live push in big/ transfers a batch and a fetch in big-clone/ has
+	// objects to receive.
+	git(outputDir, ['clone', 'big-origin.git', 'big-clone']);
+
+	for (let index = 141; index <= 180; index += 1) {
+		commit(index);
+	}
+
+	assert(
+		branchAb(repo) === '# branch.ab +40 -0',
+		`big/ does not end with unpushed commits: ${branchAb(repo)}`,
+	);
+
 	return {
-		paths: [repo],
+		paths: [repo, join(outputDir, 'big-clone')],
 		lines: [
-			'stress repo: about 140 commits and 20 tracked files for progress and performance checks.',
-			'push progress was captured to scripts/fixtures/push-progress.log with its CR/LF framing.',
+			'stress repo: about 180 commits and 20 tracked files; the last 40 commits are unpushed so a live push transfers objects.',
+			'a push in big/ shows Compressing/Writing objects percentages and then drops the ahead count to 0.',
+			'fetching in big-clone/ receives that batch and shows Receiving objects.',
+			`push progress was captured to ${join(
+				fixturesDir,
+				'push-progress.log',
+			)} with its CR/LF framing.`,
 		],
 	};
 };
@@ -533,12 +606,16 @@ const resetOutput = outputDir => {
 		'detached',
 		'remote',
 		'remote-other',
+		'remote-pull',
+		'remote-stale',
+		'remote-clean',
 		'remote-origin.git',
 		'remote-bad-auth',
 		'remote-unreachable',
 		'hooks',
 		'slow',
 		'big',
+		'big-clone',
 		'big-origin.git',
 	];
 

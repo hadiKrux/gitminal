@@ -48,6 +48,12 @@ Available actions:
 
 An invalid or malformed config file is ignored and the defaults are used; a warning is printed to stderr.
 
+## Remote operations
+
+`pull`, `fetch`, `fetch --prune`, `push`, the force push, and `push --no-verify` run real git commands from the toolbar, the remote menu, and their keybindings. The menu item `push --force` runs `git push --force-with-lease`, so it refuses to overwrite a remote commit this clone has not fetched; fetch first if the lease is stale.
+
+Remote commands run with a 30 second timeout. On timeout the whole process group is killed, and the status line reports `timed out; operation killed`. Other failures are classified into a short summary such as non-fast-forward, missing upstream, authentication, or network, while the full captured stdout and stderr stay available in the error overlay (enter on the failure). Only one remote command runs at a time; a repeated request while another queued operation is running is ignored with a short status hint.
+
 ## CLI
 
 ```

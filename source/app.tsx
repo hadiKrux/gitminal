@@ -18,6 +18,7 @@ import { defaultKeybindings, type ResolvedKeybindings } from './keybindings.js';
 import { type CommandId } from './commands.js';
 import { type CommitOptionId } from './commit-options.js';
 import { branchesSectionTitle } from './git/refs.js';
+import { isRemoteCommandId } from './git/remote.js';
 import { theme } from './theme.js';
 import { getLayout } from './layout.js';
 import Toolbar from './components/toolbar.js';
@@ -283,6 +284,7 @@ export default function App({
 		commit: repoCommit,
 		checkout,
 		createBranch,
+		runCommand,
 	} = repoState;
 	const latestEntry = repoState.entries.at(-1);
 
@@ -335,8 +337,23 @@ export default function App({
 
 			setActiveCommand(id);
 			setOverlay(undefined);
+
+			/*
+			 * Remote commands run for real through the queue. Failures open the
+			 * same scrollable error overlay as every other git operation; a
+			 * success needs nothing because the drain load refreshes the badge,
+			 * and a busy-ignored request already reported itself in the status
+			 * line, so neither may steal the screen.
+			 */
+			if (isRemoteCommandId(id)) {
+				void runCommand(id).then(failure => {
+					if (failure !== undefined) {
+						openOverlay({ kind: 'error', operation: failure });
+					}
+				});
+			}
 		},
-		[openOverlay],
+		[openOverlay, runCommand],
 	);
 
 	const openDetails = useCallback(() => {
@@ -442,6 +459,7 @@ export default function App({
 					<MouseGateContext.Provider value={overlay !== undefined}>
 						<Toolbar
 							branch={repoState.branch}
+							sync={repoState.sync}
 							width={layout.columns}
 							activeCommand={activeCommand}
 							operation={repoState.operation}
@@ -452,6 +470,7 @@ export default function App({
 								failedOperation !== undefined &&
 								!isCommitFocused
 							}
+							busyHint={repoState.busyHint}
 							onCommand={handleCommand}
 							onOpenMenu={() => {
 								openOverlay({ kind: 'remote' });

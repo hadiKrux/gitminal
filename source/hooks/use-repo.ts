@@ -25,9 +25,15 @@ import {
 } from '../git/branch.js';
 import { readRefs } from '../git/refs.js';
 import { failureSummary } from '../git/errors.js';
+import {
+	remoteCommands,
+	runCommand as runRemoteCommand,
+	type RemoteCommandId,
+} from '../git/remote.js';
 import { mapStatus } from '../data/map.js';
 import {
 	categoryOf,
+	type BranchSync,
 	type Commit,
 	type DiffLine,
 	type FileGroup,
@@ -58,6 +64,20 @@ export type OperationStatus = 'running' | 'ok' | 'failed';
 export type OperationLogKind = 'git' | 'refresh' | 'watch';
 
 /**
+ * Live progress of a running remote command.
+ *
+ * `phase` is required because a parsed percentage always arrives with the
+ * phase line that carried it; `done`/`total` are optional because a phase
+ * line such as `Enumerating objects: 5, done.` has no counts.
+ */
+export type OperationProgress = {
+	readonly phase: string;
+	readonly percent?: number;
+	readonly done?: number;
+	readonly total?: number;
+};
+
+/**
  * One entry in the operation log.
  *
  * The log is the shared history behind the status line and the console, so
@@ -85,14 +105,19 @@ export type OperationLogEntry = {
 	/** Past tense on success (`staged 3 files`), else the failure summary. */
 	readonly summary?: string;
 	readonly error?: GitError;
-	/** Reserved for streamed remote progress (ticket 09). */
-	readonly progress?: number;
+	/**
+	 * Streamed phase progress while the entry is running. Cleared when the run
+	 * finishes: a finished row shows its duration and outcome, not a stale bar.
+	 */
+	readonly progress?: OperationProgress;
 };
 
 /** Whether the queue is running something, and its present-tense label. */
 export type OperationState = {
 	readonly busy: boolean;
 	readonly label: string;
+	/** Live progress of the running entry, when it has any. */
+	readonly progress?: OperationProgress;
 };
 
 /**
@@ -131,6 +156,8 @@ export type RepoState = {
 	 */
 	readonly watchDegraded: boolean;
 	readonly branch: string;
+	/** How the checked-out branch relates to its upstream, for the badge. */
+	readonly sync: BranchSync;
 	/** Every sidebar section, read from refs on each successful load. */
 	readonly sections: readonly SidebarSection[];
 	readonly workingFiles: readonly WorkingFile[];
@@ -154,6 +181,12 @@ export type RepoState = {
 	 */
 	selectCommit: (hash: string) => void;
 	readonly operation: OperationState;
+	/**
+	 * Short notice for a remote command that was ignored because the queue was
+	 * busy. Transient: it clears after a few seconds so the status line cannot
+	 * keep claiming a conflict that is long over.
+	 */
+	readonly busyHint: string | undefined;
 	/** Append-only ring buffer; the newest entry is last. */
 	readonly entries: readonly OperationLogEntry[];
 	/**
@@ -190,6 +223,12 @@ export type RepoState = {
 	 * worktree and the app receives the entry that explains why.
 	 */
 	createBranch: (name: string) => Promise<OperationLogEntry | undefined>;
+	/**
+	 * Run one remote operation through the queue. Resolves undefined when the
+	 * command succeeded or was ignored because another operation was running;
+	 * a failed entry otherwise, so the app can open the error overlay.
+	 */
+	runCommand: (id: RemoteCommandId) => Promise<OperationLogEntry | undefined>;
 };
 
 type RepoSnapshot = Omit<
@@ -211,6 +250,7 @@ type RepoSnapshot = Omit<
 	| 'commit'
 	| 'checkout'
 	| 'createBranch'
+	| 'runCommand'
 > & {
 	/**
 	 * The selected commit's hash, kept in the snapshot rather than exposed as
@@ -221,6 +261,18 @@ type RepoSnapshot = Omit<
 
 /** Entries kept in the ring buffer; older runs fall off the front. */
 const operationLogCap = 200;
+
+/**
+ * How often a running entry adopts streamed progress.
+ *
+ * A large fetch emits thousands of CR-framed updates; forwarding each one
+ * would re-render the whole Ink tree. Coalescing to about ten updates per
+ * second keeps the bar alive without making the UI the bottleneck.
+ */
+const progressThrottleMs = 100;
+
+/** How long an ignored-while-busy notice stays on the status line. */
+const busyHintDurationMs = 3000;
 
 /**
  * Trailing debounce for git-directory events.
@@ -289,6 +341,7 @@ const edge = (kind: RepoKind, detail?: string): RepoSnapshot => ({
 	watchDir: undefined,
 	watchDegraded: false,
 	branch: '',
+	sync: { state: 'unknown', upstream: undefined, ahead: 0, behind: 0 },
 	sections: [],
 	workingFiles: [],
 	fileGroups: [],
@@ -296,6 +349,7 @@ const edge = (kind: RepoKind, detail?: string): RepoSnapshot => ({
 	selectedCommitHash: undefined,
 	identity: undefined,
 	detail,
+	busyHint: undefined,
 });
 
 /**
@@ -412,6 +466,22 @@ const toGitError = (error: unknown): GitError => {
  */
 const failureOf = (entry: OperationLogEntry): OperationLogEntry | undefined =>
 	entry.status === 'ok' ? undefined : entry;
+
+/**
+ * Keep the last streamed phase in a failed remote run's summary.
+ *
+ * A transport failure often ends with output that says nothing about where it
+ * happened (`fatal: the remote end hung up unexpectedly`). Naming the phase
+ * tells the user whether the connection died while receiving objects or while
+ * writing them; a run with no progress (local mutations) is unchanged.
+ */
+const failureSummaryDuring = (
+	error: GitError,
+	phase: string | undefined,
+): string => {
+	const summary = failureSummary(error);
+	return phase === undefined ? summary : `${summary} (during ${phase})`;
+};
 
 /**
  * Why a load is running.
@@ -562,9 +632,12 @@ type QueuedRun = {
 	/**
 	 * `reportCommand` receives each command's argv as soon as it completes, so
 	 * a run that fails partway still knows which earlier commands succeeded.
+	 * `reportProgress` receives streamed phase updates while the command runs;
+	 * a run that has none simply ignores it.
 	 */
 	readonly run: (
 		reportCommand: (args: readonly string[]) => void,
+		reportProgress: (progress: OperationProgress) => void,
 	) => Promise<readonly GitResult[]>;
 	/**
 	 * Resolve the promise `enqueue` returned. A caller that shows its own
@@ -691,6 +764,23 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	 * a stale failure must not back a current warning.
 	 */
 	const watchFailureRef = useRef<OperationLogEntry | undefined>(undefined);
+	/**
+	 * Timer behind `busyHint`. One timer per notice is enough: a second
+	 * ignored click replaces the text and restarts the same countdown.
+	 */
+	const busyHintTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+		undefined,
+	);
+	/**
+	 * Throttle timer for the running entry's progress.
+	 *
+	 * Only one run exists at a time, so one timer is enough. Keeping it at
+	 * hook level is what lets the unmount cleanup stop it when the app
+	 * disappears mid-transfer instead of letting 100 ms ticks continue.
+	 */
+	const progressTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+		undefined,
+	);
 
 	// Actions read this instead of closing over `state`, so a click right after
 	// a refresh operates on the same snapshot the panel is showing; writing it
@@ -911,6 +1001,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					// carrying it through here keeps the hint until a watch is live.
 					watchDegraded: current.watchDegraded,
 					branch: view.branch,
+					sync: view.sync,
 					sections,
 					workingFiles,
 					fileGroups: view.fileGroups,
@@ -918,6 +1009,9 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					selectedCommitHash,
 					identity: probe.identity,
 					detail: undefined,
+					// A load does not resolve a busy notice: its own timer does,
+					// and a post-drain load must not make the hint vanish early.
+					busyHint: current.busyHint,
 				}));
 				markApplied();
 				return { status: 'ok' };
@@ -966,6 +1060,15 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			// A late resolve must not set state after unmount.
 			mountedRef.current = false;
 			cancelWatchRetry();
+			if (busyHintTimerRef.current !== undefined) {
+				clearTimeout(busyHintTimerRef.current);
+				busyHintTimerRef.current = undefined;
+			}
+
+			if (progressTimerRef.current !== undefined) {
+				clearTimeout(progressTimerRef.current);
+				progressTimerRef.current = undefined;
+			}
 		};
 	}, [cancelWatchRetry, load]);
 
@@ -1056,69 +1159,194 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			});
 	}, []);
 
-	/** Run one queued operation and record its outcome in the log. */
-	const runQueued = useCallback(async (queued: QueuedRun): Promise<void> => {
-		const entry: OperationLogEntry = {
-			id: queued.id,
-			kind: 'git',
-			label: queued.label,
-			args: [],
-			startedAt: Date.now(),
-			status: 'running',
-		};
-
-		// A queued run gets no entry until it starts, so the status line only
-		// ever shows the running one; the console records the same start.
-		setEntries(current => [...current, entry].slice(-operationLogCap));
-
-		const completedArgs: string[][] = [];
-		let finished: OperationLogEntry;
-
-		try {
-			const results = await queued.run(args => {
-				completedArgs.push([...args]);
-			});
-			finished = {
-				...entry,
-				// Every git command the run spawned, in order (chunked runs have
-				// one per chunk); each argv carries the global flags already.
-				args: results.map(result => result.args),
-				endedAt: Date.now(),
-				status: 'ok',
-				summary: queued.summary,
-			};
-		} catch (error: unknown) {
-			const gitError = toGitError(error);
-			finished = {
-				...entry,
-				// Keep the chunks that completed before the failing command, so
-				// a failed chunked run shows the same "(+N more)" history as a
-				// successful one; the failing argv comes from the error itself.
-				// A synthetic error (local validation, no command run) has no
-				// argv and must not add a blank command to the log.
-				args:
-					gitError.args.length > 0
-						? [...completedArgs, gitError.args]
-						: [...completedArgs],
-				endedAt: Date.now(),
-				status: 'failed',
-				summary: failureSummary(gitError),
-				error: gitError,
-			};
+	/** Drop a transient busy notice and its countdown. */
+	const clearBusyHint = useCallback((): void => {
+		if (busyHintTimerRef.current !== undefined) {
+			clearTimeout(busyHintTimerRef.current);
+			busyHintTimerRef.current = undefined;
 		}
 
-		// Settle before the unmount check: the caller is awaiting this outcome
-		// even when the component disappeared while git was running.
-		queued.settle(finished);
+		setState(current =>
+			current.busyHint === undefined
+				? current
+				: { ...current, busyHint: undefined },
+		);
+	}, []);
 
+	/**
+	 * Say why a remote command was ignored while the queue was busy.
+	 *
+	 * The running operation keeps the status line, so the rejected request
+	 * needs its own line; the timer clears it before it can look like the
+	 * current state long after the queue became free.
+	 */
+	const showBusyHint = useCallback((hint: string): void => {
 		if (!mountedRef.current) {
 			return;
 		}
 
-		setEntries(current =>
-			current.map(item => (item.id === entry.id ? finished : item)),
-		);
+		if (busyHintTimerRef.current !== undefined) {
+			clearTimeout(busyHintTimerRef.current);
+		}
+
+		setState(current => ({ ...current, busyHint: hint }));
+		busyHintTimerRef.current = setTimeout(() => {
+			busyHintTimerRef.current = undefined;
+			if (!mountedRef.current) {
+				return;
+			}
+
+			setState(current =>
+				current.busyHint === hint
+					? { ...current, busyHint: undefined }
+					: current,
+			);
+		}, busyHintDurationMs);
 	}, []);
+
+	/** Run one queued operation and record its outcome in the log. */
+	const runQueued = useCallback(
+		async (queued: QueuedRun): Promise<void> => {
+			const entry: OperationLogEntry = {
+				id: queued.id,
+				kind: 'git',
+				label: queued.label,
+				args: [],
+				startedAt: Date.now(),
+				status: 'running',
+			};
+
+			// A queued run starting means the busy window that produced any
+			// hint has ended; the notice must not overlap a real operation.
+			clearBusyHint();
+
+			// A queued run gets no entry until it starts, so the status line only
+			// ever shows the running one; the console records the same start.
+			setEntries(current => [...current, entry].slice(-operationLogCap));
+
+			const completedArgs: string[][] = [];
+			let finished: OperationLogEntry;
+			/** Latest state received from the stream, even when not yet shown. */
+			let latestProgress: OperationProgress | undefined;
+			/** The state the running entry currently renders. */
+			let shownProgress: OperationProgress | undefined;
+
+			const clearProgressTimer = (): void => {
+				if (progressTimerRef.current !== undefined) {
+					clearTimeout(progressTimerRef.current);
+					progressTimerRef.current = undefined;
+				}
+			};
+
+			/**
+			 * Adopt the newest pending state. Done/total-only movement is
+			 * skipped by the same phase+percent key the reporter uses, so a
+			 * transfer that has not moved a percentage for a while does not
+			 * re-render on every object.
+			 */
+			const flushProgress = (): void => {
+				progressTimerRef.current = undefined;
+				if (latestProgress === undefined) {
+					return;
+				}
+
+				if (
+					shownProgress !== undefined &&
+					shownProgress.phase === latestProgress.phase &&
+					shownProgress.percent === latestProgress.percent
+				) {
+					return;
+				}
+
+				const next = latestProgress;
+				shownProgress = next;
+				if (!mountedRef.current) {
+					return;
+				}
+
+				setEntries(current =>
+					current.map(item =>
+						item.id === entry.id && item.status === 'running'
+							? { ...item, progress: next }
+							: item,
+					),
+				);
+			};
+
+			const reportProgress = (progress: OperationProgress): void => {
+				latestProgress = progress;
+
+				if (
+					shownProgress !== undefined &&
+					shownProgress.phase === progress.phase &&
+					shownProgress.percent === progress.percent
+				) {
+					return;
+				}
+
+				// One pending timer is the whole throttle: the first update
+				// schedules a flush and later updates ride on it.
+				if (progressTimerRef.current === undefined) {
+					progressTimerRef.current = setTimeout(
+						flushProgress,
+						progressThrottleMs,
+					);
+				}
+			};
+
+			try {
+				const results = await queued.run(args => {
+					completedArgs.push([...args]);
+				}, reportProgress);
+				finished = {
+					...entry,
+					// Every git command the run spawned, in order (chunked runs have
+					// one per chunk); each argv carries the global flags already.
+					args: results.map(result => result.args),
+					endedAt: Date.now(),
+					status: 'ok',
+					summary: queued.summary,
+				};
+			} catch (error: unknown) {
+				const gitError = toGitError(error);
+				finished = {
+					...entry,
+					// Keep the chunks that completed before the failing command, so
+					// a failed chunked run shows the same "(+N more)" history as a
+					// successful one; the failing argv comes from the error itself.
+					// A synthetic error (local validation, no command run) has no
+					// argv and must not add a blank command to the log.
+					args:
+						gitError.args.length > 0
+							? [...completedArgs, gitError.args]
+							: [...completedArgs],
+					endedAt: Date.now(),
+					status: 'failed',
+					// The phase is the last thing the stream said before the
+					// failure; it tells the user where the transport died.
+					summary: failureSummaryDuring(gitError, latestProgress?.phase),
+					error: gitError,
+				};
+			} finally {
+				// The finished entry carries no progress; a late timer must not
+				// resurrect a bar over a completed row.
+				clearProgressTimer();
+			}
+
+			// Settle before the unmount check: the caller is awaiting this outcome
+			// even when the component disappeared while git was running.
+			queued.settle(finished);
+
+			if (!mountedRef.current) {
+				return;
+			}
+
+			setEntries(current =>
+				current.map(item => (item.id === entry.id ? finished : item)),
+			);
+		},
+		[clearBusyHint],
+	);
 
 	/**
 	 * Run at most one refresh at a time, with a single pending slot.
@@ -1863,6 +2091,48 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	);
 
 	/**
+	 * Run one remote command through the operation queue.
+	 *
+	 * A request that arrives while the queue is busy is ignored instead of
+	 * queued: a second push behind a slow fetch would only race the state the
+	 * first one is about to settle. Remote commands get one entry like every
+	 * other run, but their streamed progress is attached while it runs and the
+	 * last phase is folded into the failure summary when one fails.
+	 */
+	const runCommand = useCallback(
+		async (id: RemoteCommandId): Promise<OperationLogEntry | undefined> => {
+			const command = remoteCommands[id];
+			// Read through the ref, not a render closure: the command must act
+			// on the snapshot the toolbar is showing.
+			const { root } = stateRef.current;
+
+			if (root === undefined) {
+				return recordFailure(command.busy, 'not in a repository');
+			}
+
+			if (isDrainingRef.current || queueRef.current.length > 0) {
+				showBusyHint(`${id} ignored: busy`);
+				return undefined;
+			}
+
+			const entry = await enqueue(
+				command.busy,
+				command.done,
+				async (reportCommand, reportProgress) => {
+					const result = await runRemoteCommand(id, {
+						cwd: root,
+						onCommand: reportCommand,
+						onProgress: reportProgress,
+					});
+					return [result];
+				},
+			);
+			return failureOf(entry);
+		},
+		[enqueue, recordFailure, showBusyHint],
+	);
+
+	/**
 	 * Select one commit by hash.
 	 *
 	 * The hash is validated against the current list, so a click that lands
@@ -1952,7 +2222,11 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		for (let index = entries.length - 1; index >= 0; index -= 1) {
 			const entry = entries[index];
 			if (entry?.status === 'running') {
-				return { busy: true, label: entry.label };
+				return {
+					busy: true,
+					label: entry.label,
+					progress: entry.progress,
+				};
 			}
 		}
 
@@ -2026,6 +2300,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		commit,
 		checkout,
 		createBranch,
+		runCommand,
 		selectCommit,
 	};
 };

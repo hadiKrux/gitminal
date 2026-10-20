@@ -47,6 +47,31 @@ export type DiffLine = {
 	text: string;
 };
 
+/**
+ * How the checked-out branch relates to its upstream.
+ *
+ * `conflict` comes from the working tree, not from the ahead/behind counts:
+ * a merge left unmerged paths behind, and that must win over a clean-looking
+ * upstream relation. `unknown` is the honest answer outside a repository and
+ * for a detached HEAD, which has no branch to compare with an upstream.
+ */
+export type BranchSyncState =
+	| 'up-to-date'
+	| 'ahead'
+	| 'behind'
+	| 'diverged'
+	| 'conflict'
+	| 'no-upstream'
+	| 'unknown';
+
+/** The branch badge's model: state plus the counts and upstream it came from. */
+export type BranchSync = {
+	readonly state: BranchSyncState;
+	readonly upstream: string | undefined;
+	readonly ahead: number;
+	readonly behind: number;
+};
+
 /** Git status of a file in the working tree. */
 export type WorkingFileStatus =
 	| 'modified'

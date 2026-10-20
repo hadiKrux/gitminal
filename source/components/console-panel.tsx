@@ -85,10 +85,18 @@ const exitLabel = (entry: OperationLogEntry): string =>
 	entry.error?.exitCode === undefined ? '' : `exit ${entry.error.exitCode}`;
 
 /**
- * The trailing cells of a row: elapsed time, and for a failure the exit code
- * and classified summary (raw output stays in the error overlay).
+ * The trailing cells of a row: streamed progress while running, elapsed time
+ * for a finished run, and for a failure the exit code and classified summary
+ * (raw output stays in the error overlay).
  */
 const metaLabel = (entry: OperationLogEntry): string => {
+	if (entry.status === 'running' && entry.progress !== undefined) {
+		// Mirror the status line: the console row should answer "what is it
+		// doing now" without finishing the run first.
+		const { phase, percent } = entry.progress;
+		return percent === undefined ? phase : `${phase} ${percent}%`;
+	}
+
 	const duration = formatDuration(entry);
 	if (entry.status !== 'failed') {
 		return duration;
@@ -187,7 +195,11 @@ function ConsoleRow({ entry, width, onOpenError }: RowProps) {
 				{metaGap > 0 ? (
 					<>
 						<Text>{'  '}</Text>
-						<Text color={isFailed ? theme.del : theme.success}>
+						<Text
+							color={
+								isFailed ? theme.del : isRunning ? theme.accent : theme.success
+							}
+						>
 							{shownMeta}
 						</Text>
 					</>

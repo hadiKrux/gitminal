@@ -1,5 +1,6 @@
 import type { RepoStatus, StatusCode, StatusEntry } from '../git/status.js';
 import type {
+	BranchSync,
 	FileCategory,
 	FileGroup,
 	WorkingFile,
@@ -11,6 +12,7 @@ export type RepoView = {
 	readonly branch: string;
 	readonly workingFiles: readonly WorkingFile[];
 	readonly fileGroups: readonly FileGroup[];
+	readonly sync: BranchSync;
 };
 
 /** Short oid keeps the detached badge stable and readable: `detached @ 1a2b3c4`. */
@@ -139,9 +141,52 @@ const toFileGroups = (entries: readonly StatusEntry[]): FileGroup[] =>
 		}))
 		.filter(group => group.files.length > 0);
 
+/** Expected ahead/behind counts, then the state those counts imply. */
+export const syncOf = (status: RepoStatus): BranchSync => {
+	const counts = {
+		upstream: status.upstream,
+		ahead: status.ahead,
+		behind: status.behind,
+	};
+
+	// Unmerged paths mean a conflicted working tree even while the branch and
+	// its upstream still look comparable; the badge must say "conflict".
+	if (status.entries.some(entry => entry.kind === 'unmerged')) {
+		return { ...counts, state: 'conflict' };
+	}
+
+	/*
+	 * A detached HEAD has no branch to compare with an upstream. Reporting
+	 * `no-upstream` implies a branch that could be pushed with `-u`; the
+	 * honest state is `unknown`, which still paints the badge blue.
+	 */
+	if (status.branch.kind === 'detached') {
+		return { ...counts, state: 'unknown' };
+	}
+
+	if (status.upstream === undefined) {
+		return { ...counts, state: 'no-upstream' };
+	}
+
+	if (status.ahead > 0 && status.behind > 0) {
+		return { ...counts, state: 'diverged' };
+	}
+
+	if (status.behind > 0) {
+		return { ...counts, state: 'behind' };
+	}
+
+	if (status.ahead > 0) {
+		return { ...counts, state: 'ahead' };
+	}
+
+	return { ...counts, state: 'up-to-date' };
+};
+
 /** Map the git-side status into the shapes the components already render. */
 export const mapStatus = (status: RepoStatus): RepoView => ({
 	branch: branchLabel(status.branch),
 	workingFiles: status.entries.map(entry => toWorkingFile(entry)),
 	fileGroups: toFileGroups(status.entries),
+	sync: syncOf(status),
 });

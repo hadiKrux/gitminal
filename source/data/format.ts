@@ -16,6 +16,18 @@ export const sanitizeOutput = (text: string): string =>
 	text.replace(controlPattern, '');
 
 /**
+ * Split captured output into physical lines, then sanitize each line.
+ *
+ * The split must happen first: git updates a progress line in place with a
+ * carriage return, so sanitizing first would delete the `\r` and merge
+ * `... done.` with the `fatal:` line that follows it. Blank lines are kept
+ * because the error overlay renders them as empty rows; classifiers trim and
+ * drop them themselves.
+ */
+export const splitOutputLines = (text: string): readonly string[] =>
+	text.split(/\r\n|\r|\n/).map(line => sanitizeOutput(line));
+
+/**
  * Local wall-clock time as `HH:MM:SS`.
  *
  * The console is a live session log, so the time of day is the useful anchor.
