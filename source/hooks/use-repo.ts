@@ -209,6 +209,21 @@ export type RepoState = {
 	stageAll: (category: WorkingGroupCategory) => void;
 	unstageAll: (category: WorkingGroupCategory) => void;
 	discardAll: (category: WorkingGroupCategory) => void;
+	/**
+	 * Stage every path with stageable work across all groups, including
+	 * conflicted paths (staging one marks it resolved).
+	 */
+	stageAllChanges: () => void;
+	/**
+	 * Unstage every staged path that is not merge-origin. This is a plain
+	 * unstage only: a bulk action never recreates conflicts.
+	 */
+	unstageAllChanges: () => void;
+	/**
+	 * Ask to discard every non-conflicted path with worktree changes, then
+	 * restore tracked paths and remove untracked ones in one queued run.
+	 */
+	discardAllChanges: () => void;
 	refresh: () => void;
 	/** Load a row's diff on demand; no-op when cached or already in flight. */
 	ensureDiff: (path: string) => void;
@@ -252,6 +267,9 @@ type RepoSnapshot = Omit<
 	| 'stageAll'
 	| 'unstageAll'
 	| 'discardAll'
+	| 'stageAllChanges'
+	| 'unstageAllChanges'
+	| 'discardAllChanges'
 	| 'refresh'
 	| 'ensureDiff'
 	| 'commit'
@@ -2151,6 +2169,105 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	);
 
 	/**
+	 * Stage every path the index does not already hold, across all groups.
+	 *
+	 * A conflicted path is included on purpose: `git add` is how a resolution
+	 * is recorded. A staged path with further worktree changes is included too,
+	 * because its unstaged side still needs to be recorded.
+	 */
+	const stageAllChanges = useCallback(() => {
+		const paths = filesRef.current
+			.filter(file => !file.staged || file.hasUnstaged)
+			.map(file => file.path);
+
+		runMutation('stage', paths, stagePaths);
+	}, [runMutation]);
+
+	/**
+	 * Unstage every plain staged path in the repository.
+	 *
+	 * Merge-origin paths are filtered out exactly like the per-group bulk
+	 * action: `checkout -m` is their only safe undo, and a bulk action must
+	 * never recreate conflicts behind the user's back. The queued plain
+	 * unstage still re-reads the unmerged set immediately before running.
+	 */
+	const unstageAllChanges = useCallback(() => {
+		const { mergeInProgress } = stateRef.current;
+		const mergeOrigin = mergeInProgress
+			? mergeOriginPathsRef.current
+			: undefined;
+		const paths = filesRef.current
+			.filter(file => file.staged && !(mergeOrigin?.has(file.path) ?? false))
+			.map(file => file.path);
+
+		enqueuePlainUnstage(paths);
+	}, [enqueuePlainUnstage]);
+
+	/**
+	 * Discard every non-conflicted path with worktree changes, after one
+	 * confirmation.
+	 *
+	 * Tracked and untracked paths need different git commands, but they share
+	 * one queue entry and one summary: the user asked for one bulk discard, not
+	 * two operations. Conflicts are excluded because their worktree file holds
+	 * the only copy of the conflict and has no resolved side to restore.
+	 */
+	const discardAllChanges = useCallback(() => {
+		const targets = filesRef.current.filter(
+			file => categoryOf(file) !== 'conflicted' && file.hasUnstaged,
+		);
+		const tracked = targets
+			.filter(file => categoryOf(file) === 'working')
+			.map(file => file.path);
+		const untracked = targets
+			.filter(file => categoryOf(file) === 'untracked')
+			.map(file => file.path);
+		const paths = targets.map(file => file.path);
+
+		if (paths.length === 0) {
+			return;
+		}
+
+		requestConfirm({
+			label: 'Discard All',
+			paths,
+			onConfirm() {
+				const { root } = stateRef.current;
+				if (root === undefined) {
+					return;
+				}
+
+				const { busy, done } = mutationLabels('discard', paths);
+				void enqueue(busy, done, async reportCommand => {
+					const results: GitResult[] = [];
+
+					if (tracked.length > 0) {
+						results.push(
+							...(await discardTrackedPaths({
+								cwd: root,
+								paths: tracked,
+								onCommand: reportCommand,
+							})),
+						);
+					}
+
+					if (untracked.length > 0) {
+						results.push(
+							...(await discardUntrackedPaths({
+								cwd: root,
+								paths: untracked,
+								onCommand: reportCommand,
+							})),
+						);
+					}
+
+					return results;
+				});
+			},
+		});
+	}, [enqueue, requestConfirm]);
+
+	/**
 	 * Record a validation failure that never reached git.
 	 *
 	 * The status line and the error overlay both read the same entry, so a
@@ -2531,6 +2648,9 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		stageAll,
 		unstageAll,
 		discardAll,
+		stageAllChanges,
+		unstageAllChanges,
+		discardAllChanges,
 		refresh,
 		ensureDiff,
 		commit,

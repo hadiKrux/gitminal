@@ -51,6 +51,40 @@ const absolutePosition = (element: DOMElement): Point => {
 };
 
 /**
+ * Whether a clipping ancestor hides a cell from its children.
+ *
+ * A ScrollView renders every child and shifts the content box upward with a
+ * negative margin. A row scrolled out of the viewport therefore keeps a live
+ * rectangle at its real (offscreen) position, which can overlap the chrome
+ * painted above or below the list. Ink clips that output through an ancestor
+ * `overflow: hidden` box, so a target is only hittable when the pointer is
+ * also inside every clipping ancestor's rectangle.
+ *
+ * The layout is read fresh here for the same reason as `hits`: the list
+ * scrolls and the viewport resizes, so a cached rectangle would reject or
+ * admit the wrong cell. ScrollView's clip box has no border, so its full
+ * rectangle is enough.
+ */
+const clippedAway = (
+	element: DOMElement,
+	column: number,
+	row: number,
+): boolean => {
+	const { overflow, overflowX, overflowY } = element.style;
+	const clipsColumns = overflow === 'hidden' || overflowX === 'hidden';
+	const clipsRows = overflow === 'hidden' || overflowY === 'hidden';
+	if (!clipsColumns && !clipsRows) {
+		return false;
+	}
+
+	const { x, y } = absolutePosition(element);
+	const { width, height } = measureElement(element);
+	const outsideColumns = column < x || column >= x + width;
+	const outsideRows = row < y || row >= y + height;
+	return (clipsColumns && outsideColumns) || (clipsRows && outsideRows);
+};
+
+/**
  * Whether a mouse position lands on an element.
  *
  * Both the element rectangle and the position are read fresh on every event.
@@ -59,13 +93,30 @@ const absolutePosition = (element: DOMElement): Point => {
  * reported one-based while the layout is zero-based, so it is shifted first;
  * without that the whole rectangle is a cell up and to the left, which lights
  * up the element above or beside the pointer.
+ *
+ * A target inside a scroll view can pass its own rectangle test while being
+ * scrolled out of view, so every box ancestor is checked for a clip that
+ * excludes the pointer.
  */
 const hits = (element: DOMElement, mouse: Point): boolean => {
 	const { x, y } = absolutePosition(element);
 	const { width, height } = measureElement(element);
 	const column = mouse.x - 1;
 	const row = mouse.y - 1;
-	return column >= x && column < x + width && row >= y && row < y + height;
+	if (column < x || column >= x + width || row < y || row >= y + height) {
+		return false;
+	}
+
+	let ancestor = element.parentNode;
+	while (ancestor !== undefined) {
+		if (ancestor.nodeName === 'ink-box' && clippedAway(ancestor, column, row)) {
+			return false;
+		}
+
+		ancestor = ancestor.parentNode;
+	}
+
+	return true;
 };
 
 /** Ancestor count; the innermost of two overlapping elements has the greater. */

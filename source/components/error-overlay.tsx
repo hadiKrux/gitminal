@@ -1,13 +1,13 @@
-import React from 'react';
-import { Box, Text } from 'ink';
+import React, { useRef, useState } from 'react';
+import { Box, type DOMElement } from 'ink';
 import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
+import { useMouseTarget } from '../hooks/use-mouse.js';
 import { useStdoutDimensions } from '../hooks/use-stdout-dimensions.js';
 import { theme } from '../theme.js';
 import { truncate } from '../layout.js';
 import { splitOutputLines } from '../data/format.js';
 import type { OperationLogEntry } from '../hooks/use-repo.js';
 import ModalFrame, { FrameRow, Line, contentWidth } from './modal-frame.js';
-import ScrollableArea from './scrollable-area.js';
 
 type Props = {
 	readonly operation: OperationLogEntry;
@@ -47,13 +47,12 @@ const exitLabel = (operation: OperationLogEntry): string => {
  *
  * The status line shows the one-line summary; this is where the whole captured
  * command output lives, because that is what a user needs to act on a git
- * failure. Escape closes it, and it stays open through clicks (the mouse gate
- * blocks everything under it).
+ * failure. Escape closes it, arrows and page keys scroll it, and the wheel
+ * scrolls only while the pointer is over the output. It stays open through
+ * clicks (the mouse gate blocks everything under it).
  */
 export default function ErrorOverlay({ operation, onClose }: Props) {
 	const [, rows] = useStdoutDimensions();
-
-	useKeyboardShortcuts({ 'close-overlay': onClose });
 
 	const { error } = operation;
 	const captured = [error?.stdout ?? '', error?.stderr ?? '']
@@ -65,6 +64,44 @@ export default function ErrorOverlay({ operation, onClose }: Props) {
 	// line after it stay separate rows.
 	const output = captured.length > 0 ? captured : error?.message ?? '';
 	const lines = splitOutputLines(output);
+
+	const height = outputHeight(rows);
+	const content = output.length === 0 ? ['(no output captured)'] : lines;
+	const maxOffset = Math.max(0, content.length - height);
+
+	const [scrollOffset, setScrollOffset] = useState(0);
+	const bodyRef = useRef<DOMElement>(null);
+
+	const offset = Math.min(scrollOffset, maxOffset);
+	const visible = content.slice(offset, offset + height);
+
+	const scrollBy = (delta: number): void => {
+		setScrollOffset(current =>
+			Math.max(0, Math.min(current + delta, maxOffset)),
+		);
+	};
+
+	useKeyboardShortcuts({
+		'close-overlay': onClose,
+		'move-down'() {
+			scrollBy(1);
+		},
+		'move-up'() {
+			scrollBy(-1);
+		},
+		'page-down'() {
+			scrollBy(height);
+		},
+		'page-up'() {
+			scrollBy(-height);
+		},
+	});
+
+	useMouseTarget(bodyRef, {
+		onScroll(direction) {
+			scrollBy(direction === 'scrolldown' ? 1 : -1);
+		},
+	});
 
 	return (
 		<ModalFrame title="Error">
@@ -78,28 +115,25 @@ export default function ErrorOverlay({ operation, onClose }: Props) {
 			<FrameRow>
 				<Line segments={[{ text: exitLabel(operation), color: theme.del }]} />
 			</FrameRow>
-			<FrameRow>
-				<ScrollableArea width={contentWidth} height={outputHeight(rows)}>
-					{innerWidth => (
-						<Box flexDirection="column">
-							{output.length === 0 ? (
-								<Text color={theme.dimmer}>(no output captured)</Text>
-							) : (
-								lines.map((text, index) => (
-									<Text
-										// eslint-disable-next-line react/no-array-index-key
-										key={index}
-										color={theme.dim}
-										wrap="truncate-end"
-									>
-										{text.length === 0 ? ' ' : truncate(text, innerWidth)}
-									</Text>
-								))
-							)}
-						</Box>
-					)}
-				</ScrollableArea>
-			</FrameRow>
+			<Box ref={bodyRef} flexDirection="column">
+				{Array.from({ length: height }, (_, index) => {
+					const text = visible[index] ?? '';
+
+					return (
+						<FrameRow key={offset + index}>
+							<Line
+								segments={[
+									{
+										text:
+											text.length === 0 ? ' ' : truncate(text, contentWidth),
+										color: output.length === 0 ? theme.dimmer : theme.dim,
+									},
+								]}
+							/>
+						</FrameRow>
+					);
+				})}
+			</Box>
 			<FrameRow>
 				<Line
 					segments={[

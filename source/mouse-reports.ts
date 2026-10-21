@@ -10,29 +10,18 @@
  */
 
 /**
- * SGR (`CSI < b ; x ; y M|m`) and urxvt (`CSI b ; x ; y M`) reports. Ink
- * strips a leading escape byte before handlers see the input, so this matches
- * with or without it.
+ * SGR (`CSI < b ; x ; y M|m`) and urxvt (`CSI b ; x ; y M`) reports.
+ *
+ * The stream-level filter sees the leading escape byte; Ink strips it before
+ * its own input handlers run, so both forms are matched here.
  */
-const coordinateReport = /\[<?\d+(?:;\d+)*[Mm]/g;
+// eslint-disable-next-line no-control-regex
+const coordinateReport = /\u001B?\[<?\d+(?:;\d+)*[Mm]/g;
 
-/** X10 report: `CSI M` followed by exactly three bytes (four after the escape). */
-const isX10Report = (input: string): boolean => {
-	if (input.length === 0 || input.length % 5 !== 0) {
-		return false;
-	}
-
-	for (let index = 0; index < input.length; index += 5) {
-		if (input[index] !== '[' || input[index + 1] !== 'M') {
-			return false;
-		}
-	}
-
-	return true;
-};
+/** X10 report: `CSI M` followed by exactly three bytes, including the escape. */
+// eslint-disable-next-line no-control-regex
+const x10Report = /\u001B\[M[\s\S]{3}/g;
 
 /** Remove every mouse report from a key chunk. */
-export const stripMouseReports = (input: string): string => {
-	const withoutCoordinates = input.replace(coordinateReport, '');
-	return isX10Report(withoutCoordinates) ? '' : withoutCoordinates;
-};
+export const stripMouseReports = (input: string): string =>
+	input.replace(coordinateReport, '').replace(x10Report, '');

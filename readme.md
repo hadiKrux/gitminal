@@ -38,6 +38,7 @@ Available actions:
 - `commit` - commit the staged files while the message is focused (default: `ctrl+s`).
 - `refresh` - reload the repository status (default: `r`).
 - `toggle-console` - show or hide the operation console (default: `` ` ``).
+- `open-command-palette` - open the filterable command palette (default: `ctrl+p`). Rebind it to a ctrl/alt-modified or non-printable key: a printable binding is also delivered while typing, so it would open the palette from the commit box or close it while typing a query. tmux and screen may use `ctrl+p` for their own prefix, so choose another key if the palette does not open there.
 - `move-down` - move the menu selection down (default: `down`).
 - `move-up` - move the menu selection up (default: `up`).
 - `page-down` - scroll the operation console one page down while it is open (default: `ctrl+d`, `ctrl+f`).

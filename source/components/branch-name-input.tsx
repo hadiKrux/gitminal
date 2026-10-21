@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useKeyboardShortcuts } from '../hooks/use-keyboard-shortcuts.js';
 import { theme } from '../theme.js';
 import ModalFrame, {
@@ -24,8 +24,6 @@ type Props = {
  * without creating anything; enter submits.
  */
 export default function BranchNameInput({ onSubmit, onCancel }: Props) {
-	const [name, setName] = useState('');
-
 	useKeyboardShortcuts({ 'close-overlay': onCancel });
 
 	return (
@@ -43,12 +41,10 @@ export default function BranchNameInput({ onSubmit, onCancel }: Props) {
 			<BlankRow />
 			<FrameRow>
 				<SingleLineInput
-					value={name}
 					width={contentWidth}
 					placeholder="branch name"
-					onChange={setName}
-					onSubmit={() => {
-						const trimmed = name.trim();
+					onSubmit={value => {
+						const trimmed = value.trim();
 						if (trimmed.length === 0) {
 							return;
 						}
