@@ -1,4 +1,4 @@
-import type { SidebarSection, TreeNode } from '../data/types.js';
+import type { BranchCounts, SidebarSection, TreeNode } from '../data/types.js';
 import { runGitReadOnly } from './exec.js';
 
 /**
@@ -110,6 +110,8 @@ export const readRefs = async (options: {
 	readonly cwd: string;
 	/** Checked-out branch, or undefined for a detached HEAD. */
 	readonly currentBranch: string | undefined;
+	/** Counts the active branch row shows after its name. */
+	readonly sync: BranchCounts;
 }): Promise<readonly SidebarSection[]> => {
 	const [
 		{ stdout: branchOut },
@@ -137,6 +139,19 @@ export const readRefs = async (options: {
 	)?.upstream;
 	const remotes = remoteGroups(lines(remoteOut), activeUpstream);
 	const tags = lines(tagOut);
+	/*
+	 * A branch level with its upstream (or one with no upstream at all) has
+	 * nothing to report, so the row stays as plain as the others.
+	 */
+	const activeSync =
+		options.sync.ahead > 0 || options.sync.behind > 0
+			? {
+					sync: {
+						ahead: options.sync.ahead,
+						behind: options.sync.behind,
+					},
+			  }
+			: {};
 
 	return [
 		{
@@ -146,7 +161,9 @@ export const readRefs = async (options: {
 			items: branches.map(branch => ({
 				label: branch.name,
 				depth: 0,
-				...(branch.name === options.currentBranch ? { active: true } : {}),
+				...(branch.name === options.currentBranch
+					? { active: true, ...activeSync }
+					: {}),
 			})),
 		},
 		{

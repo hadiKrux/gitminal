@@ -1,7 +1,18 @@
+/** Commits one side of a branch/upstream pair has that the other lacks. */
+export type BranchCounts = {
+	readonly ahead: number;
+	readonly behind: number;
+};
+
 export type TreeNode = {
 	label: string;
 	depth: number;
 	active?: boolean;
+	/**
+	 * Present on the checked-out branch row when it has commits to push or
+	 * pull, so the sidebar can show the counts after the name.
+	 */
+	sync?: BranchCounts;
 };
 
 export type SidebarSection = {
@@ -65,11 +76,9 @@ export type BranchSyncState =
 	| 'unknown';
 
 /** The branch badge's model: state plus the counts and upstream it came from. */
-export type BranchSync = {
+export type BranchSync = BranchCounts & {
 	readonly state: BranchSyncState;
 	readonly upstream: string | undefined;
-	readonly ahead: number;
-	readonly behind: number;
 };
 
 /** Git status of a file in the working tree. */

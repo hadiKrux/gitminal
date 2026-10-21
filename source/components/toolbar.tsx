@@ -29,17 +29,14 @@ type Props = {
  * Share of the space left after the fixed toolbar pieces that the badge may
  * take before the status slot gets the rest.
  *
- * The badge is capped first, but only from what remains after the buttons and
- * the counts are reserved: a long branch name must never push either off the
- * row. At 80 columns this leaves the status roughly 34 cells.
+ * The badge is capped only from what remains after the buttons: a long branch
+ * name must never push them or the status line off the row. At 80 columns this
+ * leaves the status roughly 34 cells.
  */
 const badgeWidthShare = 0.35;
 
 /** Below this the badge would be all truncation glyph, not a branch name. */
 const minBadgeWidth = 6;
-
-/** Narrowest status slot worth reserving before counts are dropped. */
-const minStatusWidth = 8;
 
 /** Inline button width: ` label ` including its own padding. */
 const buttonWidth = (label: string): number => textWidth(label) + 2;
@@ -90,15 +87,6 @@ const badgeColor = (sync: BranchSync): string => {
 	}
 };
 
-/** `+2 -1`, `+2`, or `-1`; empty when the branch is level with its upstream. */
-const syncCounts = (sync: BranchSync): string =>
-	[
-		sync.ahead > 0 ? `+${sync.ahead}` : '',
-		sync.behind > 0 ? `-${sync.behind}` : '',
-	]
-		.filter(part => part.length > 0)
-		.join(' ');
-
 export default function Toolbar({
 	branch,
 	sync,
@@ -114,21 +102,10 @@ export default function Toolbar({
 	onOpenMenu,
 }: Props) {
 	const contentWidth = Math.max(0, width - 2);
-	const counts = syncCounts(sync);
-	// The counts render ` +2 -1`, so their footprint includes the margin.
-	const countsWidth = counts.length === 0 ? 0 : textWidth(counts) + 1;
 	const statusGap = 1;
-	// Buttons and the status margin are fixed; only then may counts and the
-	// badge claim cells. Counts are dropped only when keeping them would leave
-	// no room for a readable badge and status.
-	const withoutCounts = Math.max(
-		0,
-		contentWidth - toolbarButtonsWidth - statusGap,
-	);
-	const showCounts =
-		countsWidth > 0 &&
-		withoutCounts - countsWidth >= minBadgeWidth + minStatusWidth;
-	const usable = Math.max(0, withoutCounts - (showCounts ? countsWidth : 0));
+	// Buttons and the status margin are fixed; only then may the badge and the
+	// status line claim cells.
+	const usable = Math.max(0, contentWidth - toolbarButtonsWidth - statusGap);
 	const badgeBudget =
 		usable >= minBadgeWidth
 			? Math.min(
@@ -168,11 +145,6 @@ export default function Toolbar({
 						</Badge>
 					</Box>
 				)}
-				{showCounts ? (
-					<Box flexShrink={0} marginLeft={1}>
-						<Text color={theme.text}>{counts}</Text>
-					</Box>
-				) : null}
 				<Box width={statusWidth} flexShrink={1} marginLeft={1}>
 					<StatusLine
 						operation={operation}

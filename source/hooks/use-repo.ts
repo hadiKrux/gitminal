@@ -1069,6 +1069,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 						cwd: root,
 						currentBranch:
 							status.branch.kind === 'branch' ? status.branch.name : undefined,
+						sync: view.sync,
 					}),
 				]);
 

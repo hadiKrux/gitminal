@@ -4,7 +4,7 @@ import { ScrollView } from 'ink-scroll-view';
 import { useMouseTarget } from '../hooks/use-mouse.js';
 import { theme } from '../theme.js';
 import { icons } from '../icons.js';
-import type { SidebarSection, TreeNode } from '../data/types.js';
+import type { BranchCounts, SidebarSection, TreeNode } from '../data/types.js';
 import TextRow from './text-row.js';
 
 type Props = {
@@ -95,13 +95,27 @@ type RefRowProps = {
 };
 
 /**
+ * The sync counters shown after the checked-out branch's name: `2 ▲` for
+ * commits still to push, `1 ▼` for commits still to pull, and both when the
+ * branch diverged. Empty when there is nothing on either side.
+ */
+const syncLabel = (sync: BranchCounts): string =>
+	[
+		sync.ahead > 0 ? `${sync.ahead} ${icons.syncAhead}` : '',
+		sync.behind > 0 ? `${sync.behind} ${icons.syncBehind}` : '',
+	]
+		.filter(part => part.length > 0)
+		.join(' ');
+
+/**
  * One sidebar item row.
  *
  * The active branch keeps the accent background; every other row gets the
  * panel colour on hover. The highlight spans the full width so a click has an
  * unambiguous target, and the row itself is the hit target rather than a text
  * cell inside it. A non-actionable row registers no handlers, so it renders
- * plainly and a click on it does nothing at all.
+ * plainly and a click on it does nothing at all. The active branch's push and
+ * pull counts sit right-aligned, clear of the name's truncation.
  */
 function RefRow({ item, width, isActionable, onPress }: RefRowProps) {
 	const ref = useRef<DOMElement>(null);
@@ -131,6 +145,7 @@ function RefRow({ item, width, isActionable, onPress }: RefRowProps) {
 		: isActionable && isHovered
 		? theme.text
 		: theme.dim;
+	const counts = item.sync === undefined ? undefined : syncLabel(item.sync);
 
 	return (
 		<Box ref={ref} width={width}>
@@ -146,6 +161,7 @@ function RefRow({ item, width, isActionable, onPress }: RefRowProps) {
 						bold: item.active,
 					},
 				]}
+				right={counts === undefined ? [] : [{ text: counts, color: theme.dim }]}
 			/>
 		</Box>
 	);
