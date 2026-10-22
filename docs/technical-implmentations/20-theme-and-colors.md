@@ -30,7 +30,7 @@ Non-goals: non-Catppuccin built-in themes; automatic light and dark switching; l
 | Component | Where used | Why it is the right component |
 | --- | --- | --- |
 | `<box>` | Theme picker modal and `Swatch` cells | Layout; `Swatch` is a `box` primitive with a background color. |
-| `<text>` | Theme names, light or dark labels, active marker, footer note | Names and markers are text, so the picker works without color. |
+| `<text>` | Theme names, light or dark labels, active marker, note below the list | Names and markers are text, so the picker works without color. |
 | `<span>` | Active `*` marker and label inline | Inline runs inside `<text>`. |
 | `<select>` | Not used for the theme list | The list needs custom rows with a swatch, so it is a `<scrollbox>` of `<box>` rows. |
 | `<scrollbox>` | Theme picker list | Four rows today but scrollable and consistent with other lists. |
@@ -101,14 +101,14 @@ Token-to-OpenTUI-prop mapping (the resolver supplies a final color per prop):
 | --- | --- | --- |
 | `background` | root `<box>` and `<text>` base | `backgroundColor` |
 | `panel` | `Panel`, `PanelHeader`, sidebar `<box>` | `backgroundColor` |
-| `surface` | raised rows, modals, inputs | `backgroundColor` |
+| `surface` | raised rows, modals, inputs, `ProgressBar` track cells | `backgroundColor`; FrameBuffer fill color for the progress track |
 | `border` | inactive `<box>` borders and separators | `borderColor` |
 | `focus` | focused `<box>` border | `focusedBorderColor` |
 | `text` | `<text>` | `fg` |
 | `muted` | secondary `<text>` | `fg` |
 | `dim` | hints and disabled text | `fg` (with the dim attribute) |
 | `selection` | selected `<box>` row | `backgroundColor` |
-| `accent` | `Button` and ref badges | `backgroundColor` on `Button`, `fg` on `Badge` |
+| `accent` | `Button`, ref badges, and `ProgressBar` filled cells | `backgroundColor` on `Button`, `fg` on `Badge`, FrameBuffer fill color for the progress fill |
 | `success` | `StatusBadge`, add counts | `fg` |
 | `warning` | `StatusBadge`, pending state | `fg` |
 | `error` | `StatusBadge`, destructive labels | `fg` |
@@ -126,6 +126,8 @@ Token-to-OpenTUI-prop mapping (the resolver supplies a final color per prop):
 | `graph` | `GraphLanes` per-lane `<box>` and `<text>` | `fg` and `backgroundColor` per lane |
 
 The `<diff>` component is always rendered with `view="unified"`, `showLineNumbers`, and the four diff props above, per architecture section 6.
+
+`ProgressBar` converts the resolved `accent` and `surface` tokens to `RGBA` for the FrameBuffer fill. When capability detection reduces the palette or `NO_COLOR` removes color, the filled and empty cells may look alike; the adjacent percentage and phase text remain the authoritative signal, and the bar is never the only indication of progress.
 
 ## 8. Keyboard and focus
 
@@ -183,7 +185,7 @@ While the picker is open it owns all keys except the quit escape hatch. The foot
 - `src/domain/theme/theme.catppuccin.test.ts`: all four flavors define every token; Mocha default values match the spec roles.
 - `src/domain/theme/theme.tokens.test.ts`: every token maps to the documented OpenTUI props.
 - `src/features/theme-picker/useThemePicker.test.ts`: highlight preview, Enter persist, Esc restore, same-theme Enter closes.
-- `src/features/theme-picker/ThemePicker.test.tsx`: active `*` marker, light or dark label, footer note when `theme.json` is present.
+- `src/features/theme-picker/ThemePicker.test.tsx`: active `*` marker, light or dark label, note below the list when `theme.json` is present.
 - `src/domain/config/config.writer.test.ts`: writes only the theme field, preserves others, creates a minimal config when absent, leaves the file untouched when unwritable.
 
 ## 14. Open questions

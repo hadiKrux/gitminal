@@ -31,7 +31,7 @@ No other runtime dependency is added without updating this document. No UI toolk
 4. Commands are the only mutation path. UI dispatches named commands; commands call the git client; the repository store refreshes after every command. No component calls git directly.
 5. One mutation at a time. The command runner serializes writes and reports a visible reason when a second mutation is requested.
 6. Explicit states. Every async surface has loading, empty, error, and disabled states with text markers, not color alone.
-7. Composition over new renderables. Only existing OpenTUI components and React composition are used. A new renderable requires a documented reason in this file.
+7. Composition over new renderables. Only existing OpenTUI components and React composition are used. A new renderable requires a documented reason in this file. The one sanctioned registration is OpenTUI's own `FrameBufferRenderable`, registered through `extend` for `ProgressBar`, because the built-in React catalogue has no frame-buffer binding.
 8. Match the visual reference. The mockup at `gitminal.png` is the authoritative target for layout, hierarchy, spacing, and density. Behavior comes from the product spec; arrangement comes from the mockup.
 
 ## 3. Layer model and dependency direction
@@ -121,6 +121,7 @@ gitminal/
         useFocusModel.ts
       top-bar/
         TopBar.tsx
+        TopBarStatus.tsx
         SyncStateBadge.tsx
         TopBarActions.tsx
         MoreMenu.tsx
@@ -361,7 +362,7 @@ Enforced:
 
 ## 6. OpenTUI component usage rules
 
-These are the only UI building blocks available. Features compose them. The catalog below is the full `@opentui/react` intrinsic set for 0.6.6.
+These are the only UI building blocks available. Features compose them. The catalog below is the full `@opentui/react` 0.6.6 intrinsic set plus the one registered OpenTUI renderable.
 
 | OpenTUI component | Renderable | Use for | Do not use for |
 | --- | --- | --- | --- |
@@ -379,7 +380,10 @@ These are the only UI building blocks available. Features compose them. The cata
 | `<markdown>` | `MarkdownRenderable` | Help documentation blocks and configuration notes. | App chrome. |
 | `<ascii-font>` | `ASCIIFontRenderable` | Empty-repository, non-repository, and terminal-too-small splash only. | Anywhere else. |
 | `<image>` | `ImageRenderable` | Not used in v1. | v1. |
+| `<frame-buffer>` | `FrameBufferRenderable` (registered via `extend`) | One-row progress bar in the top bar, rendered only through the `ProgressBar` primitive. | Any other graphics, text, animation, or layout. |
 | `<b>`, `<i>`, `<u>`, `<strong>`, `<em>`, `<a>`, `<br>` | span variants | Inline emphasis and line breaks inside `<text>`. | Layout. |
+
+`FrameBuffer` has no React intrinsic in 0.6.6. `src/ui/ProgressBar.tsx` registers OpenTUI's own `FrameBufferRenderable` once with `extend({ "frame-buffer": FrameBufferRenderable })`, augments `OpenTUIComponents` for JSX typing, draws the bar with `fillRect`, and calls `requestRender()` after each change. No custom renderable class is introduced. The drawing approach follows the [OpenTUI FrameBuffer progress-bar example](https://opentui.com/docs/components/frame-buffer/#example-progress-bar).
 
 Hooks available from `@opentui/react` 0.6.6:
 
@@ -392,7 +396,7 @@ Hooks available from `@opentui/react` 0.6.6:
 | `useFocus(handler)` / `useBlur(handler)` | Refresh on terminal focus, pause work on blur. |
 | `usePaste(handler)` | Commit message and field paste handling. |
 | `useSelectionHandler(handler)` | Console log text selection and copy. |
-| `useTimeline(options)` | Spinner and progress animation only. |
+| `useTimeline(options)` | `Spinner` animation and throttled progress-bar redraws in the top bar status strip. |
 
 Component rules:
 
@@ -405,6 +409,7 @@ Component rules:
 7. The console drawer is app-owned UI (not the renderer's built-in console). It is a `<box>` docked above the footer containing a `<scrollbox>` of entry `<box>` rows, so it can show command, status, duration, and expandable output in the app style. The renderer console is used only for development logging.
 8. Disabled controls are rendered with a `dim` token and a text reason, and remain visible. The command palette uses `<select>` options whose `description` carries the disabled reason.
 9. Truncation uses `@/lib/text.ts` helpers with explicit budgets from `useTerminalDimensions`; it never hides the current branch, the selection marker, or the primary action.
+10. Progress bars use `<frame-buffer>` through the `ProgressBar` primitive only. The bar is one row high, `0` to `100` percent clamped, drawn as colored cells with no glyphs, and always paired with a text phase and percentage. Redraw only when the filled cell count, width, or theme color changes, and redraw after a resize because a resize clears the buffer.
 
 ### 6.1 Icon catalog and rules
 
@@ -431,7 +436,6 @@ Required `ICONS` groups and their default values:
 | Tag scope | `tagLocal`, `tagRemote`, `tagUnpushed`, `tagLocalOnly` | `local`, `remote`, `unpushed`, `local only` |
 | Operation status | `success`, `warning`, `error`, `info`, `pending`, `running`, `done` | `v`, `!`, `x`, `i`, `[ ]`, `[..]`, `[v]` |
 | Spinner | `spinnerFrames` | `["|", "/", "-", "\\"]` |
-| Progress | `progressStart`, `progressFill`, `progressEmpty`, `progressEnd` | `[`, `#`, `-`, `]` |
 | Toggle | `checkboxOn`, `checkboxOff` | `[x]`, `[ ]` |
 | Overflow | `badgeOverflow` | `+` |
 | Console | `omittedLines` | `... N lines omitted ...` |
@@ -443,7 +447,7 @@ Consumers, all of which read from `ICONS`:
 - `src/ui/TextMarker.tsx` renders focus, selection, and status markers.
 - `src/ui/Badge.tsx` and `src/ui/StatusBadge.tsx` render tag, branch, and sync badges.
 - `src/ui/Spinner.tsx` renders `spinnerFrames` through `useTimeline`.
-- `src/ui/ProgressBar.tsx` renders the progress characters.
+- `src/ui/ProgressBar.tsx` draws a FrameBuffer bar; it uses theme colors and no glyphs.
 - `src/ui/Checkbox.tsx` renders `checkboxOn` and `checkboxOff`.
 - `src/ui/ListRow.tsx` and `src/ui/SectionHeader.tsx` render selection and expansion markers.
 - `src/features/graph/GraphLanes.tsx` renders lane cells from `graphLanes`.
@@ -472,7 +476,7 @@ Tests: `src/theme/icons.test.ts` asserts that every value is printable ASCII, th
 | `KeyHint` | `<span>` + `<text>` | One hint: key plus action, joined with `ICONS.hintSeparator`. |
 | `HintBar` | `<box>` + `KeyHint` children | Footer hint line with priority-based dropping. |
 | `Spinner` | `<text>` + `useTimeline` | Operation spinner cycling `ICONS.spinnerFrames`. |
-| `ProgressBar` | `<box>` width percentage | Determinate progress using `ICONS` progress characters. |
+| `ProgressBar` | `<box>` + `<frame-buffer>` via `FrameBufferRenderable` + `<text>` | One-row determinate progress using theme accent and surface cells, with a text percentage. No glyphs. |
 | `EmptyState` | `<box>` + `<text>` | Empty message with optional action hint. |
 | `ErrorState` | `<box>` + `<text>` + `Button` | Inline error with Retry. |
 | `LoadingRow` | `<box>` + `<text>` + `Spinner` | Inline loading row in a list. |
@@ -515,7 +519,7 @@ Providers, outermost to innermost:
 4. `RepositoryProvider`: repository snapshot, selected commit, selection and expansion state, and the refresh cycle. Source: `@/domain/repository` and `@/domain/git`.
 5. `FocusProvider`: region focus and cursors.
 6. `OverlayProvider`: modal stack, destructive confirmations, error overlay.
-7. `StatusProvider`: transient status, footer mode, operation progress.
+7. `StatusProvider`: transient status, footer hint mode, operation progress.
 8. `ConsoleProvider`: bounded command log and follow mode.
 
 Data flow for any action:

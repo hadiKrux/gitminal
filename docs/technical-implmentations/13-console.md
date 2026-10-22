@@ -24,7 +24,7 @@ Consumed paths (not owned):
 - `src/domain/git/git.progress.ts`
 - `src/domain/commands/commands.runner.ts`
 - `src/features/shell/regions.ts` (the `console` region id)
-- `src/ui/ModalFrame.tsx`, `src/ui/Overlay.tsx`, `src/ui/Spinner.tsx`, `src/ui/ProgressBar.tsx`, `src/ui/KeyHint.tsx`
+- `src/ui/ModalFrame.tsx`, `src/ui/Overlay.tsx`, `src/ui/Spinner.tsx`, `src/ui/KeyHint.tsx`
 
 ## 2. Scope and non-goals
 
@@ -162,7 +162,7 @@ Focus:
 ## 9. Loading, empty, error, and disabled states
 
 - Empty: a single text row with the marker `[ ]` and the message "No commands yet"; `console.clear` is dimmed with the reason "console empty".
-- Loading: an in-progress entry shows a `Spinner` and the current phase, and the footer shows progress through `StatusProvider`; there is no separate loading screen.
+- Loading: an in-progress entry shows a `Spinner` and the current phase, and the top bar status strip shows progress through `StatusProvider`; there is no separate loading screen.
 - Error entry: the exit status renders as the marker `x` plus "exit N", and the stderr pane is expanded by default for failures.
 - Disabled: `console.clear` is dimmed with its reason when there are no entries; the clear action never fires while disabled.
 - Success entry: the exit status renders as the marker `v` plus "exit 0" and a short summary, and stdout stays collapsed unless expanded.

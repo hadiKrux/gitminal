@@ -31,11 +31,11 @@ Non-goals: watching the whole worktree by default (D10); streaming partial hunks
 | Component | Where used | Why it is the right component |
 | --- | --- | --- |
 | `<scrollbox>` | Commit graph, diff panel, console, help, sidebar panels | The only OpenTUI scroll container; `viewportCulling` is the built-in virtualization for large lists. |
-| `<box>` | Graph rows, diff rows, console entry rows, progress shell | Layout and custom-row composition; rows need ref badges and inline actions. |
-| `<text>` | Counts, page markers, truncation notice, progress phase | Every status string; the primary signal is text, not color. |
+| `<box>` | Graph rows, diff rows, console entry rows | Layout and custom-row composition; rows need ref badges and inline actions. |
+| `<text>` | Counts, page markers, truncation notice | Every status string; the primary signal is text, not color. |
 | `<span>` | Inline truncation notice and "new entries" marker | Inline styled runs inside `<text>`. |
 | `useFocus(handler)` | `RepositoryProvider` | Refresh when the terminal regains focus after external edits. |
-| `useTimeline(options)` | `Spinner`, `ProgressBar` during page loads and remote operations | Animation only; runs off the render path so progress never freezes rendering. |
+| `useTimeline(options)` | `Spinner` during page loads; remote progress is rendered by F-02 in the top bar | Animation only; runs off the render path so progress never freezes rendering. |
 | `useTerminalDimensions()` | Visible-row window sizing and truncation budgets | Derive the number of rows to cull and the truncation budget. |
 | `useOnResize(cb)` | Recompute the culled window after resize | Keeps culling and budgets correct when the terminal changes size. |
 | `useKeyboard` | Not used directly | Centralized in `src/app/hooks/useHotkeys.ts`; F-17 registers `app.refresh` through `useAction`. |
@@ -59,9 +59,12 @@ ConfigProvider
                 DiffFileRow
                   DiffContent   (diff loaded on expand via useFileDiff)
             ConsoleDrawer       (scrollbox over console.buffer)
+          TopBar
+            TopBarStatus        (phase and percentage from git.progress, via StatusProvider)
+              ProgressBar       (OpenTUI FrameBuffer bar)
+              Spinner           (indeterminate remote progress)
           Footer
-            ProgressBar         (remote progress from git.progress)
-            Spinner             (page-load spinner)
+            HintBar             (keyboard hints only)
 ```
 
 `RepositoryProvider` owns the refresh cycle and exposes it through `useRepository`. Graph paging state is view state inside `useCommitGraph` fed by `graph.paginate.ts`. Console history is provider state in `ConsoleProvider` fed by `console.buffer.ts`.
@@ -123,7 +126,7 @@ Focus interaction: `useHotkeys` resolves precedence (overlay, then text input, t
 
 ## 9. Loading, empty, error, and disabled states
 
-- Loading: a page load shows a `LoadingRow` with a `Spinner` and text "Loading older commits..."; the initial load shows "Loading history...". Remote operations show phase text plus `ProgressBar` when a percentage is reported.
+- Loading: a page load shows a `LoadingRow` with a `Spinner` and text "Loading older commits..."; the initial load shows "Loading history...". Remote operations show phase text plus the top bar `ProgressBar` when a percentage is reported.
 - Empty: an empty repository or empty diff section shows `EmptyState` with text, never a blank region.
 - Error: a failed refresh keeps the previous snapshot and shows a non-blocking status; a failed page load shows an inline error row with Retry (`ErrorState`) and keeps the loaded window. Errors also land in the console.
 - Disabled: while a write is in flight, conflicting actions render with the `dim` token and a text reason from `commands.availability.ts`. A refresh requested during an in-flight refresh is coalesced, not stacked, and reports "refresh in progress" only if it is user-initiated.
@@ -147,7 +150,7 @@ Every F-17 target maps to a mechanism and an owner.
 | Diffs load on expand | `useFileDiff` requests on expand; no up-front diff for all files | `useFileDiff.ts`, `git.diff.ts` |
 | Diff line and byte cap with truncation notice | `diff.limits.ts` enforces caps; `DiffContent` renders a "diff truncated" notice | `diff.limits.ts`, `DiffContent.tsx` |
 | Console and error history bounded | `console.buffer.ts` keeps at least 200 entries with output head and tail capping; the error overlay replaces rather than stacks | `console.buffer.ts`, `OverlayProvider` |
-| Remote progress without freezing | `git.progress.ts` publishes phase and percentage; `ProgressBar` and `Spinner` animate via `useTimeline` off the render path | `git.progress.ts`, `ProgressBar.tsx` |
+| Remote progress without freezing | `git.progress.ts` publishes phase and percentage; F-02 renders `ProgressBar` and `Spinner` via `useTimeline` in the top bar status strip | `git.progress.ts`, `TopBarStatus.tsx`, `ProgressBar.tsx` |
 | Reads and writes serialized | `commands.runner.ts` serializes writes; `git.client.ts` serializes index-touching reads against writes | `commands.runner.ts`, `git.client.ts` |
 
 Bounds: the graph window is `pages * graph.initialPageSize` and is trimmed to a maximum retained window (oldest pages released when far outside the viewport). The console buffer is bounded by entry count and a per-entry byte cap. Diff caps are a line count and a byte count from `diff.limits.ts`.

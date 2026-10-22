@@ -132,7 +132,7 @@ Precedence at runtime: open overlay, then focused text input, then focused regio
 - Empty: absent files produce no warning; Help shows "not present" for the keybindings and theme paths.
 - Error: invalid JSON ignores the file, keeps defaults, and warns with the file and parse error; an invalid version ignores the file with a warning; an invalid field keeps the previous value; an invalid keybindings file leaves `config.json` keybindings applied and defaults elsewhere; an invalid theme file keeps the base theme.
 - Disabled: a config that unbinds quit, help, and the palette still loads but shows a prominent warning. Actions with no binding render as "Unbound" in help.
-- Warnings surface: a non-blocking footer notice plus a detailed entry in Help > Configuration and the console.
+- Warnings surface: a non-blocking message in the top bar status strip, plus a detailed entry in Help > Configuration and the console.
 
 ## 10. Performance and bounds
 

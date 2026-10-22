@@ -49,7 +49,8 @@ OverlayProvider
   ErrorOverlay            (ModalFrame + scrollbox stderr + redacted command)
   NoticeOverlay           (ModalFrame, non-blocking success)
 AppShell
-  Footer                  (transient status, blocked-mutation reason)
+  TopBar                  (operation progress and transient status)
+  Footer                  (keyboard hints and blocked-mutation reason)
 ```
 
 Destructive flows call `ConfirmModal` with a named target and an action-specific confirm label. Failures open `ErrorOverlay`; the console keeps the full redacted record.
@@ -105,7 +106,7 @@ Focus: while a confirmation is open, the overlay owns all keys except the quit e
 
 ## 9. Loading, empty, error, and disabled states
 
-- Loading: a running mutation shows a phase status and disables conflicting actions.
+- Loading: a running mutation shows a phase status in the top bar status strip and disables conflicting actions.
 - Empty: not applicable; confirmations always name a concrete target.
 - Error: `git.errors.ts` classifies failures (missing git, permission, auth or network, hook failure, non-fast-forward). `ErrorOverlay` shows the decisive redacted line and the command; drafts and staged files remain.
 - Disabled: a second mutation renders blocked with the reason "another operation is running" from `commands.availability.ts`. Remote deletion shows disabled with the reason when the remote is unreachable.

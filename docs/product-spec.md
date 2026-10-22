@@ -93,10 +93,10 @@ The text below is a behavioral summary. The authoritative visual target is the m
 
 The visible layout has four regions:
 
-- Top bar: app identity, current branch and sync state, remote actions.
+- Top bar: app identity, current branch and sync state, a center status strip for operation progress and transient status messages, and remote actions.
 - Sidebar: five independently scrollable panels: Branches, Remotes, Tags, Stashes, Worktrees.
 - Main area: commit graph on the left, commit composer or commit details plus diffs on the right.
-- Footer: contextual keyboard hints, transient status, and progress.
+- Footer: contextual keyboard hints and disabled reasons.
 
 ### Focus model
 
@@ -127,8 +127,9 @@ This precedence resolves overlaps such as `p` meaning Pull in the top bar or com
 - Hints change immediately when focus changes or when an action becomes available.
 - If a context key overrides a global key, only the context action is shown.
 - Destructive actions are shown only when the selected item supports them.
-- While a git operation is running, the footer replaces hints with a status line and progress. Hints return when the operation finishes.
-- Success messages appear in the same status area for a short time. Failures open a persistent error overlay and also appear in the console.
+- While a git operation is running, the top bar middle section shows the phase and progress. The footer keeps the hint bar, because hints remain usable for navigation, console, and help while the operation runs.
+- The footer still shows contextual disabled reasons, such as "message required", and modal keys. It does not duplicate operation progress or transient success messages.
+- Success messages appear in the top bar status strip and, when relevant, in the console. Failures open a persistent error overlay, appear in the top bar status strip while the overlay is open, and also appear in the console.
 - The footer never wraps. The app hides the least important hints first and keeps Help available.
 
 ### Mouse
@@ -209,6 +210,7 @@ The top bar contains:
 - Pull button.
 - Push button.
 - More button.
+- A center status strip between the branch block and the buttons. When idle it shows the branch and sync state. During a git operation it shows the phase and progress. Transient success, warning, error, and informational messages also appear there.
 
 Pull and Push are explicit text buttons with icons, not icon-only controls. Their order is Pull then Push.
 
@@ -262,11 +264,23 @@ Fetch is scoped to the Branches panel. It fetches only the upstream refs of loca
 - After Fetch --prune, re-evaluate local branch upstreams. Local branches whose upstream ref disappeared get the `[?] remote branch deleted` indicator.
 - The success status may report the number of fetched upstream refs, pruned refs, missing refs, and affected local branches.
 
+#### Status and progress
+
+- The middle of the top bar, between the branch block and the buttons, is the single surface for operation progress and transient status messages.
+- While Pull, Push, Fetch, Fetch --prune, a force push, tag push, or another remote operation runs, the middle shows the current phase and a progress bar when git reports a percentage. Without a percentage it shows a spinner and the phase.
+- The progress bar uses the OpenTUI FrameBuffer progress-bar technique: a one-row cell buffer with a filled portion and a track, drawn as colored cells rather than text characters, so its width is exact and independent of font glyph widths.
+- Progress is always paired with text: the phase, the percentage when known, and the operation name. Color and the filled bar are never the only signal, so the display still works with `NO_COLOR` and on low-color terminals.
+- When no operation is running, short status messages use the same surface: success, warning, informational, and failure summaries. A success or informational message clears after a short timeout. A warning stays until the next action. A failure summary stays while its error overlay is open.
+- When there is no active operation and no status message, the middle returns to the branch name, upstream, ahead and behind counts, and sync badge.
+- The status surface is not focusable and has no keybindings. `Left` and `Right` move only between the branch info when it is shown, Pull, Push, and More.
+- Long phases and messages truncate with an ellipsis. The full text is available in the console and, for failures, in the error overlay.
+- The status surface never changes the top bar height and never wraps the bar.
+
 #### Focus behavior
 
 When the top bar is focused:
 
-- Left and Right move between branch info, Pull, Push, and More.
+- Left and Right move between branch info, Pull, Push, and More. When the status strip is showing progress or a message, branch info is not a stop, so Left and Right move between Pull, Push, and More.
 - `Enter` activates the focused control.
 - `p` triggers Pull.
 - `P` triggers Push.
@@ -279,8 +293,8 @@ When another region is focused, the same keys remain global unless that region d
 
 #### States
 
-- Operation running: controls are disabled, and the top bar or footer shows a spinner and phase. Remote progress shows a percentage when git reports one.
-- Success: a short status message and refreshed repository state.
+- Operation running: controls are disabled, and the top bar middle section shows a spinner and phase. Remote progress shows a percentage and the FrameBuffer progress bar when git reports one.
+- Success: a short status message in the top bar middle section and refreshed repository state.
 - Failure: a persistent error overlay with the relevant git output, plus a console entry. The repository state refreshes after the failure.
 - No remote: remote actions are marked unavailable with a reason.
 - No upstream: sync state is "no upstream". Push is available when `origin` exists and creates `origin/<local-branch-name>`. Pull is unavailable with that explanation.
@@ -292,6 +306,7 @@ Acceptance:
 - Pull, Push, Fetch, Fetch --prune, safe force push, overwrite force push, and push --no-verify all run the expected git operation and are visible in the console.
 - Push with no upstream creates `origin/<local-branch-name>` and sets the upstream without an extra modal.
 - The top bar updates branch, upstream, and ahead/behind state after every successful operation.
+- The top bar middle section shows the operation phase and a FrameBuffer progress bar with a percentage (when git reports one) during Pull, Push, Fetch, and Fetch --prune, and shows transient status messages when no operation is running.
 - A failed operation never clears the user's commit message or staged files.
 
 ### F-03 Branches panel
@@ -1040,7 +1055,7 @@ Rules:
 | Merge or rebase in progress | Show a persistent repository-state banner. Conflicted files are visible. Unsupported operations are blocked with a reason. |
 | Conflicted files | Show conflicted files as `U` rows in Working Directory with a conflict banner, plus a conflict-marker diff. The file can be staged after the user resolves it externally. Ours/theirs actions are deferred. |
 | Dirty working tree during checkout | No auto-stash. Run the checkout, show git's error, keep the current state. |
-| Operation in progress | Disable conflicting actions, show progress, allow the console. |
+| Operation in progress | Disable conflicting actions, show progress in the top bar status strip, allow the console. |
 | External git changes | Refresh the relevant state after operations and provide a manual refresh. Live watching is recommended for the git directory. |
 | Huge repository | Paginate history, virtualize lists, truncate diffs, and keep navigation responsive. |
 | Binary or oversized file | Show a notice instead of a diff. Actions remain available. |
@@ -1240,7 +1255,7 @@ Action IDs are stable names used in configuration. They are listed in section 6.
 - Invalid field: only that field is ignored and the previous value remains.
 - Invalid keybinding file: `config.json` keybindings still apply, and defaults remain for the rest.
 - Invalid theme file: the base theme remains, and the warning appears in Help and the console.
-- Warning display: a non-blocking footer notice and a detailed entry in Help > Configuration and the console. Warnings do not block the app.
+- Warning display: a non-blocking message in the top bar status strip, plus a detailed entry in Help > Configuration and the console. Warnings do not block the app.
 - The app does not watch configuration files. Changes apply after Reload configuration or a restart.
 
 #### Reload configuration
@@ -1311,7 +1326,7 @@ Contents:
   - Catppuccin Frappe (dark).
   - Catppuccin Latte (light).
 - A small color swatch for each row when the terminal supports color.
-- If `theme.json` is present, a footer note says "theme.json overrides are active and apply to every base theme."
+- If `theme.json` is present, a muted note below the list says "theme.json overrides are active and apply to every base theme."
 - The picker remains usable without color; names and the active marker carry the meaning.
 
 Behavior:

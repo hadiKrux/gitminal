@@ -199,7 +199,7 @@ Focus behavior:
 - "Text input modals validate inline and keep the modal open on error" -> `src/ui/FormField.tsx` plus validation state owned by the calling feature.
 - "`Enter` submits single-line forms; multiline fields use `Ctrl/Cmd+Enter`" -> keymap mapping to the submit action in `ModalFrame.tsx`.
 - "While a modal is open, background regions are visibly inactive and cannot receive actions" -> `src/ui/Overlay.tsx` plus the `useHotkeys` overlay branch.
-- "The footer shows the modal's keys" -> `OverlayProvider` sets the footer mode and `HintBar` renders the modal keys.
+- "The footer shows the modal's keys" -> `OverlayProvider` sets the footer hint mode and `HintBar` renders the modal keys.
 - "Only one modal is open at a time; a successful action closes the modal and shows status" -> single-entry modal handling in `OverlayProvider.tsx` plus `StatusProvider`.
 - "If an operation started from a modal fails, the modal closes and a persistent error overlay opens with the details; input is preserved when retry is meaningful" -> `OverlayProvider.showError` with `preservedInput`.
 - "Success messages are non-blocking and auto-dismiss; failures stay until dismissed" -> `NoticeOverlay.tsx` versus `ErrorOverlay.tsx`.
