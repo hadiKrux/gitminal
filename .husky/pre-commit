@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+
+# Skip the audit when dependencies are not installed (for example, a fresh checkout).
+command -v fallow >/dev/null 2>&1 || exit 0
+
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+
+if [ -n "$upstream" ]; then
+  # Compare against the merge base so feature branches forked from a non-default
+  # integration branch use the correct base.
+  base="$(git merge-base "$upstream" HEAD 2>/dev/null || echo "$upstream")"
+else
+  base="main"
+fi
+
+fallow audit --base "$base" --quiet

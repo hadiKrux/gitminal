@@ -1,0 +1,2 @@
+- Every function or class methods should have standard jsdoc
+- If a function becomes big, split it

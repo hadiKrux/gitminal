@@ -1,0 +1,216 @@
+# 09 - Commit composer
+
+## 1. Header
+
+- Status: Draft for review.
+- Spec reference: `docs/product-spec.md` F-09 (lines 703-766), D9 (line 1743), the commit composer keymap (lines 1539-1547), the global `commit.focus` key (line 1461), action IDs (lines 1583-1611).
+- Architecture contract: `docs/technical-implmentations/00-project-architecture.md`.
+- Region id: `right-pane` (`src/features/shell/regions.ts`), owned by `MainArea.tsx`. The composer is one of the two right-pane sub-modes, the other being commit details (F-10).
+- Dependencies: F-01 (shell, focus, region order, quit confirmation), F-08 (the Pending Changes row selects the composer), F-10 (the right pane switches between composer and details), F-11 (staged file list and working tree diffs), F-15 (error overlay and the More menu overlay), F-16 (empty repository, missing git identity), F-17 (refresh after commit), F-18 (safety, hook execution), F-19 (keymap overrides for `commit.submit` and `commit.options`).
+- Owned paths:
+  - `src/features/composer/CommitComposer.tsx`
+  - `src/features/composer/ComposerIdentity.tsx`
+  - `src/features/composer/CommitOptionsMenu.tsx`
+  - `src/features/composer/useComposer.ts`
+  - `src/domain/git/git.commit.ts`
+- Read-only references: `src/domain/git/git.log.ts` (amend message and short hash), `src/domain/git/git.repo.ts` (identity), `src/domain/git/git.status.ts` and `src/domain/git/parsers/parse.status.ts` (staged and pending counts), `src/domain/git/git.errors.ts` (hook-failure classification), `src/domain/repository/repository.selectors.ts`.
+
+## 2. Scope and non-goals
+
+Scope: the composer panel shown in the right pane when the Pending Changes row is selected; the multiline message textarea with its placeholder; the read-only identity line; the More and Commit buttons; the enablement rules (no staged files, empty message, missing identity); auto-grow to 8 rows then scroll; `Enter` inserts a newline and `commit.submit` commits; committing exactly the staged files; success and failure behavior including preserving the message and staged files; pre-commit hook failure messaging with the `--no-verify` hint; and the commit options menu with the four variants, amend message loading, the "Amending <short hash>" indicator, amend without staged changes, and disabled reasons.
+
+Non-goals: staging, unstaging, and discarding files (F-11); the working tree and commit diffs (F-11); the commit graph and its rows (F-08); commit details (F-10); configuration of git identity (the user resolves it outside the app, product spec line 719); a setting to always skip hooks or always amend (product spec line 1163 forbids it).
+
+## 3. OpenTUI components used
+
+| Component | Where used | Why it is the right component |
+| --- | --- | --- |
+| `<textarea>` | The commit message field inside `CommitComposer.tsx`. | Multiline form fields use `<textarea>`; the message is multiline and auto-grows. |
+| `<box>` | Composer panel frame, the identity row, the button row, the More menu modal frame, and each option row container. | The only layout, border, focus-ring, and hit-test primitive. |
+| `<text>` | Identity line, staged count, button labels, validation and disabled reasons, the "Amending <short hash>" indicator, and progress text. | Every UI string is rendered through `<text>`. |
+| `<span>` | The "Amending <short hash>" indicator run, the staged count emphasis, and the missing-identity value inside the identity line. | Inline styled runs inside a single `<text>`. |
+| `<select>` | The four commit variants inside `CommitOptionsMenu.tsx`. | Uniform vertical option list with built-in up/down and Enter; architecture section 6 names commit options as a `<select>` use. |
+| `<scrollbox>` | The auto-grown textarea scroll region once the message exceeds 8 rows. | Scrollable bounded region; handles wheel scroll and scrollbars. |
+| `<code>`, `<diff>`, `<line-number>`, `<markdown>`, `<ascii-font>`, `<input>` | Not owned here. | N/A for this feature. The identity line is read-only text, not an input. |
+
+Hooks used:
+
+| Hook | Where used | Why |
+| --- | --- | --- |
+| `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts`. | Central dispatcher; this feature never calls it directly. |
+| `useAction` | `useComposer.ts` registers `commit.submit`, `commit.options`, `commit.focus`, `overlay.close`, `nav.up`, `nav.down`, `nav.activate`, `focus.next`, `focus.previous`, and `app.quit`. | Features receive action IDs, never raw key strings. |
+| `usePaste` | `CommitComposer.tsx` for paste into the textarea. | Commit message and field paste handling is a named `usePaste` use in architecture section 6. |
+| `useTerminalDimensions` | `CommitComposer.tsx` computes the auto-grow height and truncation budget. | Budget-aware layout and truncation. |
+| `useFocusRegion` | `CommitComposer.tsx` reads and writes focus for `right-pane`. | Focus and cursor persistence per region. |
+| `useOverlay` | `useComposer.ts` pushes `CommitOptionsMenu` and the error overlay. | Modal stack and error overlay ownership. |
+| `useStatus` | `CommitComposer.tsx` renders progress and the success status. | Transient status and operation progress. |
+| `useTimeline` | The `Spinner` shown while committing. | Animation only. |
+
+`<textarea>` versus `<input>`: the message is multiline and must insert newlines on `Enter`, so it uses `<textarea>`. The More menu is a uniform option list, so it uses `<select>`; a `<scrollbox>` of rows is not needed there.
+
+All icons and markers used by this feature come from `src/theme/icons.ts`; see architecture section 6.1. No glyph literal is written in feature code.
+
+## 4. Component tree
+
+```text
+MainArea                            (src/features/shell/MainArea.tsx)
+-> CommitComposer                   (src/features/composer/CommitComposer.tsx, right-pane sub-mode)
+   Panel                            (ui/Panel.tsx, region frame for `right-pane`)
+     PanelHeader                    (title "Commit", staged count, "Amending <short hash>")
+     ComposerIdentity               (author name and email, or the missing-identity reason)
+     FormField                      (label + textarea + inline error text)
+       textarea                     (message, placeholder "Commit message...")
+     ButtonRow
+       Button (More)
+       Button (Commit, or "Nothing to commit")
+     Spinner                        (while committing)
+```
+
+The options menu is an overlay, not nested in the panel:
+
+```text
+CommitOptionsMenu
+  ModalFrame
+    select (Commit, Commit --no-verify, Commit --amend, Amend --no-verify)
+    text (disabled reason for the highlighted variant, for example "no previous commit")
+    ModalActions (Run, Cancel; Cancel focused by default)
+```
+
+## 5. Enforced files and folders
+
+- `src/features/composer/CommitComposer.tsx` - composer panel composition, textarea, buttons, auto-grow, progress, and region registration.
+- `src/features/composer/ComposerIdentity.tsx` - the read-only identity line and the missing-identity reason.
+- `src/features/composer/CommitOptionsMenu.tsx` - the four variants, disabled reasons, amend selection, and cancel behavior.
+- `src/features/composer/useComposer.ts` - draft state, enablement rules, variant selection, amend message loading, and command dispatch.
+- `src/domain/git/git.commit.ts` - commit command builders for the four variants.
+- Tests colocated: `src/domain/git/git.commit.test.ts`, `src/features/composer/useComposer.test.tsx`, `src/features/composer/CommitComposer.test.tsx`, `src/features/composer/CommitOptionsMenu.test.tsx`.
+
+## 6. State model
+
+View state, owned by `useComposer.ts` and `CommitOptionsMenu.tsx`:
+
+- Draft message string and whether the textarea has been edited since the last commit.
+- Textarea focus flag and the visible-row height (auto-grow result, capped at 8).
+- More menu open flag and the highlighted variant.
+- Pending amend target: the HEAD OID and its short hash, whether the amend message was loaded, and the draft string captured before loading it so cancel restores the previous draft behavior (product spec line 749).
+- Last commit error, if any, shown through the overlay.
+
+Provider state, read and never recomputed here:
+
+- `RepositoryProvider`: staged file list and staged count, pending count, HEAD OID, the repository refresh generation, and the in-flight write flag.
+- `StatusProvider`: operation progress and the transient success status.
+- `OverlayProvider`: the More menu modal and the persistent error overlay.
+- `ConfigProvider`: git identity values and the resolved keymap for hint text.
+- `FocusProvider`: active region and the right-pane sub-mode.
+
+Rules: this feature never recomputes staged or pending counts; it reads them from `@/domain/repository/repository.selectors.ts`. The draft message lives in view state and is never cleared by a failure (architecture section 9: failures never clear drafts or staged files).
+
+## 7. Data flow
+
+Generic path (architecture section 9):
+
+```text
+key or click -> action ID -> useAction handler -> command from @/domain/commands/commands.registry
+  -> command runner (availability + serialization) -> @/domain/git/git.commit.ts -> git CLI
+  -> parse -> RepositoryProvider refresh -> CommitComposer re-render -> console entry + status
+```
+
+| Action ID or trigger | Domain module | Git subcommand |
+| --- | --- | --- |
+| `commit.submit` (Commit variant, also the Commit button) | `git.commit.ts` `commitStaged()` | `git commit -m <message>` |
+| Commit --no-verify | `git.commit.ts` `commitStaged({ noVerify: true })` | `git commit --no-verify -m <message>` |
+| Commit --amend | `git.commit.ts` `amendCommit()` | `git commit --amend -m <message>` |
+| Amend --no-verify | `git.commit.ts` `amendCommit({ noVerify: true })` | `git commit --amend --no-verify -m <message>` |
+| amend message load | `git.log.ts` `readMessage()` | `git log -1 --format=%B HEAD` |
+| amend short hash for the indicator | `git.log.ts` `readShortHash()` | `git log -1 --format=%h HEAD` |
+| identity line | `git.repo.ts` `readIdentity()` | `git config --get user.name` and `git config --get user.email` |
+| staged count and file list | `parsers/parse.status.ts` via `git.status.ts` | `git status --porcelain=v2 --branch` |
+| refresh after commit | `RepositoryProvider.refresh()` | re-reads status and the first graph page |
+
+The message is passed as a single argument with embedded newlines; git's default `whitespace` cleanup for `-m` strips leading and trailing blank lines and trailing whitespace. Only staged files are committed: the builder passes no pathspec and no `-a` or `-A` flag, so untracked and unstaged files are never included. `--no-verify` is added only for the two variants that request it; there is no setting that applies it by default (product spec line 1163).
+
+After a successful commit the runner triggers `RepositoryProvider.refresh()`, which re-reads status, staged files, and the first graph page. The new commit appears at the top of the graph above the Pending Changes row. The app does not automatically select the new commit; it stays on Pending Changes so the next action is obvious, and the composer clears, including after amend.
+
+Failure classification for the hook case lives in `git.errors.ts`: when git exits non-zero and stderr names a `pre-commit`, `commit-msg`, or other hook, the error is classified as `hook-failure`. The error overlay then names the hook output and states that `--no-verify` can bypass the hook. The draft message and staged files are preserved in every failure case, and the command plus its output are recorded in the console (F-13).
+
+## 8. Keyboard and focus
+
+Action IDs only (product spec section 6.1). Raw key strings never appear outside `@/domain/keymap/**` and `src/app/hooks/useHotkeys.ts`.
+
+| Action ID | Behavior in the composer |
+| --- | --- |
+| `commit.submit` (`Ctrl/Cmd+S`) | Commit with the current message and the selected variant, using exactly the staged files. The Commit button dispatches the same ID. Works while the textarea is focused. |
+| `commit.options` (`.`) | Open `CommitOptionsMenu`. |
+| `commit.focus` (`c`) | Focus the composer when it is visible (the Pending Changes row is selected). |
+| `overlay.close` (`Esc`) | In the textarea: leave the textarea and return focus to the graph. In the More menu: cancel and restore the previous draft behavior. |
+| `nav.up`, `nav.down` | Move the highlighted variant inside the More menu. |
+| `nav.activate` (`Enter`) | Run the highlighted variant in the More menu. In the textarea, `Enter` inserts a newline, not a commit. |
+| `focus.next`, `focus.previous` (`Tab` / `Shift+Tab`) | Move between the textarea, More, and Commit. |
+| `app.quit` (`q`) | Quit; the confirmation opens when a draft message is unsent (F-01). |
+
+`Enter` inserts a newline; committing is `commit.submit` only. The footer shows `commit.submit` and `commit.options` hints for the `right-pane` region when the composer sub-mode is active, so footer, help, and palette agree through `@/domain/keymap/keymap.describe.ts`.
+
+## 9. Loading, empty, error, and disabled states
+
+- Disabled, no staged files: the textarea is disabled with the `dim` token and the Commit button label is "Nothing to commit"; clicking it does nothing. The footer shows the reason. The row still shows the staged count when staged-only changes exist.
+- Disabled, empty message: with files staged but an empty or whitespace-only message, the Commit button is disabled and the footer shows "message required".
+- Disabled, missing identity: `ComposerIdentity` shows "Git identity not configured" with the missing value (the missing `user.name` or `user.email`) and commit is disabled. The user resolves it in git configuration outside the app.
+- Disabled, committing: the composer is disabled and shows a `Spinner` with "Committing...".
+- Disabled, operation in progress: a second mutation is blocked with the reason from `commands.runner.ts`.
+- Empty staged but amend selected: commit is allowed, because amend replaces the last commit and the "Nothing to commit" rule applies to normal commits only (product spec line 750).
+- Success: clear the message, return to the default state, keep the Pending Changes row selected, refresh status, staged files, and graph, show a success status, and disable the textarea if no files remain staged.
+- Failure: keep the message and staged files, show the git error in a persistent overlay, and record the command and output in the console.
+- Pre-commit hook failure: the error overlay names the hook output and makes clear that `--no-verify` can bypass it.
+- More menu disabled variant: the highlighted variant shows its reason, for example "no previous commit" when there is no HEAD to amend.
+- Empty repository: the composer becomes editable after the first file is staged; until then it shows the no-staged-files state (F-16).
+
+Every state carries a text marker; color is never the only signal.
+
+## 10. Performance and bounds
+
+- The textarea auto-grows up to 8 rows and then scrolls inside a `<scrollbox>`; the height is `min(8, messageLineCount)` and is recomputed on edit and on resize from `useTerminalDimensions`.
+- No git call runs per keystroke. Identity is read once per repository refresh, and the amend message and short hash are read once when amend is selected.
+- The identity and counts come from the repository snapshot, so the composer does not add a read per render.
+- Commit is a single write serialized by `commands.runner.ts`; a second write while one is running returns a blocked result with a reason. The composer does not optimistically mutate the graph or the staged list.
+- The More menu is a fixed four-option list, so it needs no pagination or virtualization.
+
+## 11. Safety and confirmations
+
+- A normal commit is the explicit primary action and requires no extra confirmation; it is the user's stated intent.
+- `--no-verify` is never applied by default and is reachable only through the explicit More menu selection (product spec line 1163). The hook output is always named when a hook fails.
+- Amend is a history rewrite. It is reachable only through an explicit menu selection, and the composer always shows the "Amending <short hash>" indicator naming the commit being replaced.
+- Amend is allowed without staged changes because it replaces the last commit. The normal "Nothing to commit" rule does not apply to amend.
+- Commits include exactly the staged files. Untracked and unstaged files are never included.
+- On any failure the message and staged files are preserved; no failure path clears the draft.
+- Every command runs through `git.client.ts` with an argument array and no shell; credentials are redacted before any console or error rendering (F-18).
+
+## 12. Acceptance mapping
+
+| F-09 acceptance bullet | Implementing module or component |
+| --- | --- |
+| A user can stage one file, type a message, press `Ctrl/Cmd+S`, and see the commit at the top of the graph | `commit.submit` handler in `useComposer.ts`; `git.commit.ts` `commitStaged()`; `RepositoryProvider.refresh()` |
+| Nothing is committed while no files are staged | Enablement rule in `useComposer.ts`; `commitStaged()` passes no pathspec and no `-a` |
+| The button reads "Nothing to commit" and does nothing in that state | `CommitComposer.tsx` button label and disabled handler |
+| Author identity comes from git configuration | `ComposerIdentity.tsx`; `git.repo.ts` `readIdentity()` |
+| `--no-verify` and amend variants work and are visible in the console | `CommitOptionsMenu.tsx`; `git.commit.ts` builders; console entry from `commands.runner.ts` |
+| A failed commit preserves the message and staged state | `useComposer.ts` keeps the draft; no clear on failure; error overlay from `OverlayProvider` |
+| Multiline textarea with placeholder and auto-grow to 8 rows | `CommitComposer.tsx` `<textarea>` and height rule |
+| Enter inserts a newline; `Ctrl/Cmd+S` commits | `CommitComposer.tsx` textarea handling; `commit.submit` handler |
+| Amend loads the previous message and shows "Amending <short hash>" | `useComposer.ts` amend load via `git.log.ts`; indicator span in `CommitComposer.tsx` |
+| The menu shows why an option is unavailable | `CommitOptionsMenu.tsx` disabled reason text, for example "no previous commit" |
+
+## 13. Tests to add
+
+- `src/domain/git/git.commit.test.ts`: argument construction for the four variants, asserting exactly the staged-only form (no pathspec, no `-a`), the presence and absence of `--no-verify`, and the presence of `--amend`; no spawning in unit tests.
+- `src/features/composer/useComposer.test.tsx`: enablement matrix for no staged files, empty and whitespace-only messages, missing `user.name` and `user.email`, and amend with no staged changes; draft preserved after a simulated failure; amend message load and cancel restoring the previous draft.
+- `src/features/composer/CommitComposer.test.tsx`: placeholder "Commit message...", identity line, "Nothing to commit" label, auto-grow to 8 rows then scroll, `Enter` newline, `commit.submit` dispatch, success clear, and the hook-failure overlay text with the `--no-verify` hint.
+- `src/features/composer/CommitOptionsMenu.test.tsx`: the four variants in order, disabled reason "no previous commit" when there is no HEAD, amend selection indicator, and Cancel restoring the previous draft.
+- An integration-style test that runs the commit command against a temporary repository fixture and asserts that a new commit appears and that untracked and unstaged files are excluded.
+
+## 14. Open questions
+
+- Product spec does not require a confirmation for amend. Should the app warn when the commit being amended is already contained in an upstream remote branch, since amend rewrites published history? This doc requires only the "Amending <short hash>" indicator. Confirm.
+- Should `--no-verify` be gated behind an extra confirmation, given it bypasses hooks? The spec makes it an explicit menu choice and forbids an always-no-verify setting, so this doc treats the menu selection as sufficient. Confirm.
+- Message passing: this doc uses `-m` with embedded newlines and git's default `whitespace` cleanup. Confirm this is preferred over `--file=-` with stdin, which `git.client.ts` would need to support.
+- Should a whitespace-only message be trimmed before validation, or is it rejected as empty? This doc rejects it as empty.
+- Should the draft message survive a region focus change and a graph selection change? This doc keeps it in view state so it survives both, and only Esc in the textarea leaves the field without clearing it.
