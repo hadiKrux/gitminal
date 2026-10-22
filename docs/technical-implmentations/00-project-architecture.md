@@ -5,6 +5,7 @@ Last updated: 2026-10-21
 Scope: Enforced file, folder, layering, and OpenTUI component rules for the Gitminal v1 implementation.
 Product spec: `docs/product-spec.md`
 Feature docs: `docs/technical-implmentations/01-*.md` through `20-*.md`
+Visual reference: [`gitminal.png`](../../gitminal.png). The mockup is the authoritative UI target. Every UI feature must match the area of the mockup mapped to it in `01-app-shell-and-focus.md`.
 
 This document is the contract. Feature documents describe behavior; this document decides where code lives, how layers depend on each other, and which OpenTUI component each concern uses. If a feature doc disagrees with this document on structure or components, this document wins.
 
@@ -31,6 +32,7 @@ No other runtime dependency is added without updating this document. No UI toolk
 5. One mutation at a time. The command runner serializes writes and reports a visible reason when a second mutation is requested.
 6. Explicit states. Every async surface has loading, empty, error, and disabled states with text markers, not color alone.
 7. Composition over new renderables. Only existing OpenTUI components and React composition are used. A new renderable requires a documented reason in this file.
+8. Match the visual reference. The mockup at `gitminal.png` is the authoritative target for layout, hierarchy, spacing, and density. Behavior comes from the product spec; arrangement comes from the mockup.
 
 ## 3. Layer model and dependency direction
 

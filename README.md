@@ -2,6 +2,10 @@
 
 A keyboard-first terminal git client.
 
+![Gitminal UI reference](gitminal.png)
+
+The screenshot above is the authoritative UI reference. The app must match it.
+
 Requires [Bun](https://bun.sh/) 1.3.0 or later.
 
 To install dependencies:

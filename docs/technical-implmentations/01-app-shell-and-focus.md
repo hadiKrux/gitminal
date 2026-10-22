@@ -7,6 +7,25 @@ Spec reference: `docs/product-spec.md` section 3 "Application shell" (lines 66-1
 Dependencies: F-02 `02-top-bar.md`, F-03 `03-branches-panel.md`, F-04 `04-remotes-panel.md`, F-05 `05-tags-panel.md`, F-06 `06-stashes-panel.md`, F-07 `07-worktrees-panel.md`, F-08 `08-commit-graph.md`, F-09 `09-commit-composer.md`, F-10 `10-commit-details.md`, F-11 `11-diffs-and-file-actions.md`, F-13 `13-console.md`, F-15 `15-overlays-and-confirmations.md`, F-16 `16-repository-states.md`, F-19 `19-configuration-and-keybindings.md`, F-20 `20-theme-and-colors.md`.
 Owned paths: `src/features/shell/AppShell.tsx`, `src/features/shell/Sidebar.tsx`, `src/features/shell/MainArea.tsx`, `src/features/shell/Footer.tsx`, `src/features/shell/ResponsiveGate.tsx`, `src/features/shell/regions.ts`, `src/features/shell/focus.types.ts`, `src/features/shell/useFocusModel.ts`, `src/app/providers/FocusProvider.tsx`, `src/app/providers/KeymapProvider.tsx`, `src/app/providers/StatusProvider.tsx`, `src/app/hooks/useHotkeys.ts`, `src/app/hooks/useFocusRegion.ts`, `src/app/hooks/useAction.ts`, `src/app/hooks/useStatus.ts`.
 
+Visual reference: [`gitminal.png`](../../gitminal.png). This mockup is the authoritative UI target. The implemented shell must match it: the four-region frame, the three main columns, the sidebar panel stack and order, the top-bar control placement, the commit graph row layout, the right-pane split between composer or details and diffs, the diff styling and collapse marker, and the footer hint bar. Where this document does not settle a visual detail, the mockup wins. Behavior still follows `docs/product-spec.md`.
+
+![Gitminal UI reference](../../gitminal.png)
+
+Mockup regions and their owning feature docs:
+
+| Mockup area | Visual content | Owning doc |
+| --- | --- | --- |
+| Top bar | App name, current branch, up and down controls, More menu | `02-top-bar.md` |
+| Sidebar, Branches | Local branch list with ahead and behind counts and selection marker | `03-branches-panel.md` |
+| Sidebar, Remotes | Filter field and remote-tracking branch list | `04-remotes-panel.md` |
+| Sidebar, Tags | Tag list | `05-tags-panel.md` |
+| Sidebar, Stashes | Stash list with message and branch | `06-stashes-panel.md` |
+| Sidebar, Worktrees | Worktree list | `07-worktrees-panel.md` |
+| Commits column | Pending Changes row, graph lanes, nodes, ref badges, author, date, file count | `08-commit-graph.md` |
+| Right pane, top | Commit message input, identity line, Commit button | `09-commit-composer.md` and `10-commit-details.md` |
+| Right pane, Diffs | Working Directory, Staged Files, file headers, hunks, unchanged-line collapse | `11-diffs-and-file-actions.md` |
+| Footer | Contextual keyboard hints | This document, section 8 |
+
 This document follows the 14-section contract in `00-project-architecture.md` section 14 and conforms to the enforced structure in section 4, the component catalog in section 6, the focus model in section 8, and the state rules in section 9. Where this document and the architecture contract disagree, the architecture contract wins.
 
 ## 2. Scope and non-goals

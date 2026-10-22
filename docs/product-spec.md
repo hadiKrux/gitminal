@@ -3,6 +3,7 @@
 Status: Draft for review
 Last updated: 2026-10-21
 Scope: Product behavior for v1. No implementation or architecture decisions.
+Visual reference: [`gitminal.png`](../gitminal.png) is the authoritative UI mockup. The app must look like it: same four-region frame, three main columns, panel order, top-bar controls, commit graph layout, right-pane split, diff presentation, and footer hints. When this document and the mockup disagree on visual arrangement, the mockup wins; behavior is still governed by this document. The mockup is embedded in `docs/technical-implmentations/01-app-shell-and-focus.md`.
 
 ## 1. Product summary
 
@@ -87,6 +88,8 @@ All features listed in this document are in v1 unless marked as deferred.
 | Keyboard hints: n New branch | d Delete branch | p Pull | ? Keybindings  |
 +--------------------------------------------------------------------------+
 ```
+
+The text below is a behavioral summary. The authoritative visual target is the mockup in [`gitminal.png`](../gitminal.png). The app must match its layout: sidebar on the left with Branches, Remotes, Tags, Stashes, and Worktrees stacked in that order; commit graph in the middle column; commit composer above diffs in the right column; top bar across the full width; footer hint bar at the bottom.
 
 The visible layout has four regions:
 
@@ -378,7 +381,7 @@ Acceptance:
 
 The Remotes panel lists remote-tracking branches, grouped or sorted by remote name and then branch name. Examples: `origin/main`, `origin/feature/AB-1231`.
 
-- A filter field is available at the top, as shown in the mockup. Typing filters the list case-insensitively against the full remote branch name. `Esc` clears the filter before leaving the field.
+- A filter field is available at the top, as shown in the [UI reference](../gitminal.png). Typing filters the list case-insensitively against the full remote branch name. `Esc` clears the filter before leaving the field.
 - A scrollbar appears when the filtered list overflows.
 - Rows show the remote branch, its last known commit summary and date where space permits, and a stale indicator if the remote-tracking ref has not been updated recently.
 - Remote branches are not checked out directly. Selecting one offers creation of a local branch.
@@ -591,7 +594,7 @@ Commit rows show:
 - A selection indicator on the selected row.
 - Truncated commit message.
 - Ref badges: tags first, then local branches, then remote branches. If space is insufficient, show the first badges plus a "+N" count.
-- Number of affected files, right aligned. This is the number shown at the right edge in the mockup.
+- Number of affected files, right aligned. This is the number shown at the right edge in the [UI reference](../gitminal.png).
 - Author name, shortened when needed.
 - Date or time, compact.
 - For tagged commits, ref badges get visual priority. The metadata line shows the badges before the date, and the date may be omitted when space is tight.
@@ -860,7 +863,7 @@ File expansion:
 
 - Expanding a text file loads and shows its unified diff inline.
 - Diff shows file header, hunk headers, old and new line numbers, context lines, additions, and deletions.
-- Long runs of unchanged lines collapse behind a "N unchanged lines" marker, matching the mockup.
+- Long runs of unchanged lines collapse behind a "N unchanged lines" marker, matching the [UI reference](../gitminal.png).
 - Binary files show "Binary file - preview unavailable" but can still be staged, unstaged, discarded, or deleted.
 - Files above the preview limit show "File too large to preview" with the size. Actions remain available.
 - Untracked text files show their full content as added lines.
