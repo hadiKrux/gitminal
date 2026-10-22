@@ -1,2 +1,0 @@
-- Use components or features listed here https://github.com/vadimdemedes/ink
-- if core framework doesn't have the component see list in Useful Components https://github.com/vadimdemedes/ink#useful-components
