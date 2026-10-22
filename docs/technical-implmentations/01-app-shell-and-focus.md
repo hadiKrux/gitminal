@@ -4,7 +4,7 @@
 
 Status: Draft for review.
 Spec reference: `docs/product-spec.md` section 3 "Application shell" (lines 66-152), section 5 F-01 (lines 181-195), section 6 "Keyboard map" (lines 1442-1611), and section 6.1 "Action IDs" (lines 1583-1611).
-Dependencies: F-02 `02-top-bar.md`, F-03 `03-branches-panel.md`, F-04 `04-remotes-panel.md`, F-05 `05-tags-panel.md`, F-06 `06-stashes-panel.md`, F-07 `07-worktrees-panel.md`, F-08 `08-commit-graph.md`, F-09 `09-commit-composer.md`, F-10 `10-commit-details.md`, F-11 `11-diffs-and-file-actions.md`, F-13 `13-console.md`, F-15 `15-overlays-and-confirmations.md`, F-16 `16-repository-states.md`, F-19 `19-configuration-and-keybindings.md`, F-20 `20-theme-and-colors.md`.
+Dependencies: F-02 `02-top-bar.md`, F-03 `03-branches-panel.md`, F-04 `04-remotes-panel.md`, F-05 `05-tags-panel.md`, F-06 `06-stashes-panel.md`, F-07 `07-worktrees-panel.md`, F-08 `08-commit-graph.md`, F-09 `09-commit-composer.md`, F-10 `10-commit-details.md`, F-11 `11-diffs-and-file-actions.md`, F-13 `13-console.md`, F-15 `15-overlays-and-confirmations.md`, F-16 `16-repository-states.md`, F-19 `19-configuration-and-keybindings.md`, F-20 `20-theme-and-colors.md`, F-21 `21-startup-splash.md` (runs before this shell mounts).
 Owned paths: `src/features/shell/AppShell.tsx`, `src/features/shell/Sidebar.tsx`, `src/features/shell/MainArea.tsx`, `src/features/shell/Footer.tsx`, `src/features/shell/ResponsiveGate.tsx`, `src/features/shell/regions.ts`, `src/features/shell/focus.types.ts`, `src/features/shell/useFocusModel.ts`, `src/app/providers/FocusProvider.tsx`, `src/app/providers/KeymapProvider.tsx`, `src/app/providers/StatusProvider.tsx`, `src/app/hooks/useHotkeys.ts`, `src/app/hooks/useFocusRegion.ts`, `src/app/hooks/useAction.ts`, `src/app/hooks/useStatus.ts`.
 
 Visual reference: [`gitminal.png`](../../gitminal.png). This mockup is the authoritative UI target. The implemented shell must match it: the four-region frame, the three main columns, the sidebar panel stack and order, the top-bar control placement, the commit graph row layout, the right-pane split between composer or details and diffs, the diff styling and collapse marker, and the footer hint bar. Where this document does not settle a visual detail, the mockup wins. Behavior still follows `docs/product-spec.md`. The top bar middle shows branch info in the idle mockup state; at runtime it swaps to operation progress or transient status as specified in `02-top-bar.md`.
@@ -31,7 +31,7 @@ This document follows the 14-section contract in `00-project-architecture.md` se
 ## 2. Scope and non-goals
 
 In scope: the four-region shell frame; the region focus state machine; Tab and Shift+Tab traversal order; the focus border plus text marker; per-region cursor persistence; the responsive fallbacks at 100 columns, 90 columns, 80 columns, and 24 rows; the terminal-too-small notice using `ascii-font`; the contextual footer hint bar with priority-based dropping; mouse focus, mouse selection, wheel scrolling, and double click dispatch; quit confirmation gating; and the single centralized keyboard dispatcher in `useHotkeys`.
-Non-goals: rendering the content of any panel, graph, composer, diff, or console (owned by F-03 through F-13); the overlay and modal stack plus destructive confirmations (F-15 `15-overlays-and-confirmations.md`); the keymap file format, defaults, and conflict detection (F-19 `19-configuration-and-keybindings.md`); theme token values and color capability (F-20 `20-theme-and-colors.md`); repository state detection and gating (F-16 `16-repository-states.md`); any git command execution.
+Non-goals: rendering the content of any panel, graph, composer, diff, or console (owned by F-03 through F-13); the startup splash and the npm update check (F-21 `21-startup-splash.md`); the overlay and modal stack plus destructive confirmations (F-15 `15-overlays-and-confirmations.md`); the keymap file format, defaults, and conflict detection (F-19 `19-configuration-and-keybindings.md`); theme token values and color capability (F-20 `20-theme-and-colors.md`); repository state detection and gating (F-16 `16-repository-states.md`); any git command execution.
 
 ## 3. OpenTUI components used
 
@@ -42,7 +42,7 @@ Non-goals: rendering the content of any panel, graph, composer, diff, or console
 | `<span>` | Inline runs inside `<text>`: the key part of a `KeyHint`, the sync badge text, and marker emphasis. | Inline styling without a layout block. |
 | `<scrollbox>` | The body of every sidebar panel and the main-area scroll regions; wheel scroll, scrollbars, and `viewportCulling`. | Handles wheel scrolling, visible-on-overflow scrollbars, and viewport culling for long lists. |
 | `<tab-select>` | The collapsed single-panel switcher in `Sidebar` when the sidebar falls back below 90 columns. | Native horizontal selector semantics for switching the single visible sidebar panel. |
-| `<ascii-font>` | The terminal-too-small splash only. | Splash text is the one sanctioned use in architecture section 6. |
+| `<ascii-font>` | The terminal-too-small splash, and the startup splash wordmark owned by F-21. | Splash text is the sanctioned use in architecture section 6. |
 | `<select>` | Not owned here. The More menu lives in F-02. | N/A for this feature. |
 | `<input>` | Not owned here. Filter fields live in the panels. | N/A for this feature. |
 | `<diff>`, `<code>`, `<line-number>`, `<markdown>`, `<textarea>` | Not owned here. | N/A for this feature. |
@@ -51,7 +51,7 @@ OpenTUI hooks used:
 
 | Hook | Where used | Note |
 | --- | --- | --- |
-| `useKeyboard` | Called exactly once, inside `src/app/hooks/useHotkeys.ts`. | Features never call `useKeyboard` directly. This is enforced by architecture section 6 and the boundary check in section 12. |
+| `useKeyboard` | Called exactly once, inside `src/app/hooks/useHotkeys.ts`. The startup splash gate in `src/app/App.tsx` owns the only subscription before the shell mounts. | Features never call `useKeyboard` directly. This is enforced by architecture section 6 and the boundary check in section 12. |
 | `useOnResize` | `ResponsiveGate` and `AppShell` recompute the layout mode on terminal resize. | Resize is the trigger for fallback transitions. |
 | `useTerminalDimensions` | Minimum-size checks, sidebar width budget, and hint fitting budgets. | Single source for columns and rows. |
 | `useRenderer` | Bootstrap focus acquisition and terminal restore on quit. | Owned by `App.tsx` and the quit handler, not by feature components. |
@@ -66,7 +66,9 @@ All icons and markers used by this feature come from `src/theme/icons.ts`; see a
 ```text
 src/index.tsx (bootstrap: createCliRenderer + createRoot)
 -> src/app/App.tsx
-   -> ConfigProvider
+   -> SplashGate                          (while the splash is visible; owned by F-21)
+      -> SplashScreen                     (src/features/splash/SplashScreen.tsx)
+   -> (after dismissal) ConfigProvider
       -> ThemeProvider
          -> KeymapProvider
             -> RepositoryProvider
@@ -156,6 +158,8 @@ Action IDs only (product spec section 6.1). Raw key strings never appear outside
 
 Precedence implementation in `useHotkeys`: it calls `useKeyboard` once and, on each key event, resolves in this order, matching product spec section 3 and architecture section 8. First, if an overlay is open, the overlay context owns the key except the quit escape hatch. Second, if focus is inside a text input, printable keys, Backspace, Delete, arrow keys, and Enter pass to the input, while modified shortcuts still resolve through the keymap. Third, the focused region context is consulted. Fourth, global actions. Unhandled keys are ignored. `KeymapProvider` supplies the resolved map, `OverlayProvider` supplies the overlay stack, `FocusProvider` supplies the active region and the text-input flag, and `useAction` supplies the handler registry.
 
+Splash keys: before the shell mounts, the splash gate in `src/app/App.tsx` owns the only keyboard subscription. Any key dismisses the splash and mounts the shell; `Ctrl+C` quits. The splash is not a focus region, its keys are fixed, and it does not use action IDs because the keymap has not loaded. `useHotkeys` becomes the keyboard owner only after the splash gate unmounts. See `21-startup-splash.md`.
+
 Collapsed sidebar switcher: when `LayoutMode` is `sidebar-collapsed`, `Sidebar` renders one `<tab-select>` whose options are the five panel labels and one panel body below it. Focusing the sidebar region and pressing `nav.left` or `nav.right` changes the `<tab-select>` selection and swaps the visible panel. The `Tab` key still moves between regions through `focus.next`; the panel switcher does not consume `focus.next`. See section 14 for the ambiguity this resolves.
 
 Mouse: `onMouseDown` on each region frame calls `focus()` from `useFocusRegion` and selects the clicked row; a second click on the same row inside the double-click threshold dispatches `nav.activate`. `onMouseScroll` on each `<scrollbox>` scrolls the hovered list. Mouse never exposes an action without a keybinding.
@@ -170,6 +174,7 @@ Focus visibility: the focused region is drawn with `focusedBorderColor` from `us
 - Disabled: when an overlay is open, background regions are visibly inactive (dim tokens) and `useHotkeys` routes every key to the overlay. When an operation is running, the top bar status strip shows the phase and progress while the footer keeps the hint bar, because navigation, console, and help remain usable.
 - Text markers: focus marker `>`, detached and missing-upstream markers `[?]`, status markers from `TextMarker`. No state is conveyed by color alone.
 - Too small: below 80 columns or 24 rows, `ResponsiveGate` renders the `ascii-font` notice showing the current size and the minimum `100x30`, and does not attempt the layout.
+- Splash: before the shell mounts, the startup splash renders the wordmark, version, and update notice, and waits for a key press. It never shows a loading state for the repository because no repository read has started. See `21-startup-splash.md`.
 
 ## 10. Performance and bounds
 
@@ -178,6 +183,7 @@ Focus visibility: the focused region is drawn with `focusedBorderColor` from `us
 - The top bar status strip has a fixed one-row height and a width budget computed by F-02. It never wraps and never changes the top bar height. Progress redraws are throttled to the renderer frame rate.
 - The cursor map is a plain object keyed by region, so cursor reads are O(1) and do not trigger repository reads.
 - `useOnResize` recomputes `LayoutMode` at most once per resize event and only when a breakpoint is crossed.
+- The startup splash renders on the first frame and never waits on the npm update check; the check is bounded by its own timeout and is discarded on dismissal. See `21-startup-splash.md`.
 - Region rendering stays bounded because each region's own virtualization is owned by its feature; the shell adds no unbounded list.
 
 ## 11. Safety and confirmations
@@ -205,6 +211,8 @@ Focus visibility: the focused region is drawn with `focusedBorderColor` from `us
 | "The app remains usable at the target minimum size and shows a clear notice below it." (v1 acceptance, line 1727) | `src/features/shell/ResponsiveGate.tsx`. |
 | "Focus changes are visible and footer hints match the focused region." (v1 acceptance, line 1693) | `src/app/providers/FocusProvider.tsx` and `src/features/shell/Footer.tsx`. |
 | "The app restores the terminal before exit." (F-01 lifecycle, line 152) | `src/app/App.tsx` quit handler using `useRenderer`. |
+| "Launching the app shows the splash with the wordmark, the running version, and the press-any-key hint." (F-21) | `src/features/splash/SplashScreen.tsx` mounted by the splash gate in `src/app/App.tsx`. |
+| "Pressing any key opens the workspace, and `Ctrl+C` quits." (F-21) | The any-key handler in the splash gate in `src/app/App.tsx`. |
 
 ## 13. Tests to add
 
@@ -215,6 +223,7 @@ Focus visibility: the focused region is drawn with `focusedBorderColor` from `us
 - `src/features/shell/AppShell.test.tsx`: rendering with `@opentui/react` test-utils asserts the focus marker `>` moves with `focus.next` and that clicking a row focuses its region.
 - `src/app/hooks/useHotkeys.test.ts`: precedence table covering overlay-open, text-input focus, region context, and global; `null` reset and `[]` unbind behavior come from the keymap tests in F-19.
 - `src/app/providers/FocusProvider.test.tsx`: cursor survives a focus round trip and an unchanged refresh; `previousRegion` updates on focus change.
+- `src/app/App.test.tsx`: the splash gate is the only keyboard subscriber while the splash is visible; the first key press dismisses the splash, mounts the shell, and unmounts the splash gate. Splash rendering tests live in `21-startup-splash.md`.
 
 ## 14. Open questions
 
@@ -223,3 +232,4 @@ Focus visibility: the focused region is drawn with `focusedBorderColor` from `us
 - The exact collapse threshold is not specified beyond "below 100 columns". This document chooses 90 columns for the collapse and keeps the narrow-but-full layout between 90 and 99 columns. Confirm the threshold.
 - Whether the too-small notice should still allow `app.quit` and `app.help` while blocking the layout is unspecified; this document keeps both available.
 - Whether the sidebar width should shrink in fixed steps or proportionally between 90 and 99 columns is unspecified; this document uses a fixed narrow width.
+- Whether `Esc` should dismiss the splash like any other key. This document treats every key equally and reserves no splash key except the `Ctrl+C` quit path.

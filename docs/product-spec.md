@@ -1,7 +1,7 @@
 # Gitminal Product Specification
 
 Status: Draft for review
-Last updated: 2026-10-21
+Last updated: 2026-10-22
 Scope: Product behavior for v1. No implementation or architecture decisions.
 Visual reference: [`gitminal.png`](../gitminal.png) is the authoritative UI mockup. The app must look like it: same four-region frame, three main columns, panel order, top-bar controls, commit graph layout, right-pane split, diff presentation, and footer hints. When this document and the mockup disagree on visual arrangement, the mockup wins; behavior is still governed by this document. The mockup is embedded in `docs/technical-implmentations/01-app-shell-and-focus.md`.
 
@@ -150,6 +150,9 @@ This precedence resolves overlaps such as `p` meaning Pull in the top bar or com
 
 ### Application lifecycle
 
+- On launch, the app shows a full-screen startup splash before the workspace: the `GITMINAL` wordmark, the running version, an optional update notice, and a press-any-key hint.
+- Any key dismisses the splash and opens the workspace. `Ctrl+C` quits.
+- The startup update check runs in the background while the splash is visible and never blocks the splash or the workspace. See F-21.
 - The app opens in the current repository. If launched from a subdirectory, all paths are shown relative to the repository root.
 - `q` quits when focus is not in a text input and no overlay is open.
 - Quitting with an operation running, an unsent commit message, or an open confirmation asks for confirmation.
@@ -179,6 +182,7 @@ This precedence resolves overlaps such as `p` meaning Pull in the top bar or com
 | F-18 | Safety and platform behavior | Data safety, credential handling, redaction, platform terminal behavior. |
 | F-19 | Configuration and keybindings | User settings and full keyboard overrides from config.json and optional keybindings.json. |
 | F-20 | Theme and colors | Catppuccin flavors with Mocha default, theme picker, theme.json color overrides, color capability fallbacks. |
+| F-21 | Startup splash and update check | Startup wordmark, version, press-any-key dismiss, and a non-blocking npm update notice. |
 
 ## 5. Feature specifications
 
@@ -1457,9 +1461,67 @@ Acceptance:
 - Theme overrides cannot change layout or safety behavior.
 - Reload configuration applies a valid theme without restarting.
 
+### F-21 Startup splash and update check
+
+The app shows a startup splash on every launch, before the workspace and before any repository read is required.
+
+Contents, centered:
+
+- The app wordmark `GITMINAL` rendered with the OpenTUI `tiny` ASCII font.
+- The running version, shown as `version <semver>` from the package manifest.
+- A startup update line: a checking hint while the npm registry request is in flight, an update notice when a newer version is published, or nothing otherwise.
+- A `Press any key to continue` hint.
+
+Update notice:
+
+- Shown only when the registry's latest version is strictly newer than the running version.
+- Names the published version and the running version.
+- Shows the exact install command, `npm i -g @im4all/gitminal`, on its own line.
+- Never shows an install command for a different package, and never runs an install or writes to disk.
+
+Update check behavior:
+
+- Runs once per launch, in the background, while the splash is visible.
+- Queries the npm registry metadata endpoint for the `latest` distribution of the app package.
+- Uses a short timeout of about two seconds and abandons the request on timeout.
+- Is silent on failure. Offline launches, registry errors, timeouts, malformed responses, and invalid versions produce no update line and no warning.
+- Compares semantic versions, so a running version that is newer than the registry version, such as a local development build, is not treated as needing an update.
+- Is not cached, retried, persisted, or scheduled. A check that has not finished when the splash is dismissed is discarded.
+- Sends no identifying information beyond the standard registry request. There is no telemetry, no usage data, and no version reporting.
+- Is read-only with respect to the repository, the index, and the configuration files.
+
+Dismissal and keyboard:
+
+- Any key press dismisses the splash and shows the workspace.
+- `Ctrl+C` quits the app.
+- The splash keys are fixed. They are not configurable and are not part of the keymap in F-19, because the splash runs before the shell and its keymap are mounted.
+- While the splash is visible, the shell is not mounted and repository actions are not available.
+
+Terminal size:
+
+- The wordmark uses the `tiny` ASCII font when the terminal is at least 40 columns and 10 rows.
+- Below that, the splash falls back to the plain wordmark `GITMINAL` in bold text so the splash never wraps or overflows.
+- The splash does not use the terminal-too-small notice from F-01; it degrades to the plain wordmark instead.
+
+Acceptance:
+
+- Launching the app shows the splash with the wordmark, the running version, and the press-any-key hint.
+- Pressing any key opens the workspace, and `Ctrl+C` quits.
+- When the registry has a newer version, the splash shows the published version, the running version, and `npm i -g @im4all/gitminal`.
+- When the app is current, or the check fails, the splash shows no update notice and no warning.
+- The splash appears and dismisses promptly and never waits on the update check.
+- A running version newer than the registry version does not show an update notice.
+
 ## 6. Keyboard map
 
-These are the v1 defaults. They can be overridden by F-19. Context keys override global keys. The footer and help show effective bindings.
+These are the v1 defaults. They can be overridden by F-19. Context keys override global keys. The footer and help show effective bindings. The startup splash keys are the exception: they are fixed, they run before the keymap is loaded, and they are not configurable.
+
+### Startup splash
+
+| Key | Action |
+| --- | --- |
+| Any key | Dismiss the splash and show the workspace |
+| `Ctrl+C` | Quit |
 
 ### Global (outside text inputs and modals)
 
@@ -1706,6 +1768,9 @@ Notes:
 
 ## 8. Acceptance criteria for v1
 
+- Launching shows the startup splash with the wordmark, the running version, and the press-any-key hint.
+- Any key dismisses the splash and opens the workspace, and `Ctrl+C` quits.
+- When a newer version exists on npm, the splash shows the published version, the running version, and `npm i -g @im4all/gitminal`. A current or failed check shows no update notice and no warning.
 - Launching in a normal repository shows the current branch, upstream state, local branches, remote branches, tags, stashes, worktrees, commit graph, composer, and diffs.
 - Launching outside a repository shows a clear non-repository state and no destructive actions.
 - Focus changes are visible and footer hints match the focused region.
@@ -1768,6 +1833,7 @@ Notes:
 | D16 | Commit history loading | The graph lazy-loads bounded pages, starting at 500 commits by default, and loads older commits near the bottom. It never loads full history up front. |
 | D17 | Commit search | `/` or `Ctrl/Cmd+F` opens an inline search above the graph. It matches subject and message body across the full graph scope, loads results lazily, and Esc restores the previous graph state. |
 | D18 | Theme picker | `t` opens a modal theme picker. Highlight previews live, Enter applies and saves the theme, and Esc restores the previous theme. |
+| D19 | Startup splash and update check | Every launch shows a splash with the wordmark and version. Any key opens the workspace. The app checks npm once in the background and shows the exact install command only when a newer version exists. Failures are silent. |
 
 ## 10. Assumed defaults
 
@@ -1784,19 +1850,23 @@ These are settled by the spec unless the product owner objects during review.
 - Default theme is Catppuccin Mocha. Configuration changes require Reload configuration or a restart; files are not hot-watched.
 - Theme picker selection persists by writing the `theme` field in `config.json`. Live preview is used before Enter.
 - Submodules, LFS, non-Catppuccin built-in themes, automatic light/dark switching, and a settings screen remain deferred.
+- The startup splash is shown on every launch, including when the app is launched outside a repository or from a subdirectory.
+- The npm update check has a two second timeout, is silent on failure, runs once per launch, and is discarded if the splash is dismissed first.
+- The published package name used by the update check and the install hint is `@im4all/gitminal`.
 
 ## 11. Suggested delivery slices
 
 These are product slices for later ticket creation, ordered to keep the app runnable and observable.
 
-1. Shell and navigation: layout, focus model, footer hints, help shell, command palette shell, mouse basics, empty and non-repo states.
-2. Configuration and theme: config and keybindings discovery, schema validation, overrides, Reload configuration, Catppuccin flavors, theme picker, theme.json overrides, color fallbacks.
-3. Repository read path: branch, status, refs, commit graph, commit details, diffs, pending changes row.
-4. Working tree and commit: stage, unstage, discard with confirmation, untracked handling, composer, commit, commit options, hook failure handling.
-5. Sidebar actions: branches, remotes, create-local-branch flow, tags, stashes, worktrees.
-6. Remote operations: scoped fetch, pull, push, auto-create upstream, safe force, overwrite force, no-verify, progress, error handling.
-7. Overlays and history: console, command palette, help search, error overlays, confirmations.
-8. Hardening: large repository pagination, virtualization, binary and oversized diffs, redaction, timeouts, external refresh, platform checks, acceptance pass.
+1. Startup splash: wordmark, version, press-any-key dismiss, background npm update check, and a silent failure path.
+2. Shell and navigation: layout, focus model, footer hints, help shell, command palette shell, mouse basics, empty and non-repo states.
+3. Configuration and theme: config and keybindings discovery, schema validation, overrides, Reload configuration, Catppuccin flavors, theme picker, theme.json overrides, color fallbacks.
+4. Repository read path: branch, status, refs, commit graph, commit details, diffs, pending changes row.
+5. Working tree and commit: stage, unstage, discard with confirmation, untracked handling, composer, commit, commit options, hook failure handling.
+6. Sidebar actions: branches, remotes, create-local-branch flow, tags, stashes, worktrees.
+7. Remote operations: scoped fetch, pull, push, auto-create upstream, safe force, overwrite force, no-verify, progress, error handling.
+8. Overlays and history: console, command palette, help search, error overlays, confirmations.
+9. Hardening: large repository pagination, virtualization, binary and oversized diffs, redaction, timeouts, external refresh, platform checks, acceptance pass.
 
 ## 12. Ticket mapping
 
@@ -1819,5 +1889,6 @@ Proposed epics for the ticket phase:
 - E15 Freshness, performance, safety, platform hardening.
 - E16 Configuration and keybinding overrides.
 - E17 Theme, Catppuccin flavors, theme picker, persistence, and theme overrides.
+- E18 Startup splash, wordmark, press-any-key dismiss, and npm update check.
 
 Each epic should produce independently verifiable behavior and include its own empty, loading, error, and keyboard states.

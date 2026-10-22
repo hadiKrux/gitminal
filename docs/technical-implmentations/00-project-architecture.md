@@ -21,7 +21,7 @@ This document is the contract. Feature documents describe behavior; this documen
 | Git access | System git CLI, argument arrays, no shell | Product spec F-18 |
 | Tests | `bun test` | This document |
 
-No other runtime dependency is added without updating this document. No UI toolkit, state library, router, or HTTP client is introduced.
+No other runtime dependency is added without updating this document. No UI toolkit, state library, router, or HTTP client is introduced. The startup update check uses the runtime's global `fetch` and adds no dependency.
 
 ## 2. Architectural principles
 
@@ -64,6 +64,7 @@ Allowed imports:
 Forbidden imports (enforced by lint, see section 12):
 
 - `node:child_process`, `Bun.spawn`, or any process spawn outside `src/domain/git/git.client.ts`.
+- `fetch` or any other network call outside `src/domain/update/update.check.ts`.
 - Hex color literals outside `src/domain/theme/theme.catppuccin.ts`.
 - Raw key string comparisons outside `src/domain/keymap/**` and `src/app/hooks/useHotkeys.ts`.
 - `@opentui/*` inside `src/domain/**`.
@@ -82,10 +83,12 @@ gitminal/
       01-app-shell-and-focus.md
       ...
       20-theme-and-colors.md
+      21-startup-splash.md
   src/
     index.tsx
     app/
       App.tsx
+      app.constants.ts
       providers/
         ConfigProvider.tsx
         ThemeProvider.tsx
@@ -110,6 +113,9 @@ gitminal/
         useConsoleLog.ts
         useTerminalSize.ts
     features/
+      splash/
+        SplashScreen.tsx
+        useUpdateCheck.ts
       shell/
         AppShell.tsx
         Sidebar.tsx
@@ -304,6 +310,10 @@ gitminal/
         console.types.ts
         console.buffer.ts
         console.format.ts
+      update/
+        update.check.ts
+        update.types.ts
+        update.constants.ts
     theme/
       ThemeContext.tsx
       useTokens.ts
@@ -317,6 +327,7 @@ gitminal/
       assert.ts
       async.ts
       invariant.ts
+      semver.ts
 ```
 
 Rules for this tree:
@@ -378,7 +389,7 @@ These are the only UI building blocks available. Features compose them. The cata
 | `<diff>` | `DiffRenderable` | All diffs: working, staged, untracked, commit, stash. Unified view, line numbers, added/removed backgrounds. | General text. |
 | `<line-number>` | `LineNumberRenderable` | Line-numbered read-only text that is not a diff, such as conflict-marker previews needing gutter signs. | Diffs; `<diff>` already draws gutters. |
 | `<markdown>` | `MarkdownRenderable` | Help documentation blocks and configuration notes. | App chrome. |
-| `<ascii-font>` | `ASCIIFontRenderable` | Empty-repository, non-repository, and terminal-too-small splash only. | Anywhere else. |
+| `<ascii-font>` | `ASCIIFontRenderable` | Startup splash wordmark and the empty-repository, non-repository, and terminal-too-small splash only. | Anywhere else. |
 | `<image>` | `ImageRenderable` | Not used in v1. | v1. |
 | `<frame-buffer>` | `FrameBufferRenderable` (registered via `extend`) | One-row progress bar in the top bar, rendered only through the `ProgressBar` primitive. | Any other graphics, text, animation, or layout. |
 | `<b>`, `<i>`, `<u>`, `<strong>`, `<em>`, `<a>`, `<br>` | span variants | Inline emphasis and line breaks inside `<text>`. | Layout. |
@@ -389,7 +400,7 @@ Hooks available from `@opentui/react` 0.6.6:
 
 | Hook | Use for |
 | --- | --- |
-| `useKeyboard(handler, { release? })` | The single global key dispatcher, owned by `src/app/hooks/useHotkeys.ts`. Features never call it directly. |
+| `useKeyboard(handler, { release? })` | The single global key dispatcher, owned by `src/app/hooks/useHotkeys.ts`. The startup splash gate in `src/app/App.tsx` is the only other caller and only while the splash is visible. Features never call it directly. |
 | `useOnResize(cb)` | Responsive layout fallbacks in `ResponsiveGate` and `AppShell`. |
 | `useTerminalDimensions()` | Minimum-size checks, truncation budgets, hint fitting. |
 | `useRenderer()` | Bootstrap access, focus management, console drawer access. |
@@ -410,6 +421,7 @@ Component rules:
 8. Disabled controls are rendered with a `dim` token and a text reason, and remain visible. The command palette uses `<select>` options whose `description` carries the disabled reason.
 9. Truncation uses `@/lib/text.ts` helpers with explicit budgets from `useTerminalDimensions`; it never hides the current branch, the selection marker, or the primary action.
 10. Progress bars use `<frame-buffer>` through the `ProgressBar` primitive only. The bar is one row high, `0` to `100` percent clamped, drawn as colored cells with no glyphs, and always paired with a text phase and percentage. Redraw only when the filled cell count, width, or theme color changes, and redraw after a resize because a resize clears the buffer.
+11. The startup splash is the only place `<ascii-font>` is used besides the empty-repository, non-repository, and terminal-too-small states. It renders the `GITMINAL` wordmark with `font="tiny"` above 40 columns and 10 rows and falls back to plain bold text below that, so the splash never wraps. See `21-startup-splash.md`.
 
 ### 6.1 Icon catalog and rules
 
@@ -504,12 +516,15 @@ top-bar, branches, remotes, tags, stashes, worktrees, graph, right-pane, diff, c
 - `FocusProvider` stores `activeRegion`, `previousRegion`, and a per-region cursor map. Cursors persist when focus leaves and returns.
 - `useFocusModel` owns Tab and Shift+Tab traversal in the spec order and skips regions hidden by responsive fallbacks.
 - `overlay` is not a region. When an overlay is open it owns all keys except the quit escape hatch, and the footer shows the overlay keys.
+- The startup splash is not a region and has no focus. It renders before the providers and the keymap mount, and its any-key handler is the only keyboard subscriber while it is visible. See `21-startup-splash.md`.
 - Key resolution order in `useHotkeys`: open overlay, then focused text input, then focused region context actions, then global actions.
 - Action IDs are exactly the IDs in product spec section 6.1 and live in `src/domain/keymap/keymap.defaults.ts`. Features receive action IDs only.
 - Precedence is computed in `src/domain/keymap/keymap.resolve.ts`. A key may appear once per context. Context overrides global for the same key.
 - Footer hints come from `src/domain/keymap/keymap.describe.ts` filtered by the focused region and current availability, so the footer, help, and palette always agree.
 
 ## 9. State architecture
+
+The startup splash (`21-startup-splash.md`) runs before any provider mounts. It owns only local view state and one background update check, then unmounts.
 
 Providers, outermost to innermost:
 
@@ -569,6 +584,7 @@ These rules are checked, not aspirational. Add the following to the repo as part
 - A dependency-boundary check script (a node script run through `bun`, per global instructions) walks `src/` and fails on:
   - `@opentui/*` or React imports under `src/domain/**` or `src/lib/**`.
   - any spawn call outside `src/domain/git/git.client.ts`.
+  - any `fetch` or other network call outside `src/domain/update/update.check.ts`.
   - hex color literals outside `src/domain/theme/theme.catppuccin.ts`.
   - glyph or icon literals outside `src/theme/icons.ts`.
   - feature to feature imports.
@@ -629,6 +645,7 @@ Each feature document `docs/technical-implmentations/NN-<name>.md` must contain,
 | `18-safety-and-platform-behavior.md` | F-18 Safety and platform behavior |
 | `19-configuration-and-keybindings.md` | F-19 Configuration and keybindings |
 | `20-theme-and-colors.md` | F-20 Theme and colors |
+| `21-startup-splash.md` | F-21 Startup splash and update check |
 
 ## 16. How to add a feature or file
 
