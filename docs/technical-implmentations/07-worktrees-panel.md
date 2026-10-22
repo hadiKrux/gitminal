@@ -43,7 +43,7 @@ Hooks used:
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
 | `useAction` | `useWorktrees.ts` registers `worktree.create`, `worktree.delete`, `nav.activate`, `list.filter`, `app.refresh` | Features receive action IDs, never raw key strings |
 | `useListCursor` | `useWorktrees.ts` navigation and double click detection | Shared cursor and double click logic for custom rows |
-| `useFocus` | `WorktreesPanel.tsx` refreshes the worktree list when the region gains focus | Worktrees can be added or removed in another terminal |
+| `useFocusRegion` | `WorktreesPanel.tsx` refreshes the worktree list when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `WorktreeRow.tsx` computes the path truncation budget | Budget-aware truncation through `@/lib/text.ts` |
 | `useOverlay` | `WorktreesPanel.tsx` opens the New and Delete modals | Modal stack lives in `OverlayProvider` |
 | `useRepository`, `useStatus` | `useWorktrees.ts` reads the snapshot and publishes status | Provider state is never copied locally |
@@ -122,7 +122,7 @@ Provider state (read, never recomputed here):
 - The worktree map from `@/domain/repository/repository.selectors.ts`, keyed by branch name, which F-03 reads for its checked-out marker and delete guard.
 - `ConfigProvider`: `git.path`.
 - `StatusProvider`: operation progress and transient status.
-- `FocusProvider`: active region and the cursor map.
+- `FocusProvider`: derived active region and the cursor map.
 - `OverlayProvider`: modal stack and the error overlay.
 - `ConsoleProvider`: the bounded command log entry written by every command.
 
@@ -133,9 +133,10 @@ Rules: this feature never recomputes the current worktree, the branch map, or pa
 Generic path (architecture section 9):
 
 ```text
-key or click -> action ID -> useAction handler -> command from @/domain/commands/commands.registry
+key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(request)
   -> command runner (availability + serialization) -> @/domain/git/git.worktrees.ts -> git CLI
-  -> parse -> RepositoryProvider refresh -> WorktreesPanel re-render -> console entry + status
+  -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error overlay
+  -> WorktreesPanel re-render
 ```
 
 | Action ID or refresh | Domain module | Git subcommand |
@@ -172,6 +173,7 @@ Repository switching: this feature never runs `cd` or changes the repository roo
 | `list.filter` | Focus the worktree filter field |
 | `app.refresh` | Manual refresh of repository state |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
+| `focus.region.worktrees` | Direct jump to this panel (default `5`), shell-owned |
 
 Notes: `nav.first` and `nav.last` are unbound in the Worktrees context per spec section 6, so `g` and `G` are not claimed here. Double click does not change the active repository (F-07 line 547); it only performs the row primary action, which is showing details. Modals are overlays and own all keys while open, with `overlay.close` cancelling. Availability comes from `@/domain/commands/commands.availability.ts` so the footer, help, and palette agree.
 

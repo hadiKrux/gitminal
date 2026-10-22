@@ -111,11 +111,11 @@ Resolution algorithm (exact, module level):
 4. `keymap.parse.ts` parses each binding value into a normalized key token: modifiers (`ctrl` or `control`, `shift`, `alt` or `option`, `cmd`, `command`, or `meta`, and `mod`) plus a base key (a named key or a printable character). Modifier order is irrelevant. Uppercase letters normalize to `shift` plus the lower letter. Unsupported keys and platform modifiers are reported and ignored on that platform. `mod` expands to Control on Linux and Windows and Command on macOS. Built-in defaults that display `Ctrl/Cmd` bind both `ctrl` and `mod`.
 5. `keymap.resolve.ts` builds, per context, the effective key-to-action map: start from `keymap.defaults.ts`; apply `config.json` `keybindings` per action (a string or an array replaces the whole list); apply `keybindings.json` per action (it wins over `config.json` for the same action); apply `null` as reset-to-default and `[]` as unbind; actions not mentioned keep the previous value. Context actions override global actions for the same key. `Ctrl+C` is injected as a non-overridable quit and cancel entry.
 6. `keymap.conflicts.ts` scans each context for two different actions sharing a key. On conflict it rejects the conflicting overrides, keeps the built-in defaults for those actions, and records a warning naming both action IDs and the key. It also warns when quit, help, and the palette end up with no binding.
-7. `keymap.describe.ts` produces the footer hints and Help rows from the resolved map, filtered by focused region and current availability, so the footer, help, and palette always agree.
+7. `keymap.describe.ts` produces the footer hints and Help rows from the resolved map, filtered by focused region and current availability, so the footer, help, and palette always agree. The `focus.region.*` actions are included in Help and the palette but are not emitted as footer hints, so nine jump hints never crowd out the per-region hints.
 
 ## 8. Keyboard and focus
 
-Action IDs only. Configuration-relevant IDs: `app.quit`, `app.help`, `app.palette`, `app.console`, `app.refresh`, `app.reloadConfig`, `app.themePicker`, `overlay.close`, `focus.next`, `focus.previous`, plus every context action. Override syntax handling:
+Action IDs only. Configuration-relevant IDs: `app.quit`, `app.help`, `app.palette`, `app.console`, `app.refresh`, `app.reloadConfig`, `app.themePicker`, `overlay.close`, `focus.next`, `focus.previous`, `focus.region.*`, plus every context action. Override syntax handling:
 
 - String value: a single binding, replacing the list.
 - Array value: replaces the whole list; it is not appended.
@@ -123,15 +123,16 @@ Action IDs only. Configuration-relevant IDs: `app.quit`, `app.help`, `app.palett
 - `[]`: unbinds; the action still appears in the palette and help.
 - Unknown action ID: ignored with a warning.
 - Invalid binding: ignored; the previous effective binding remains.
+- Direct focus: `focus.region.branches`, `focus.region.remotes`, `focus.region.tags`, `focus.region.stashes`, `focus.region.worktrees`, `focus.region.graph`, `focus.region.rightPane`, `focus.region.diff`, and `focus.region.console` default to `1`-`9`; `focus.region.topBar` defaults to unbound. All ten are ordinary global actions, so they accept any override form, including `null` to restore the digit and `[]` to unbind. Rebinding a digit to another action produces a conflict warning in the global context rather than silently changing the jump map.
 
-Precedence at runtime: open overlay, then focused text input, then focused region context, then global. A plain printable binding never fires while a text input or filter field has focus; modified shortcuts still work. `Ctrl+C` is a hardcoded quit and cancel path and cannot be unbound.
+Precedence at runtime: open overlay, then text input mode, then native list widget, then focused region context, then global. In text input mode, `Esc` leaves the field. `Tab` on a single-line input moves to the next region, or to the next field or action inside a modal; `Tab` on a textarea inserts the indent unit and `Shift+Tab` outdents, including inside a modal. `Enter` stays with a single-line input and triggers its native submit callback; a textarea inserts a newline. Only `app.palette`, `app.console`, `commit.submit`, `commit.options`, and the focused form's `Ctrl/Cmd+Enter` submit may fire while typing. Every other key, including OpenTUI editing shortcuts such as `Ctrl+A/E/F/B/W`, `Ctrl+Backspace/Delete`, `Ctrl+K/U`, `Ctrl+-/.`, `Super+A/Z`, and `Alt+D/F/B` plus arrow variants, passes to the input. A plain printable binding never fires while a text input or filter field has focus. `Ctrl+C` is a hardcoded quit and cancel path and cannot be unbound.
 
 ## 9. Loading, empty, error, and disabled states
 
 - Loading: config loads synchronously at startup with no visible loading state; reload shows a transient status.
 - Empty: absent files produce no warning; Help shows "not present" for the keybindings and theme paths.
 - Error: invalid JSON ignores the file, keeps defaults, and warns with the file and parse error; an invalid version ignores the file with a warning; an invalid field keeps the previous value; an invalid keybindings file leaves `config.json` keybindings applied and defaults elsewhere; an invalid theme file keeps the base theme.
-- Disabled: a config that unbinds quit, help, and the palette still loads but shows a prominent warning. Actions with no binding render as "Unbound" in help.
+- Disabled: a config that unbinds quit, help, and the palette still loads but shows a prominent warning. Actions with no binding render as "Unbound" in help. Unbinding a direct region jump is not warned about, because `Tab` and the palette command remain available.
 - Warnings surface: a non-blocking message in the top bar status strip, plus a detailed entry in Help > Configuration and the console.
 
 ## 10. Performance and bounds
@@ -156,18 +157,19 @@ Precedence at runtime: open overlay, then focused text input, then focused regio
 - "Invalid configuration never prevents launch or loses work." -> `config.loader.ts`, `config.validate.ts`.
 - "Reload configuration applies valid changes without restarting." -> the reload flow.
 - "Safety confirmations cannot be disabled." -> `config.validate.ts`.
-- "Printable overrides do not fire while typing." -> `useHotkeys` text-input precedence.
+- "Printable overrides do not fire while typing." -> `useHotkeys` text-input mode.
 - File locations and load order -> `config.paths.ts`, `config.loader.ts`.
 
 ## 13. Tests to add
 
-- `src/domain/keymap/keymap.resolve.test.ts`: precedence tables (defaults, config, keybindings.json, null reset, [] unbind, string versus array) and context-over-global.
-- `src/domain/keymap/keymap.conflicts.test.ts`: conflict table with both action IDs and the key; unbound quit, help, and palette warning.
+- `src/domain/keymap/keymap.resolve.test.ts`: precedence tables (defaults, config, keybindings.json, null reset, [] unbind, string versus array) and context-over-global; the default `focus.region.*` bindings are `1`-`9` in screen order with `focus.region.topBar` unbound.
+- `src/domain/keymap/keymap.conflicts.test.ts`: conflict table with both action IDs and the key; a digit rebound to another action in the global context is reported; unbound quit, help, and palette warning.
 - `src/domain/keymap/keymap.parse.test.ts`: modifier aliases, `mod` per platform, named keys, uppercase handling, unsupported keys.
 - `src/domain/config/config.validate.test.ts`: per-field fallback, unknown fields, unknown action IDs, version handling, safety fields ignored.
 - `src/domain/config/config.paths.test.ts`: `GITMINAL_CONFIG`, XDG, home, Windows APPDATA, keybindings and theme resolution.
 - `src/domain/config/config.loader.test.ts`: malformed JSON, unreadable file, missing file silent.
 - `src/app/providers/ConfigProvider.test.tsx` and `KeymapProvider.test.tsx`: reload applies in place; footer, help, and palette agree.
+- `src/domain/keymap/keymap.describe.test.ts`: the `focus.region.*` actions appear in Help and the palette with their effective keys but never in the footer hint list.
 - `src/app/hooks/useHotkeys.test.ts`: precedence order; printable suppressed in inputs.
 
 ## 14. Open questions

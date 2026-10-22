@@ -15,6 +15,7 @@ Consumed paths (not owned):
 - `src/domain/commands/commands.types.ts`
 - `src/domain/commands/commands.availability.ts`
 - `src/domain/commands/commands.runner.ts`
+- `src/app/hooks/useCommandRunner.ts`
 - `src/domain/keymap/keymap.describe.ts`
 - `src/app/hooks/useAction.ts`
 - `src/app/providers/OverlayProvider.tsx`
@@ -34,7 +35,7 @@ In scope:
 - The palette containing every user-facing action: navigation, commit search, theme picker, remote operations, commit variants, staging actions, branch creation, tag creation, stash creation, console, help, refresh, Reload configuration, and quit.
 
 Non-goals:
-- The palette does not implement command behavior; it dispatches action IDs through the command runner.
+- The palette does not implement command behavior; it dispatches action IDs through `useAction`. Mutating actions call `useCommandRunner`; read actions such as `app.refresh` call `RepositoryProvider.refresh()`.
 - Recent commands are session-only and capped at five; they are not persisted to disk.
 - The palette does not define keys; it reads effective keys from the keymap.
 - No fuzzy ranking beyond the substring and keyword rules in F-12 (advanced ranking is deferred).
@@ -55,7 +56,7 @@ Non-goals:
 Hooks:
 - `useKeyboard`: never called directly; `src/app/hooks/useHotkeys.ts` owns the single dispatcher, and the palette registers handlers by action ID through `src/app/hooks/useAction.ts`.
 - `useTerminalDimensions()`: computes the visible option count and truncation budgets.
-- `useFocus` / `useBlur`: refresh command availability when the terminal regains focus.
+- `useFocus` / `useBlur`: refresh command availability when the terminal window regains focus. This is not region focus.
 - `useRenderer()`: not used by the palette directly; overlay registration goes through `OverlayProvider`.
 
 All icons and markers used by this feature come from `src/theme/icons.ts`; see architecture section 6.1. No glyph literal is written in feature code.
@@ -103,7 +104,7 @@ Provider state (single source of truth):
 - `KeymapProvider`: effective keys, read through `keymap.describe.ts` for the shortcut column and for shortcut matching.
 - `ConfigProvider`: indirect, through availability and command metadata.
 - `StatusProvider`: shows the transient status after a command runs.
-- `ConsoleProvider`: the command runner appends a console entry after dispatch.
+- `ConsoleProvider`: the app-layer orchestrator appends a console entry after dispatch.
 
 Rule: the palette holds no repository, availability, or keybinding copies. It re-reads the registry, availability, and keymap on each open and when those inputs change.
 
@@ -116,16 +117,20 @@ Ctrl/Cmd+P -> action ID app.palette -> useAction handler in useCommandPalette
        joined with commands.availability.ts and keymap.describe.ts
 Enter on an option -> option value is an action ID
   -> commands.availability.ts check (disabled -> no-op, palette stays open)
-  -> useAction dispatch -> commands.runner.ts (availability + serialization)
-       -> domain command -> git client
-       -> RepositoryProvider refresh -> ConsoleProvider entry -> StatusProvider status
+  -> useAction dispatch to the owning feature or app handler
+  -> mutating action: useCommandRunner.runCommand(request)
+       -> commands.runner.ts (availability + serialization) -> domain command -> git client
+       -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error routing
+  -> read action (for example app.refresh): RepositoryProvider.refresh() directly
+  -> palette closes; the owning surface re-renders
 ```
 
 Named modules:
-- `src/domain/commands/commands.registry.ts` - the full command list with label, description, keywords, category, and a `needsInput` flag.
-- `src/domain/commands/commands.types.ts` - command descriptor and availability types.
+- `src/domain/commands/commands.registry.ts` - the full command list with label, description, keywords, category, `kind` (`mutation` or `read`), and a `needsInput` flag.
+- `src/domain/commands/commands.types.ts` - command descriptor, request, progress, and result types.
 - `src/domain/commands/commands.availability.ts` - machine-readable availability and reason per command.
-- `src/domain/commands/commands.runner.ts` - availability check, serialization, and execution.
+- `src/domain/commands/commands.runner.ts` - the pure executor: availability check, serialization, and execution; returns a `CommandResult`. It never touches a provider.
+- `src/app/hooks/useCommandRunner.ts` - the app-layer orchestrator: the only caller of the runner; applies refresh, console, status, and error effects.
 - `src/domain/keymap/keymap.describe.ts` - effective key list per action for the shortcut column and matching.
 - `src/app/hooks/useAction.ts` - registers handlers by action ID.
 - `src/app/providers/OverlayProvider.tsx` - opens and closes the palette and any follow-on modal.
@@ -142,15 +147,15 @@ Action IDs only; never raw key strings:
 - `app.help` - not handled while the palette owns keys.
 
 Focus:
-- On open, focus goes to the search `<input>`.
-- While the palette is open, `OverlayProvider` gives the palette full key ownership per key precedence rule 1; background regions are inactive through `ui/Overlay.tsx`.
+- On open, focus goes to the search `<input>`. `OverlayProvider` captures the renderable that had focus before the palette opened.
+- While the palette is open, `OverlayProvider` gives the palette full key ownership per key precedence rule 1; background regions are inactive through `ui/Overlay.tsx`, and native focus is inside the palette.
 - The footer shows the palette keys while it is open.
-- The search field owns printable keys per precedence rule 2; modified shortcuts still work.
-- The palette is a modal and is not a focus region; it never appears in the Tab order of the shell.
+- The search field owns text-input mode: printable keys edit the query, OpenTUI editing keys pass through, and `Esc` closes the palette. The palette uses a `search` input mode so `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, and `nav.activate` route to the result list while the search input keeps focus. `app.palette` is in the text-input-safe allowlist, so pressing it again toggles the palette closed.
+- The palette is a modal and is not a focus region; it never appears in the Tab order of the shell. On close, focus returns to the captured renderable if it is still mounted, otherwise to its region frame.
 
 ## 9. Loading, empty, error, and disabled states
 
-- Empty query: shows the recent block (max five) then all commands grouped by category, with a category header `<text>` row before each group and the category encoded as a prefix in the option name.
+- Empty query: shows the recent block (max five) then all commands grouped by category, with a category header `<text>` row before each group and the category encoded as a prefix in the option name. The `focus.region.*` commands appear under a Focus category as "Focus Branches", "Focus Remotes", and so on, with their effective digit from `keymap.describe.ts`.
 - No matches: an empty state row with the marker `[?] No matching commands` and the query echoed.
 - Disabled command: rendered dim with the reason as the option `description`, using the exact reason strings from `commands.availability.ts`, for example "nothing to commit", "message required", "no changes to stage", "no other branches", "no remote", and "detached HEAD". Selecting it does nothing and keeps the palette open.
 - Operation in progress: commands whose availability reports a running mutation show the reason "operation in progress" and are dimmed; the runner also serializes the write.
@@ -183,13 +188,13 @@ Focus:
 - "An empty query shows recently used commands first, then all commands grouped by category" -> recent block in `useCommandPalette.ts`; grouping by `category` from `commands.registry.ts`.
 - "Disabled commands remain visible and dimmed with a reason" -> dim token plus `description`.
 - "Commands that need input close the palette and open the relevant modal" -> `needsInput` flag in `commands.registry.ts`, handled in `useCommandPalette.ts` through `OverlayProvider`.
-- "The palette contains every user-facing action, including navigation, commit search, theme picker, remote operations, commit variants, staging actions, branch creation, tag creation, stash creation, console, help, refresh, Reload configuration, and quit" -> the registry enumerates all action IDs from section 6.1, and the availability matrix keeps them visible even when disabled.
+- "The palette contains every user-facing action, including navigation, commit search, theme picker, remote operations, commit variants, staging actions, branch creation, tag creation, stash creation, console, help, refresh, Reload configuration, and quit" -> the registry enumerates all action IDs from section 6.1, including the ten `focus.region.*` commands, and the availability matrix keeps them visible even when disabled.
 - "Recent commands are session-only and capped at five" -> `recentActionIds` in `useCommandPalette.ts`.
 
 ## 13. Tests to add
 
 Colocated per architecture section 5:
-- `useCommandPalette.test.ts`: filtering is case-insensitive; matches label, description, keywords, and shortcut; recent list is capped at five and deduplicated; disabled commands are retained in results.
+- `useCommandPalette.test.ts`: filtering is case-insensitive; matches label, description, keywords, and shortcut; "Focus Branches" is found by its label and by the configured digit; the recent list is capped at five and deduplicated; disabled commands are retained in results.
 - `CommandRow.test.tsx`: the projection sets `name`, `description` (the reason when disabled), and `value` (the action ID); a dim marker is set for disabled rows.
 - `CommandPalette.test.tsx`: an empty query shows recents then category groups; selecting a disabled command keeps the palette open and dispatches nothing; `overlay.close` closes without dispatch; `nav.activate` dispatches the action ID; a second `app.palette` toggles the palette closed.
 - Availability agreement test: the option `description` for every disabled command equals the reason returned by `commands.availability.ts`.
@@ -199,4 +204,4 @@ Colocated per architecture section 5:
 - Section 6 mandates `<select>` for palette results, but section 4 also lists `CommandRow.tsx`. Resolution taken here: the result list is the select's own rendering, and `CommandRow.tsx` is the projection module that builds `SelectOption` objects. If a later OpenTUI version supports custom select rows, revisit.
 - Category grouping headers: encoded as an option name prefix plus a preceding header `<text>` row. Confirm whether `<select>` can render non-selectable header rows; otherwise keep the prefix-only form.
 - Where the session recent list lives: `OverlayProvider` versus a dedicated session store. Pending the ConsoleProvider pattern being finalized in F-13.
-- Whether the palette should suppress its own `app.palette` binding while the search field has focus, given that modified shortcuts still fire per precedence rule 2.
+- The palette's `app.palette` binding toggles the palette closed while the search field is focused because `app.palette` is in the text-input-safe allowlist. Other configured bindings outside that allowlist do not fire while the search field owns text input.

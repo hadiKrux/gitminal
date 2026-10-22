@@ -50,7 +50,7 @@ Hooks used:
 | `useAction` | `useDiffPanel.ts` registers `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.expand`, `nav.collapse`, `diff.toggle`, `diff.stage`, `diff.unstage`, `diff.discard`, `diff.stageAll`, `diff.unstageAll`, `diff.discardAll`, `app.refresh` | Features receive action IDs, never raw key strings |
 | `useListCursor` | `useDiffPanel.ts` row navigation and double click detection | Shared cursor and double click logic for custom rows |
 | `useFileDiff` | `DiffContent.tsx` through `useDiffPanel.ts` | Lazy per-file diff load with a single in-flight request |
-| `useFocus` | `DiffPanel.tsx` refreshes the sections when the region gains focus | Keeps external edits visible |
+| `useFocusRegion` | `DiffPanel.tsx` refreshes the sections when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `DiffFileRow.tsx` computes the path truncation budget | Budget-aware truncation through `@/lib/text.ts` |
 | `useOverlay` | `useDiffPanel.ts` opens the destructive confirmations | Modal stack lives in `OverlayProvider` |
 | `useTheme` | `DiffContent.tsx` reads the diff tokens through `@/theme/useTokens.ts` | Diffs map added and removed backgrounds from theme tokens, never hex literals |
@@ -142,9 +142,10 @@ Rules: this feature never recomputes the section membership, the pending counts,
 Generic path (architecture section 9):
 
 ```text
-key or click -> action ID -> useAction handler -> command from @/domain/commands/commands.registry
+key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(request)
   -> command runner (availability + serialization) -> @/domain/git/git.diff.ts -> git CLI
-  -> parse -> collapse -> limits -> RepositoryProvider refresh -> DiffPanel re-render -> console entry + status
+  -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error overlay
+  -> collapse -> limits -> DiffPanel re-render
 ```
 
 | Action ID or refresh | Domain module | Git subcommand |
@@ -190,6 +191,7 @@ Section to action mapping: `diff.stage`, `diff.stageAll`, `diff.discard`, and `d
 | `diff.discardAll` | Discard or delete all files in the current section, with confirmation |
 | `app.refresh` | Manual refresh of repository state |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
+| `focus.region.diff` | Direct jump to the Diff panel (default `8`), shell-owned |
 
 Notes: Up and Down or `j` and `k` move, Left and Right or `h` and `l` collapse and expand, and Enter toggles a file (F-11 lines 885-893). The footer reflects the current section and selected row, so a Working Directory row shows Stage and Discard while a Staged Files row shows Unstage. In read-only mode `diff.stage`, `diff.unstage`, `diff.discard`, `diff.stageAll`, `diff.unstageAll`, and `diff.discardAll` are unavailable with the reason "read-only". Confirmations are overlays and own all keys while open, with `overlay.close` cancelling.
 

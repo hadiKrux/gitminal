@@ -40,7 +40,7 @@ Hooks used:
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
 | `useAction` | `useBranches.ts` registers `branch.create`, `branch.delete`, `nav.activate`, `list.filter`, `app.refresh` | Features receive action IDs, never raw key strings |
 | `useListCursor` | `useBranches.ts` navigation, `g`/`G`, and double click detection | Shared cursor and double click logic for custom rows |
-| `useFocus` | `BranchesPanel.tsx` requests a refresh when the region gains focus (D10) | Refresh on focus keeps external changes visible |
+| `useFocusRegion` | `BranchesPanel.tsx` refreshes when `focused` flips true (D10) | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `BranchRow.tsx` and `BranchesPanel.tsx` compute the truncation budget | Budget-aware truncation via `@/lib/text.ts` |
 
 `<select>` versus `<scrollbox>` decision: the branch list uses a `<scrollbox>` of `<box>` rows, not `<select>`, because rows carry custom content that `<select>` cannot render: a leading current/worktree marker, an inline `[?]` indicator, separate ahead/behind columns, and a worktree path detail line. Architecture section 6 rule 3 requires custom-content rows to use a `<scrollbox>` with navigation from `useListCursor`. `<select>` is used only for the uniform two-option scope choice inside `DeleteBranchModal.tsx`.
@@ -113,7 +113,7 @@ Provider state (read, never recomputed here):
 - Fetched and pruned remote set: drives the two missing-upstream states.
 - `ConfigProvider`: `remote.fetchScope` and `git.path`.
 - `StatusProvider`: operation progress and transient status.
-- `FocusProvider`: active region and cursor map.
+- `FocusProvider`: derived active region and cursor map.
 
 Rules: this feature never recomputes ahead/behind, upstream state, or the worktree map. It reads them from `@/domain/repository/repository.selectors.ts` and `@/domain/repository/repository.upstream.ts` (architecture section 9).
 
@@ -122,9 +122,10 @@ Rules: this feature never recomputes ahead/behind, upstream state, or the worktr
 Generic path (architecture section 9):
 
 ```text
-key or click -> action ID -> useAction handler -> command from @/domain/commands/commands.registry
+key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(request)
   -> command runner (availability + serialization) -> @/domain/git/git.branches.ts -> git CLI
-  -> parse -> RepositoryProvider refresh -> BranchesPanel re-render -> console entry + status
+  -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error overlay
+  -> BranchesPanel re-render
 ```
 
 | Action ID or refresh | Domain module | Git subcommand |
@@ -166,6 +167,7 @@ Remote scope resolution for delete (in `DeleteBranchModal.tsx`, using selector o
 | `list.filter` | Registered for the region; reserved, see Open questions |
 | `app.refresh` | Manual refresh of repository state |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
+| `focus.region.branches` | Direct jump to this panel (default `1`), shell-owned |
 
 Notes: double click on a row performs the same action as `nav.activate`. Modals are overlays and own all keys while open, with `overlay.close` cancelling. The footer, help, and palette read availability from `@/domain/commands/commands.availability.ts` so hints match the selected row.
 
@@ -217,7 +219,7 @@ Notes: double click on a row performs the same action as `nav.activate`. Modals 
 | Deleting local and remote deletes only the configured upstream, or `origin/<local-branch-name>` | Remote resolution order in section 7; `git.branches.ts` `deleteRemoteBranch()` |
 | A partial failure leaves an accurate local state and message | Delete order and partial-failure handling in section 11 |
 | Creating a branch can optionally check it out | `NewBranchModal.tsx` checkbox; `git.branches.ts` `createBranch()` |
-| A failed checkout or delete reports the git error without changing visible state | `commands.runner.ts` result handling; no optimistic mutation in `useBranches.ts` |
+| A failed checkout or delete reports the git error without changing visible state | `useCommandRunner.ts` result handling; no optimistic mutation in `useBranches.ts` |
 | `[?] upstream not found` versus `[?] remote branch deleted` | `repository.upstream.ts` classification plus the fetched/pruned remote set |
 | Worktree checked-out marker with the path available | `BranchRow.tsx` `+` marker and selected-row detail; `parse.worktrees.ts` |
 

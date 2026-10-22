@@ -67,11 +67,12 @@ Referenced files that hold adjacent responsibilities:
 | `src/domain/repository/repository.selectors.ts` | State and display selectors consumed by features. |
 | `src/domain/repository/repository.upstream.ts` | Upstream classification: none, healthy, gone, or deleted-after-prune. |
 | `src/app/hooks/useRepository.ts` | The presentation hook AppShell and features read for the snapshot, state, and gating. |
+| `src/app/hooks/useCommandRunner.ts` | The app-layer orchestrator that applies the runner result: repository refresh, console append, status and progress, and error routing. |
 | `src/domain/commands/commands.availability.ts` | Combines repository gating from `repository.states.ts` with command-specific reasons so footer, palette, and buttons agree. |
 
 ## 6. State model
 
-Provider state: `RepositoryProvider` owns the snapshot and the derived `RepositoryState`. `StatusProvider` owns the running-operation flag. `ConfigProvider` owns config warnings; `ThemeProvider` owns theme warnings. `OverlayProvider` owns the error overlay stack.
+Provider state: `RepositoryProvider` owns the snapshot and the derived `RepositoryState`. `commands.runner.ts` owns the write latch; `StatusProvider` holds the projected running-operation flag and progress. `ConfigProvider` owns config warnings; `ThemeProvider` owns theme warnings. `OverlayProvider` owns the error overlay stack.
 
 `RepositoryState` is a discriminated union whose members cover the F-16 rows: `normal`, `subdirectory`, `not-a-repository`, `bare`, `empty`, `detached`, `no-upstream`, `upstream-gone`, `no-remote`, `no-origin`, `merge-in-progress`, `rebase-in-progress`, `conflicted`, `checkout-dirty`, `operation-in-progress`, `external-changes`, `huge-repository`, `binary-or-oversized`, `permission-error`, `missing-git`, `missing-identity`, `hook-failure`, `auth-network-failure`, `invalid-config`, and `invalid-theme`.
 
@@ -120,7 +121,7 @@ Each row lists the detection signal, the git command that reveals it, the domain
 | Merge or rebase in progress | `MERGE_HEAD`, `rebase-merge`, or `rebase-apply` exists | `git rev-parse --git-path MERGE_HEAD` and siblings, then existence checks | `git.repo.ts` | persistent `RepositoryStateBanner`; conflicted files visible | unsupported operations blocked, reason "merge in progress" or "rebase in progress" |
 | Conflicted files | unmerged entries in status v2 (`u` records) | `git status --porcelain=v2` | `git.status.ts`, `parsers/parse.status.ts` | `U` rows in Working Directory plus a conflict banner and a conflict-marker diff | `diff.discard` and `diff.discardAll` on a conflicted path, reason "resolve conflicts first"; staging allowed after external resolution; ours/theirs deferred |
 | Dirty working tree during checkout | checkout returns non-zero with an overwrite message | `git checkout <branch>` | `git.branches.ts`, `git.errors.ts` | inline error naming the blocking paths | the checkout itself; no auto-stash, current state kept |
-| Operation in progress | a write is in flight in the runner | none (runner state) | `commands.runner.ts`, `StatusProvider` | top bar status strip with spinner or progress bar plus phase | conflicting mutations blocked, reason "operation in progress"; console available |
+| Operation in progress | a write latch is held in the runner | none (runner state) | `commands.runner.ts` enforces; `useCommandRunner.ts` projects through `StatusProvider` | top bar status strip with spinner or progress bar plus phase | conflicting mutations blocked, reason "operation in progress"; console available |
 | External git changes | watcher event on the git directory | none (watcher) | `@/domain/git/git.watcher.ts` | silent refresh; optional hint when the working tree is not watched | none; `app.refresh` always available |
 | Huge repository | commit count and file count over the configured threshold | `git rev-list --count HEAD`, `git status --porcelain=v2` count | `@/domain/graph/graph.paginate.ts`, `@/domain/diff/diff.limits.ts` | paginated graph, virtualized lists, truncated diffs with a notice | none; behavior is bounded rendering |
 | Binary or oversized file | diff output "Binary files differ" or size over the limit | `git diff --numstat`, file size check | `@/domain/diff/diff.limits.ts`, `git.diff.ts` | notice instead of a diff | none; file actions remain available |
@@ -176,7 +177,7 @@ This feature adds no keybindings. It only produces the availability that other f
 | F-16 "Merge or rebase in progress" (line 1037) | `git.repo.ts` marker detection and the `RepositoryStateBanner` in `AppShell.tsx`. |
 | F-16 "Conflicted files" (line 1038) | `parsers/parse.status.ts` unmerged records plus F-11 `11-diffs-and-file-actions.md`. |
 | F-16 "Dirty working tree during checkout" (line 1039) | `git.branches.ts` error path and `git.errors.ts`. |
-| F-16 "Operation in progress" (line 1040) | `commands.runner.ts` plus `StatusProvider`. |
+| F-16 "Operation in progress" (line 1040) | `commands.runner.ts` write latch, projected by `useCommandRunner.ts` through `StatusProvider`. |
 | F-16 "External git changes" (line 1041) | `git.watcher.ts` plus F-17 `17-freshness-and-performance.md`. |
 | F-16 "Huge repository" (line 1042) | `@/domain/graph/graph.paginate.ts` plus F-17. |
 | F-16 "Binary or oversized file" (line 1043) | `@/domain/diff/diff.limits.ts` plus F-11. |

@@ -31,7 +31,7 @@ Consumed paths (not owned):
 In scope:
 - The help modal opened with the configured help key (action `app.help`, default `?`) from anywhere outside a text input or a modal.
 - A search field activated by its configured key (action `help.search`, default `/`).
-- Sections for Global, Top bar, Sidebar panels, Commit graph, Commit composer, Commit details, Diffs, Console, Modals, and Configuration.
+- Sections for Focus, Global, Top bar, Sidebar panels, Commit graph, Commit composer, Commit details, Diffs, Console, Modals, and Configuration.
 - Each row showing the action, its effective keys after configuration overrides, and a one-line description.
 - The section for the current focus shown first.
 - Case-insensitive search across actions, keys, and descriptions (and action IDs).
@@ -121,7 +121,7 @@ Provider state (single source of truth):
 - `ConfigProvider`: resolved config path, keybindings path, theme path, load status, and warnings.
 - `ThemeProvider`: the active theme name.
 - `KeymapProvider`: effective bindings after overrides, read through `keymap.describe.ts`.
-- `FocusProvider`: the current region id, used to order the current focus section first.
+- `FocusProvider`: the derived current region id, used to order the current focus section first.
 - `OverlayProvider`: the help modal is a stack entry.
 
 Rule: help never copies configuration or keybindings. It reads them through the providers and the domain describe and path modules on each open.
@@ -200,8 +200,8 @@ Focus:
 - "The help reflects context overrides and configuration overrides, for example the configured Stashes key shows Pop stash" -> `src/domain/keymap/keymap.resolve.ts` applies context and configuration overrides, and `HelpRow.tsx` renders the resolved keys.
 - "A user can find any action by searching part of its name, key, or action ID" -> the filter in `useHelp.ts` matches action name, effective keys, description, and action ID.
 - "The Configuration section lists the resolved file paths and any warning without blocking the rest of help" -> `HelpConfiguration.tsx` with `config.paths.ts`, `config.loader.ts`, and `config.validate.ts`.
-- "Sections for Global, Top bar, Sidebar panels, Commit graph, Commit composer, Commit details, Diffs, Console, Modals, and Configuration" -> the ordered section list in `useHelp.ts`; `HelpSection.tsx` renders each.
-- "The section for the current focus is shown first" -> `FocusProvider.activeRegion` reorders the section list in `useHelp.ts`.
+- "Sections for Focus, Global, Top bar, Sidebar panels, Commit graph, Commit composer, Commit details, Diffs, Console, Modals, and Configuration" -> the ordered section list in `useHelp.ts`; `HelpSection.tsx` renders each. The Focus section lists `focus.next`, `focus.previous`, and every `focus.region.*` action with its effective key or "Unbound".
+- "The section for the current focus is shown first" -> `FocusProvider.activeRegion` (derived from native focus) reorders the section list in `useHelp.ts`.
 - "Each row shows the action, its effective keys after configuration overrides, and a one-line description" -> `HelpRow.tsx`.
 - "`Esc` clears the search, then closes help on a second press" -> `overlay.close` handling in `useHelp.ts`.
 - "`?` closes help" and "Help is scrollable and never traps the user" -> `app.help` toggle and the scrollbox body.
@@ -212,7 +212,7 @@ Focus:
 ## 13. Tests to add
 
 Colocated per architecture section 5:
-- `useHelp.test.ts`: search is case-insensitive and matches action name, effective keys, description, and action ID; the current focus section is first; `overlay.close` clears the search then closes on a second call.
+- `useHelp.test.ts`: search is case-insensitive and matches action name, effective keys, description, and action ID; the current focus section is first; the Focus section lists all ten `focus.region.*` rows with their effective keys and shows `focus.region.topBar` as "Unbound"; `overlay.close` clears the search then closes on a second call.
 - `HelpRow.test.tsx`: the effective keys cell reflects a configuration override; an unbound action renders "Unbound".
 - `HelpConfiguration.test.tsx`: resolved config, keybindings, and theme paths; "not present" for a missing keybindings or theme file; warnings render with the `[!]` marker; the active theme name; the reload note.
 - `HelpModal.test.tsx`: `help.search` focuses the search field; `app.help` closes help; the body scrolls; focus stays trapped inside the modal while it is open.

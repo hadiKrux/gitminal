@@ -18,6 +18,9 @@
   - `src/ui/ModalActions.tsx`
   - `src/ui/TextMarker.tsx`
 
+Consumed paths (not owned):
+- `src/app/hooks/useCommandRunner.ts` (app-layer orchestrator, owned by F-17). F-18 defines the contract it must satisfy: it is the only caller of the runner and is responsible for refresh, console, status, and error routing.
+
 F-18 is cross-cutting. The confirmations themselves are specified in each feature doc; this doc owns the invariants and the platform fallbacks.
 
 ## 2. Scope and non-goals
@@ -72,7 +75,8 @@ Destructive flows call `ConfirmModal` with a named target and an action-specific
 ## 6. State model
 
 - `OverlayProvider` (provider state): the modal stack, the pending confirmation request (action ID, target label, scope options, primary index), and the current error record.
-- `RepositoryProvider` (provider state): the single in-flight mutation flag and the current snapshot, which is only replaced on a successful read after a mutation.
+- `RepositoryProvider` (provider state): the current snapshot, which is only replaced on a successful read after a mutation. The mutation latch lives in `commands.runner.ts`; `StatusProvider` holds its UI projection.
+- `commands.runner.ts` (domain state): the module-level write latch that enforces one mutation at a time. `StatusProvider` reflects it as the running-operation flag; the runner is the authority and the provider is the UI projection.
 - `ConsoleProvider` (provider state): the redacted command log.
 - `StatusProvider` (provider state): the blocked-mutation reason string from `commands.availability.ts`.
 - Feature view state: drafts (commit message, modal field values) live in the feature that owns them and are never cleared by a failed command.
@@ -82,15 +86,17 @@ Destructive flows call `ConfirmModal` with a named target and an action-specific
 
 ```text
 action ID -> useAction -> ConfirmModal (named target) -> confirm
-   -> command from commands.registry -> commands.runner
-   -> availability check (commands.availability) + serialization
+   -> useCommandRunner.runCommand(request)                         (app layer)
+   -> commands.runner: availability check (commands.availability) + serialization
    -> git.client (argument array, git.path, cwd=root, no shell, prompts disabled)
    -> git.errors classification -> git.redact on all captured output
-   -> RepositoryProvider.refresh() on success and failure
-   -> ConsoleProvider entry + StatusProvider status or ErrorOverlay
+   -> CommandResult
+   -> useCommandRunner applies effects:
+        RepositoryProvider.refresh() on success and failure
+        ConsoleProvider entry + StatusProvider status or ErrorOverlay
 ```
 
-Redaction runs in `git.redact.ts` before any console or overlay rendering, covering credential-bearing URLs, authorization headers, and environment values. Availability reasons are machine-readable strings produced by `commands.availability.ts` and read by the palette, footer, and buttons.
+Redaction runs in `git.redact.ts` before any console or overlay rendering, covering credential-bearing URLs, authorization headers, and environment values. `useCommandRunner` applies it to the `CommandResult` before storing or rendering output. Availability reasons are machine-readable strings produced by `commands.availability.ts` and read by the palette, footer, and buttons.
 
 ## 8. Keyboard and focus
 
@@ -129,8 +135,8 @@ Invariants, each with the enforcing module and a required test:
 | No credential storage or prompts | `git.client.ts` (prompt-disabling environment) | `git.client.test.ts` asserts environment flags and no TTY prompt |
 | Argument-array execution | `git.client.ts` | `git.client.test.ts` asserts argv array and no shell |
 | Redaction in console and overlays | `git.redact.ts` | `git.redact.test.ts` table of URL, header, and environment cases |
-| Drafts and staged files survive failures | feature view state plus runner result object | `useComposer.test.ts` asserts draft preserved on failure |
-| One mutation at a time | `commands.runner.ts` | `commands.runner.test.ts` asserts blocked second write with reason |
+| Drafts and staged files survive failures | feature view state plus `useCommandRunner` (the runner returns a result and never mutates UI state) | `useComposer.test.ts` asserts draft preserved on failure; `useCommandRunner.test.tsx` asserts no draft or provider state is cleared |
+| One mutation at a time | `commands.runner.ts` write latch; `useCommandRunner` surfaces the blocked result | `commands.runner.test.ts` asserts blocked second write with reason; `useCommandRunner.test.tsx` asserts no refresh, console append, or error overlay for a blocked result |
 | Deletes never remove reachable commits | per-feature delete handlers (branch, tag, stash, worktree) | `branch.delete.test.ts` asserts only the named ref is deleted |
 | Remote branch delete requires explicit scope | `DeleteBranchModal.tsx` scope options | `DeleteBranchModal.test.tsx` asserts local-only is the default |
 | Push with no upstream never force pushes | push handler no-upstream branch | `remote.push.test.ts` asserts the create-upstream path and no force flag |
@@ -156,8 +162,8 @@ Platform invariants:
 - "No credentials stored or requested; prompts disabled." -> `git.client.ts`.
 - "Argument arrays, not a shell string." -> `git.client.ts`.
 - "Sensitive values redacted." -> `git.redact.ts`.
-- "Messages and staged files survive failures." -> feature drafts plus the runner result.
-- "One mutation at a time." -> `commands.runner.ts`.
+- "Messages and staged files survive failures." -> feature drafts plus the orchestrator, which applies the result without clearing UI state.
+- "One mutation at a time." -> `commands.runner.ts` write latch, with the blocked reason surfaced by `useCommandRunner`.
 - "Deletes never delete reachable commits." -> per-feature delete handlers.
 - "Remote branch deletion requires explicit scope." -> `DeleteBranchModal.tsx`.
 - "Push with no upstream never force pushes." -> the push handler.
@@ -168,7 +174,7 @@ Platform invariants:
 
 ## 13. Tests to add
 
-Colocated per architecture section 5: `git.client.test.ts` (argv, no shell, prompt environment, `git.path`), `git.redact.test.ts`, `git.errors.test.ts` (classification), `commands.runner.test.ts` (serialization, blocked reason), `commands.availability.test.ts` (detached HEAD, no upstream, no remote, empty repository, operation in progress), `ConfirmModal.test.tsx` (named target, Cancel-first), `ModalActions.test.tsx`, `DeleteBranchModal.test.tsx` (scope default), `TextMarker.test.tsx` (glyph plus text), plus `keymap.parse.test.ts` and `theme.capability.test.ts` for the platform fallbacks.
+Colocated per architecture section 5: `git.client.test.ts` (argv, no shell, prompt environment, `git.path`), `git.redact.test.ts`, `git.errors.test.ts` (classification), `commands.runner.test.ts` (serialization, blocked reason, pure execution), `src/app/hooks/useCommandRunner.test.tsx` (refresh on success and failure, one console entry, error routing, no refresh/console/error effects for a blocked result), `commands.availability.test.ts` (detached HEAD, no upstream, no remote, empty repository, operation in progress), `ConfirmModal.test.tsx` (named target, Cancel-first), `ModalActions.test.tsx`, `DeleteBranchModal.test.tsx` (scope default), `TextMarker.test.tsx` (glyph plus text), plus `keymap.parse.test.ts` and `theme.capability.test.ts` for the platform fallbacks.
 
 ## 14. Open questions
 

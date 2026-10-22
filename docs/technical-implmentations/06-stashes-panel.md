@@ -42,7 +42,7 @@ Hooks used:
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
 | `useAction` | `useStashes.ts` registers `stash.create`, `stash.apply`, `stash.pop`, `stash.delete`, `nav.activate`, `app.refresh` | Features receive action IDs, never raw key strings |
 | `useListCursor` | `useStashes.ts` navigation and double click detection | Shared cursor and double click logic for custom rows |
-| `useFocus` | `StashesPanel.tsx` refreshes the stash list when the region gains focus | Keeps external stash changes visible |
+| `useFocusRegion` | `StashesPanel.tsx` refreshes the stash list when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `StashRow.tsx` computes the message truncation budget | Budget-aware truncation through `@/lib/text.ts` |
 | `useOverlay` | `StashesPanel.tsx` opens the Create, Pop, and Delete modals | Modal stack lives in `OverlayProvider` |
 | `useConfig` | `useStashes.ts` reads `stash.includeUntrackedByDefault` | Config is the single source of the checkbox default |
@@ -112,7 +112,7 @@ Provider state (read, never recomputed here):
 - `RepositoryProvider` snapshot: the stash list, newest first, each entry carrying the index (`stash@{n}`), the object name, the raw subject, the source branch when parsed, and the commit timestamp; the selected item (Pending Changes, commit, or stash) that drives the right pane; and the pending-count state.
 - `ConfigProvider`: `stash.includeUntrackedByDefault` and `git.path`.
 - `StatusProvider`: operation progress and transient status.
-- `FocusProvider`: active region and the cursor map.
+- `FocusProvider`: derived active region and the cursor map.
 - `OverlayProvider`: modal stack and the error overlay.
 - `ConsoleProvider`: the bounded command log entry written by every command.
 
@@ -123,9 +123,10 @@ Rules: this feature never recomputes ordering, source branch, or relative age. O
 Generic path (architecture section 9):
 
 ```text
-key or click -> action ID -> useAction handler -> command from @/domain/commands/commands.registry
+key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(request)
   -> command runner (availability + serialization) -> @/domain/git/git.stashes.ts -> git CLI
-  -> parse -> RepositoryProvider refresh -> StashesPanel re-render -> console entry + status
+  -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error overlay
+  -> StashesPanel re-render
 ```
 
 | Action ID or refresh | Domain module | Git subcommand |
@@ -158,6 +159,7 @@ Pop drop semantics: the app runs `git stash pop <ref>`, which applies the stash 
 | `stash.delete` | Open the Delete Stash confirmation |
 | `app.refresh` | Manual refresh of repository state |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
+| `focus.region.stashes` | Direct jump to this panel (default `4`), shell-owned |
 
 Notes: `nav.first` and `nav.last` are unbound in the Stashes context per spec section 6, so `g` and `G` are not claimed here. The footer shows Apply, Pop, Delete, and Stash (F-06 line 495). Modals are overlays and own all keys while open, with `overlay.close` cancelling. Availability comes from `@/domain/commands/commands.availability.ts` so the footer, help, and palette agree.
 

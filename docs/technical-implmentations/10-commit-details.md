@@ -96,7 +96,7 @@ Provider state, read and never recomputed here:
 - `RepositoryProvider`: the selected commit identity (OID or `pending`) and the repository refresh generation.
 - `StatusProvider`: transient status and any running operation.
 - `OverlayProvider`: the error overlay and whether an overlay is open.
-- `FocusProvider`: active region, `previousRegion`, and the parent-list cursor.
+- `FocusProvider`: derived active region and cursor map.
 - `ConfigProvider`: the resolved keymap for hint text.
 
 Rules: the selected commit identity is provider state in `RepositoryProvider`; this feature does not keep a second copy of the selection. It reads the selection and derives the details read from it. Details are a read-only projection of `git log` output; nothing here writes repository state.
@@ -148,6 +148,7 @@ Action IDs only (product spec section 6.1). Raw key strings never appear outside
 | `nav.activate` (`Enter`) | Select the highlighted parent, moving the graph selection to that parent commit and loading it first when absent. Mouse double click on a `ParentRef` dispatches the same ID. |
 | `overlay.close` (`Esc`) | Return focus to `previousRegion`; it never changes the graph selection. |
 | `focus.next`, `focus.previous` (`Tab` / `Shift+Tab`) | Tab traversal (owned by `useFocusModel`). |
+| `focus.region.rightPane` (`7`) | Direct jump to the `right-pane` region and into the active sub-mode; shell-owned. |
 | `app.refresh` (`r`) | Manual refresh; the details re-read when the selected commit still exists, and if it no longer exists the graph selects the nearest row (F-08) and the details follow. |
 
 Moving the graph selection is the only way to change which commit is detailed, so the details pane itself registers only parent navigation and Esc. The footer shows the parent-selection hint only when the selected commit has at least one parent. The details pane is read-only and exposes no commit actions.

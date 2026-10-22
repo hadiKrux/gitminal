@@ -95,7 +95,7 @@ The splash is not a focus region. The shell providers, the keymap, and `useHotke
 | Any key | Dismiss the splash and mount the workspace. |
 | `Ctrl+C` | Quit through the renderer's built-in exit path. |
 
-Splash keys are fixed. They are not configurable and do not appear as action IDs in `src/domain/keymap/keymap.defaults.ts`, because the splash runs before the keymap loads. No raw key comparison outside the splash gate is introduced. After dismissal, `useHotkeys` becomes the only keyboard subscriber.
+Splash keys are fixed. They are not configurable and do not appear as action IDs in `src/domain/keymap/keymap.defaults.ts`, because the splash runs before the keymap loads. No raw key comparison outside the splash gate is introduced. After dismissal, `useHotkeys` becomes the only keyboard subscriber. A digit pressed on the splash only dismisses it; the jump happens on the next digit press once the shell is mounted.
 
 ## 9. Loading, empty, error, and disabled states
 

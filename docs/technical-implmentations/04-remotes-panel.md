@@ -40,7 +40,7 @@ Hooks used:
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
 | `useAction` | `useRemotes.ts` registers `remote.createLocal`, `nav.activate`, `list.filter`, `app.refresh` | Features receive action IDs, never raw key strings |
 | `useListCursor` | `useRemotes.ts` navigation, `g`/`G`, and double click detection | Shared cursor and double click logic for custom rows |
-| `useFocus` | `RemotesPanel.tsx` refreshes the remote refs when the region gains focus (D10) | Refresh on focus keeps external changes visible |
+| `useFocusRegion` | `RemotesPanel.tsx` refreshes the remote refs when `focused` flips true (D10) | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `RemoteRow.tsx` computes the truncation budget for the commit summary and date | Budget-aware truncation via `@/lib/text.ts` |
 
 `<scrollbox>` versus `<select>` decision: the remote list uses a `<scrollbox>` of `<box>` rows because F-04 requires grouping by remote, an optional stale indicator, and a commit summary and date where space permits. `<select>` cannot render group headers or multi-column rows. Navigation, selection, and `g`/`G` come from `useListCursor` (architecture section 6 rule 3).
@@ -104,7 +104,7 @@ Provider state (read, never recomputed here):
 - Stale classification, derived in `@/domain/repository/repository.selectors.ts`.
 - `ConfigProvider`: `remote.fetchScope` and `git.path`.
 - `StatusProvider`: operation progress and transient status.
-- `FocusProvider`: active region and cursor map.
+- `FocusProvider`: derived active region and cursor map.
 
 Rules: this feature never recomputes grouping, sorting, or staleness itself. It reads the grouped rows and stale flags from `@/domain/git/git.remotes.ts` and `@/domain/repository/repository.selectors.ts` (architecture section 9).
 
@@ -113,9 +113,10 @@ Rules: this feature never recomputes grouping, sorting, or staleness itself. It 
 Generic path (architecture section 9):
 
 ```text
-key or click -> action ID -> useAction handler -> command from @/domain/commands/commands.registry
+key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(request)
   -> command runner (availability + serialization) -> @/domain/git/git.remotes.ts -> git CLI
-  -> parse -> RepositoryProvider refresh -> RemotesPanel re-render -> console entry + status
+  -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error overlay
+  -> RemotesPanel re-render
 ```
 
 | Action ID or refresh | Domain module | Git subcommand |
@@ -147,8 +148,9 @@ Fetch scope interaction (owned by F-02, observed here):
 | `list.filter` | Focus the filter field |
 | `app.refresh` | Manual refresh of repository state |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
+| `focus.region.remotes` | Direct jump to this panel (default `2`), shell-owned |
 
-Notes: double click on a row performs the same action as `remote.createLocal`. While the filter field is focused, it owns printable keys, Backspace, Delete, and arrow keys through `useHotkeys` text-input precedence. `Esc` clears a non-empty filter first and only leaves the field when the filter is already empty. The footer and help read availability from `@/domain/commands/commands.availability.ts`.
+Notes: double click on a row performs the same action as `remote.createLocal`. While the filter field is focused, it owns printable keys, Backspace, Delete, and arrow keys through the `useHotkeys` text-input mode. The first `Esc` clears a non-empty filter; the next `Esc` leaves the field and returns focus to the `remotes` region frame. The footer and help read availability from `@/domain/commands/commands.availability.ts`.
 
 ## 9. Loading, empty, error, and disabled states
 

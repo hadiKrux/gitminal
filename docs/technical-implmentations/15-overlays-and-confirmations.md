@@ -19,6 +19,7 @@ Consumed paths (not owned):
 - `src/app/providers/StatusProvider.tsx`
 - `src/app/providers/ConsoleProvider.tsx`
 - `src/domain/commands/commands.runner.ts`
+- `src/app/hooks/useCommandRunner.ts`
 - `src/domain/commands/commands.availability.ts`
 - `src/domain/git/git.redact.ts`
 - `src/ui/Overlay.tsx`, `src/ui/ModalActions.tsx`, `src/ui/Button.tsx`, `src/ui/ButtonRow.tsx`, `src/ui/FormField.tsx`, `src/ui/KeyHint.tsx`
@@ -31,7 +32,7 @@ In scope:
 - The exact confirm button labels: "Discard changes", "Delete local branch", "Delete local and remote branch", "Drop stash", "Delete tag", "Delete worktree", "Force push safely", "Overwrite remote".
 - No generic "OK" or "Yes" for destructive actions.
 - Inline validation that keeps the modal open on error.
-- `Enter` submitting single-line forms and `Ctrl/Cmd+Enter` submitting multiline forms.
+- `Enter` submitting single-line forms through the input's native `onSubmit`/`onEnter` callback and `Ctrl/Cmd+Enter` submitting multiline forms through the focused form's submit action.
 - Background regions visibly inactive and unable to receive actions while a modal is open.
 - The footer showing the modal's keys.
 - Only one modal open at a time.
@@ -62,7 +63,7 @@ Non-goals:
 Hooks:
 - `useKeyboard`: never called directly; `src/app/hooks/useHotkeys.ts` owns dispatch, and overlays register handlers by action ID through `useAction`.
 - `useRenderer()`: only through `OverlayProvider` for overlay registration and focus restoration.
-- `useFocus` / `useBlur`: no special handling required; the focus trap is provider-driven.
+- `useFocus` / `useBlur`: no special handling required; these are terminal-window events only, and the modal focus trap is native-renderable based.
 - `useTimeline()`: spinner animation for a submitting action.
 
 All icons and markers used by this feature come from `src/theme/icons.ts`; see architecture section 6.1. No glyph literal is written in feature code.
@@ -126,9 +127,10 @@ Rule: while an overlay is open it owns all keys. No background feature keeps a p
 ```text
 action ID -> useAction -> OverlayProvider.open({ kind, title, description, fields, actions, destructive })
   -> features/overlays/ModalFrame.tsx renders src/ui/ModalFrame.tsx + src/ui/ModalActions.tsx
-  -> submit -> commands.runner.ts
-       success -> OverlayProvider.close(); StatusProvider.success() -> NoticeOverlay auto-dismisses
-       failure -> OverlayProvider.close()
+  -> submit -> useCommandRunner.runCommand(request)
+       -> commands.runner.ts executes and returns a CommandResult
+       success -> useCommandRunner: OverlayProvider.close(); StatusProvider.success(); console append; RepositoryProvider.refresh()
+       failure -> useCommandRunner: OverlayProvider.close(); console append; RepositoryProvider.refresh()
                   OverlayProvider.showError({ details, preserveInput })
                   -> ErrorOverlay (persistent until dismissed; replaces any prior error)
                      -> git.redact.ts applied to details before render
@@ -137,7 +139,8 @@ action ID -> useAction -> OverlayProvider.open({ kind, title, description, field
 Named modules:
 - `src/app/providers/OverlayProvider.tsx` - the stack, open, close, showError, and preserved input.
 - `src/app/hooks/useOverlay.ts` - the hook features use to open and close overlays.
-- `src/domain/commands/commands.runner.ts` - executes the submit and returns success or a failure result.
+- `src/domain/commands/commands.runner.ts` - the pure executor: availability, serialization, execution, and a `CommandResult`. It never closes an overlay, sets a status, or refreshes the repository.
+- `src/app/hooks/useCommandRunner.ts` - the app-layer orchestrator that applies the result: closes the overlay on success, refreshes the repository, appends the console entry, sets status, and routes failures to `showError`.
 - `src/domain/commands/commands.availability.ts` - disables a confirm action when its preconditions are unmet, with the same reason string the palette and footer use.
 - `src/domain/git/git.redact.ts` - redacts credentials in URLs, headers, and environment values in error details before display.
 - `src/app/providers/StatusProvider.tsx` - success and info notices that auto-dismiss.
@@ -146,21 +149,21 @@ Named modules:
 
 Action IDs only; never raw key strings:
 - `overlay.close` (default `Esc`) - cancels the top overlay.
-- `nav.activate` (default `Enter`) - activates the focused action; for single-line forms, `Enter` submits.
+- `nav.activate` (default `Enter`) - activates the focused footer action or button. For a single-line field, `Enter` stays with the input and its native `onSubmit`/`onEnter` callback dispatches the form's submit action; `nav.activate` does not intercept it.
 - `nav.up`, `nav.down` - move within an option list or field list.
 - `nav.left`, `nav.right` - move within the footer `ButtonRow` (defaults also bind `h`/`l`).
-- `focus.next`, `focus.previous` (`Tab`/`Shift+Tab`) - cycle fields and footer actions; the focus trap keeps focus inside the modal.
+- `focus.next`, `focus.previous` (`Tab`/`Shift+Tab`) - cycle fields and footer actions when focus is not in a multiline textarea. A multiline textarea owns Tab for indentation and Shift+Tab for outdent per F-01; the focus trap keeps focus inside the modal in all cases.
 - Multiline submit: `Ctrl/Cmd+Enter` maps to the modal's submit action through the keymap, never as a raw key check.
 
 How `OverlayProvider` plus `useHotkeys` gives overlays full key ownership:
-- `useHotkeys` reads the top of the `OverlayProvider` stack on every key event. If the stack is non-empty, it resolves only overlay-scope actions from the keymap and returns. Background region handlers and global handlers are never reached, so a background action cannot fire while a modal is open.
+- `useHotkeys` reads the top of the `OverlayProvider` stack on every key event. If the stack is non-empty, it resolves only overlay-scope actions from the keymap and returns. Background region handlers and global handlers are never reached, so a background action cannot fire while a modal is open. Keys the overlay context does not handle are delegated to the focused modal text input or native list widget.
 - The single exception is the hardcoded quit escape hatch, which still works per key precedence rule 1.
-- The background is deactivated visually and functionally by rendering `src/ui/Overlay.tsx`, a full-size dim `<box>`, beneath the modal. `FocusProvider` is suspended while an overlay is open, so region borders lose the focus ring and no region receives `focus.next` traversal.
+- The background is deactivated visually and functionally by rendering `src/ui/Overlay.tsx`, a full-size dim `<box>`, beneath the modal. On open, `OverlayProvider` captures the currently focused renderable, blurs it, and focuses the modal's first focusable field or action after mount. Because native focus moves into the modal, region borders lose the focus ring and no background renderable receives keys. On close, `OverlayProvider` restores the captured renderable if it is still mounted, otherwise it focuses its region frame.
 
 Focus behavior:
 - Destructive confirmations default focus to Cancel.
 - Non-destructive confirmations and notices default focus to the primary action.
-- On close, focus returns to the region that was active before the overlay opened, restoring that region's cursor.
+- On close, focus returns to the exact renderable that was focused before the overlay opened, if it is still mounted; otherwise it focuses that renderable's region frame and restores the region cursor.
 - The footer shows the modal's keys while the modal is open.
 
 ## 9. Loading, empty, error, and disabled states
@@ -197,7 +200,7 @@ Focus behavior:
 - "Simple OK and Yes labels are not used for destructive actions" -> enforced in `ConfirmModal.tsx`.
 - "Destructive confirmations state the exact scope and consequence" -> the description built by the calling feature and rendered by `ConfirmModal.tsx`.
 - "Text input modals validate inline and keep the modal open on error" -> `src/ui/FormField.tsx` plus validation state owned by the calling feature.
-- "`Enter` submits single-line forms; multiline fields use `Ctrl/Cmd+Enter`" -> keymap mapping to the submit action in `ModalFrame.tsx`.
+- "`Enter` submits single-line forms through the input's native submit callback; multiline fields use the focused form's `Ctrl/Cmd+Enter` submit action" -> `onSubmit`/`onEnter` wiring in `ModalFrame.tsx` plus the form submit action.
 - "While a modal is open, background regions are visibly inactive and cannot receive actions" -> `src/ui/Overlay.tsx` plus the `useHotkeys` overlay branch.
 - "The footer shows the modal's keys" -> `OverlayProvider` sets the footer hint mode and `HintBar` renders the modal keys.
 - "Only one modal is open at a time; a successful action closes the modal and shows status" -> single-entry modal handling in `OverlayProvider.tsx` plus `StatusProvider`.
@@ -208,12 +211,12 @@ Focus behavior:
 ## 13. Tests to add
 
 Colocated per architecture section 5:
-- `src/app/providers/OverlayProvider.test.tsx`: only one modal at a time; a second error replaces the first instead of stacking; close on success; input preserved on failure when retry is meaningful.
+- `src/app/providers/OverlayProvider.test.tsx`: only one modal at a time; a second error replaces the first instead of stacking; close on success; input preserved on failure when retry is meaningful; opening captures and blurs the focused renderable, and closing restores that renderable if it is still mounted, otherwise its region frame.
 - `ModalFrame.test.tsx`: `overlay.close` cancels; the focus trap keeps `focus.next` inside the modal; destructive default focus is Cancel; the footer shows the modal keys.
 - `ConfirmModal.test.tsx`: each of the eight labels renders for its action; no "OK" or "Yes" appears for destructive actions; scope text is present.
 - `ErrorOverlay.test.tsx`: persistence until dismissed; details are redacted; "Open console entry" selects the entry; a new error replaces the visible details.
 - `NoticeOverlay.test.tsx`: auto-dismiss after the delay; a new notice replaces the timer.
-- Form submit tests: `nav.activate` submits a single-line form; the multiline submit action fires on the mapped `Ctrl/Cmd+Enter` binding; inline validation keeps the modal open.
+- Form submit tests: `Enter` reaches a single-line input and its `onSubmit`/`onEnter` callback runs the form submit action; `nav.activate` still activates footer buttons; the multiline submit action fires on the mapped `Ctrl/Cmd+Enter` binding; inline validation keeps the modal open.
 
 ## 14. Open questions
 

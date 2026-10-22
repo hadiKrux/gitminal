@@ -7,6 +7,7 @@
 - Dependencies: `01-app-shell-and-focus.md` (regions, refresh key), `08-commit-graph.md` (paging and virtualization), `10-commit-details.md` (selection to details), `11-diffs-and-file-actions.md` (lazy diff), `13-console.md` (bounded log), `15-overlays-and-confirmations.md` (error history), `16-repository-states.md` (upstream states), `18-safety-and-platform-behavior.md` (serialized writes, watch opt-in).
 - Owned paths (cross-cutting; F-17 has no `src/features/<name>/` folder in architecture section 4):
   - `src/app/providers/RepositoryProvider.tsx`
+  - `src/app/hooks/useCommandRunner.ts`
   - `src/domain/git/git.client.ts`
   - `src/domain/git/git.watcher.ts`
   - `src/domain/git/git.progress.ts`
@@ -34,7 +35,7 @@ Non-goals: watching the whole worktree by default (D10); streaming partial hunks
 | `<box>` | Graph rows, diff rows, console entry rows | Layout and custom-row composition; rows need ref badges and inline actions. |
 | `<text>` | Counts, page markers, truncation notice | Every status string; the primary signal is text, not color. |
 | `<span>` | Inline truncation notice and "new entries" marker | Inline styled runs inside `<text>`. |
-| `useFocus(handler)` | `RepositoryProvider` | Refresh when the terminal regains focus after external edits. |
+| `useFocus(handler)` | `RepositoryProvider` | Refresh when the terminal window regains focus after external edits. Never region focus. |
 | `useTimeline(options)` | `Spinner` during page loads; remote progress is rendered by F-02 in the top bar | Animation only; runs off the render path so progress never freezes rendering. |
 | `useTerminalDimensions()` | Visible-row window sizing and truncation budgets | Derive the number of rows to cull and the truncation budget. |
 | `useOnResize(cb)` | Recompute the culled window after resize | Keeps culling and budgets correct when the terminal changes size. |
@@ -72,6 +73,7 @@ ConfigProvider
 ## 5. Enforced files and folders
 
 - `src/app/providers/RepositoryProvider.tsx`
+- `src/app/hooks/useCommandRunner.ts`
 - `src/domain/git/git.client.ts`
 - `src/domain/git/git.watcher.ts`
 - `src/domain/git/git.progress.ts`
@@ -85,7 +87,8 @@ ConfigProvider
 
 ## 6. State model
 
-- `RepositoryProvider` (provider state): the repository snapshot, the current refresh generation, watch status (on or off, path, mode git-dir or worktree), the in-flight read and write flags, and the last fetch result used for upstream classification.
+- `RepositoryProvider` (provider state): the repository snapshot, the current refresh generation, watch status (on or off, path, mode git-dir or worktree), the in-flight read flag, and the last fetch result used for upstream classification. The write latch lives in `commands.runner.ts` and is projected through `StatusProvider`.
+- `useCommandRunner` (app-layer orchestration, no persistent state): reads the `CommandResult`, writes `StatusProvider`, `ConsoleProvider`, `RepositoryProvider`, and `OverlayProvider`, and forwards progress events. It never stores repository data of its own.
 - `ConsoleProvider` (provider state): the bounded entry buffer from `console.buffer.ts`, follow mode, and the "new entries" counter.
 - `StatusProvider` (provider state): transient status and remote progress phase and percentage from `git.progress.ts`.
 - `graph.paginate.ts` (domain state object): the loaded page window, the scope key, the single in-flight page request, and a generation token. Held by `useCommitGraph` as view state, not in a provider.
@@ -97,12 +100,15 @@ ConfigProvider
 Refresh after a mutation:
 
 ```text
-action ID -> useAction -> command from commands.registry
+action ID -> useAction -> useCommandRunner.runCommand(request)          (app layer)
    -> commands.runner (availability + serialization) -> git.client (argument array, no shell)
-   -> parse in domain/git/parsers -> RepositoryProvider.refresh()
-   -> repository.selectors + repository.upstream recompute -> features re-render
-   -> ConsoleProvider entry + StatusProvider status
+   -> domain command -> parsers -> CommandResult
+   -> useCommandRunner: RepositoryProvider.refresh() after success and failure
+      -> repository.selectors + repository.upstream recompute -> features re-render
+   -> useCommandRunner: ConsoleProvider entry + StatusProvider status or error overlay
 ```
+
+`commands.runner.ts` is a pure executor. It returns the result and progress events; it never calls `RepositoryProvider.refresh()` or any other provider. `useCommandRunner` is the single place that applies the result. Read refresh (manual `app.refresh`, watcher, and focus) goes directly to `RepositoryProvider.refresh()` and does not use the command runner.
 
 Freshness flow:
 
@@ -122,7 +128,7 @@ Action IDs only, from product spec section 6.1:
 - `app.themePicker`: opens the theme picker; it never touches repository state. Detail in `20-theme-and-colors.md`.
 - Navigation (`nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.first`, `nav.last`) drive the graph window and trigger a page load at the bottom edge.
 
-Focus interaction: `useHotkeys` resolves precedence (overlay, then text input, then focused region, then global). `app.refresh` is a global action and is shadowed only while a text input has focus for printable keys. When the terminal loses and regains focus, `useFocus` in `RepositoryProvider` triggers a refresh without stealing focus.
+Focus interaction: `useHotkeys` resolves precedence (overlay, then text input, then native list widget, then focused region, then global). `app.refresh` is a global action and never fires while a text input has focus for an unmodified key. Region focus refresh is driven by `useFocusRegion` in each panel, not by `useFocus`. `useFocus` in `RepositoryProvider` only handles terminal-window focus and triggers a refresh without stealing focus.
 
 ## 9. Loading, empty, error, and disabled states
 
@@ -151,7 +157,7 @@ Every F-17 target maps to a mechanism and an owner.
 | Diff line and byte cap with truncation notice | `diff.limits.ts` enforces caps; `DiffContent` renders a "diff truncated" notice | `diff.limits.ts`, `DiffContent.tsx` |
 | Console and error history bounded | `console.buffer.ts` keeps at least 200 entries with output head and tail capping; the error overlay replaces rather than stacks | `console.buffer.ts`, `OverlayProvider` |
 | Remote progress without freezing | `git.progress.ts` publishes phase and percentage; F-02 renders `ProgressBar` and `Spinner` via `useTimeline` in the top bar status strip | `git.progress.ts`, `TopBarStatus.tsx`, `ProgressBar.tsx` |
-| Reads and writes serialized | `commands.runner.ts` serializes writes; `git.client.ts` serializes index-touching reads against writes | `commands.runner.ts`, `git.client.ts` |
+| Reads and writes serialized | `commands.runner.ts` serializes writes; `git.client.ts` serializes index-touching reads against writes; `useCommandRunner.ts` performs the post-result refresh | `commands.runner.ts`, `git.client.ts`, `useCommandRunner.ts` |
 
 Bounds: the graph window is `pages * graph.initialPageSize` and is trimmed to a maximum retained window (oldest pages released when far outside the viewport). The console buffer is bounded by entry count and a per-entry byte cap. Diff caps are a line count and a byte count from `diff.limits.ts`.
 
@@ -165,10 +171,10 @@ Bounds: the graph window is `pages * graph.initialPageSize` and is trimmed to a 
 
 ## 12. Acceptance mapping
 
-- "After every successful or failed mutation, refresh the affected repository state." -> `commands.runner.ts` triggers `RepositoryProvider.refresh()` in both outcomes.
+- "After every successful or failed mutation, refresh the affected repository state." -> `useCommandRunner.ts` calls `RepositoryProvider.refresh()` after the runner returns, in both outcomes. The runner itself performs no refresh.
 - "Provide `r` to refresh manually." -> `app.refresh` handler in `useRepository`.
 - "Live watch the git directory... manual refresh." -> `git.watcher.ts` plus `app.refresh`.
-- "Watching the working tree is optional... show a hint or refresh on focus." -> watcher mode flag in `RepositoryProvider`; `useFocus` refresh; hint in `Footer` or `Sidebar`.
+- "Watching the working tree is optional... show a hint or refresh on focus." -> watcher mode flag in `RepositoryProvider`; terminal-window `useFocus` refresh; region focus refresh through `useFocusRegion`; hint in `Footer` or `Sidebar`.
 - "Ahead and behind reflect the last fetched remote refs." -> `repository.selectors.ts`, `repository.upstream.ts`.
 - "After every fetch, re-evaluate upstreams... `[?]`... deleted only after prune." -> `repository.upstream.ts` keyed by `remote.fetchPrune`.
 - "Preserve selection and expansion across refreshes." -> identity-keyed selection and expansion in `RepositoryProvider` and feature view state.
@@ -183,6 +189,7 @@ Bounds: the graph window is `pages * graph.initialPageSize` and is trimmed to a 
 - `src/domain/repository/repository.upstream.test.ts`: re-evaluation after fetch, `[?]` before prune, deleted only after prune.
 - `src/domain/git/git.watcher.test.ts`: debounce, git-dir versus worktree mode, no refresh storm.
 - `src/app/providers/RepositoryProvider.test.tsx`: refresh after mutation, selection and expansion preserved across refresh.
+- `src/app/hooks/useCommandRunner.test.tsx`: a success result triggers exactly one refresh, one console append, and a success status; a failure result refreshes once, appends once, and opens the error overlay; a blocked result performs no refresh, console append, or error overlay and surfaces the reason as a transient status; progress events update the operation phase and percentage; the orchestrator never clears drafts.
 - Performance smoke: a synthetic large log fixture asserting the first page bound and one in-flight page load (per architecture section 13).
 
 ## 14. Open questions

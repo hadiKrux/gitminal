@@ -19,6 +19,7 @@ Consumed paths (not owned):
 - `src/app/providers/StatusProvider.tsx`
 - `src/app/providers/OverlayProvider.tsx`
 - `src/app/hooks/useConsoleLog.ts`
+- `src/app/hooks/useCommandRunner.ts`
 - `src/app/hooks/useAction.ts`
 - `src/domain/git/git.redact.ts`
 - `src/domain/git/git.progress.ts`
@@ -41,7 +42,7 @@ In scope:
 - The drawer staying open while focus moves elsewhere.
 
 Non-goals:
-- The console does not execute commands; it observes entries produced by the command runner.
+- The console does not execute commands; it observes entries produced by `useCommandRunner` from the runner result.
 - No persistence across sessions.
 - No editing, search, or filtering of entries in v1.
 - No use of the renderer's built-in console for app logs (see section 3).
@@ -64,7 +65,7 @@ Hooks:
 - `useKeyboard`: never called directly; `src/app/hooks/useHotkeys.ts` owns dispatch, and the console registers handlers by action ID through `useAction`.
 - `useTerminalDimensions()`: computes the drawer height, visible entry count, and truncation budgets.
 - `useSelectionHandler()`: console log text selection and copy.
-- `useFocus` / `useBlur`: optionally pause follow mode while the terminal is blurred.
+- `useFocus` / `useBlur`: optionally pause follow mode while the terminal window is blurred. This is not region focus.
 - `useRenderer()`: used only for focus plumbing; the renderer built-in console stays a development tool.
 
 All icons and markers used by this feature come from `src/theme/icons.ts`; see architecture section 6.1. No glyph literal is written in feature code.
@@ -116,29 +117,31 @@ Provider state (single source of truth):
 - `ConsoleProvider`: the bounded entry buffer, follow mode, and the new-entries count. Backed by `src/domain/console/console.buffer.ts`.
 - `StatusProvider`: transient status, kept separate from the console history.
 - `OverlayProvider`: hosts the clear confirmation.
-- `RepositoryProvider`: not read by the console; entries are produced by the command runner.
+- `RepositoryProvider`: not read by the console; the orchestrator refreshes it after the command result, and entries are produced from that result.
 
-Rule: entries are created by the runner and appended through `src/app/hooks/useConsoleLog.ts`. The console feature only reads and renders them; it never constructs git output itself.
+Rule: entries are created by the app-layer `useCommandRunner` orchestrator from the runner's `CommandResult` and appended through `src/app/hooks/useConsoleLog.ts`. `commands.runner.ts` never touches a provider or a hook. The console feature only reads and renders entries; it never constructs git output itself.
 
 ## 7. Data flow
 
 ```text
-command -> commands.runner.ts -> domain command -> git client -> result
+command -> useCommandRunner.runCommand -> commands.runner.ts -> domain command -> git client -> CommandResult
+  -> useCommandRunner applies redaction and formatting
+  -> git.redact.ts redacts credentials in URLs, headers, and environment values
   -> console.format.ts builds a ConsoleEntry
        (timestamp, operation label, argv, cwd, exit status, duration, phase, stdout, stderr)
-  -> git.redact.ts redacts credentials in URLs, headers, and environment values
-  -> ConsoleProvider.append -> console.buffer.ts trims to the bound
+  -> useConsoleLog -> ConsoleProvider.append -> console.buffer.ts trims to the bound
   -> ConsoleDrawer re-renders; follow mode scrolls to bottom, otherwise the new-entries count increments
 ```
 
 Named modules:
 - `src/domain/console/console.types.ts` - entry and status types.
 - `src/domain/console/console.buffer.ts` - bounded ring with at least 200 entries, first/last output preservation, omitted-line counts, and the new-entries counter.
-- `src/domain/console/console.format.ts` - builds entries and output blocks, the omitted-lines marker, and the decisive stderr line for failures.
+- `src/domain/console/console.format.ts` - builds entries and output blocks from a `CommandResult`, the omitted-lines marker, and the decisive stderr line for failures.
 - `src/domain/git/git.redact.ts` - redaction applied before any entry is stored.
 - `src/domain/git/git.progress.ts` - progress phase for remote operations.
-- `src/domain/commands/commands.runner.ts` - the append point for every command result.
-- `src/app/hooks/useConsoleLog.ts` - the app hook the runner uses to append entries.
+- `src/domain/commands/commands.runner.ts` - the pure executor: availability, serialization, execution, and a `CommandResult`; no provider access and no append point.
+- `src/app/hooks/useCommandRunner.ts` - the app-layer orchestrator and append point for every command result; it redacts, formats, and appends through `useConsoleLog.ts`.
+- `src/app/hooks/useConsoleLog.ts` - the app hook the orchestrator uses to append entries.
 
 ## 8. Keyboard and focus
 
@@ -151,11 +154,12 @@ Action IDs only; never raw key strings:
 - `nav.last` (default `G`) - jump to the newest entry.
 - `console.clear` (default `c`) - clears the console after confirmation.
 - `focus.next`, `focus.previous` (`Tab`/`Shift+Tab`) - move focus to and from the console region.
+- `focus.region.console` (default `9`) - opens the drawer if it is closed and then focuses the console region. It does not toggle; `app.console` remains the close path.
 
 Focus:
-- The console is the `console` region defined in `src/features/shell/regions.ts`.
-- It is non-modal: it can stay open while focus moves to another region with `Tab` or a click, and the region cursor persists when focus leaves and returns.
-- Because no overlay owns keys while the drawer is open, `useHotkeys` resolves the console region context keys through precedence rule 3.
+- The console is the `console` region defined in `src/features/shell/regions.ts`. Its frame is focusable and uses native `focusedBorderColor`; its `<scrollbox>` is non-focusable so the region frame owns focus and `nav.*` actions drive the entry cursor.
+- It is non-modal: it can stay open while focus moves to another region with `Tab`, a digit jump, or a click, and the region cursor persists when focus leaves and returns.
+- Because no overlay owns keys while the drawer is open, `useHotkeys` resolves the console region context keys through precedence rule 3 when the console region is focused.
 - When the drawer is closed, its keys are inert and repository navigation is unaffected.
 - When an entry's output pane has focus, arrow keys scroll within that pane.
 
@@ -185,7 +189,7 @@ Focus:
 
 ## 12. Acceptance mapping
 
-- "Every app-triggered git command is visible, with outcome" -> `src/domain/commands/commands.runner.ts` appends through `useConsoleLog.ts`; `ConsoleEntryRow.tsx` renders each entry.
+- "Every app-triggered git command is visible, with outcome" -> `src/app/hooks/useCommandRunner.ts` appends the redacted formatted result through `useConsoleLog.ts`; `commands.runner.ts` returns the raw result; `ConsoleEntryRow.tsx` renders each entry.
 - "A failed remote operation shows the decisive stderr line" -> `console.format.ts` selects the decisive stderr line and `ConsoleOutput.tsx` expands stderr by default for failures.
 - "Console scrolling does not interfere with repository navigation" -> `nav.*` resolves only when the `console` region is focused; the drawer is non-modal.
 - "No credentials appear in the console" -> `src/domain/git/git.redact.ts` before display.
@@ -196,6 +200,7 @@ Focus:
 - "The console keeps a bounded session history, at least 200 entries" -> `console.buffer.ts`.
 - "Errors in the app link to the corresponding console entry" -> an "Open console entry" action that opens the drawer and selects the entry id from the error overlay.
 - "The console can remain open while the user works in other regions" -> non-modal region handling in `ConsoleDrawer.tsx`.
+- "`9` opens and focuses the console from any region without toggling a drawer that is already open" -> `focus.region.console` handler in `useFocusModel.ts` plus `ConsoleProvider.open()`. No digit fires while a text input or overlay owns keys.
 
 ## 13. Tests to add
 
@@ -204,7 +209,8 @@ Colocated per architecture section 5:
 - `console.format.test.ts`: entry formatting; cwd shown only when it differs from the repository root; omitted-lines marker; decisive stderr line selection.
 - `ConsoleOutput.test.tsx`: expansion and collapse; marker placement; redaction already applied before render.
 - `useConsole.test.ts`: follow mode pauses when scrolling up; the new-entries indicator appears; clear requests confirmation.
-- `ConsoleDrawer.test.tsx`: `overlay.close` closes the drawer; `app.console` toggles it; focus can leave with `focus.next` while the drawer stays open.
+- `src/app/hooks/useCommandRunner.test.tsx`: every result produces exactly one console entry, redaction runs before the append, and a blocked result produces none.
+- `ConsoleDrawer.test.tsx`: `overlay.close` closes the drawer; `app.console` toggles it; focus can leave with `focus.next` while the drawer stays open; `focus.region.console` opens a closed drawer, focuses it, and leaves an already focused console unchanged.
 
 ## 14. Open questions
 

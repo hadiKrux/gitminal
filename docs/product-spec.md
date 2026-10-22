@@ -100,8 +100,9 @@ The visible layout has four regions:
 
 ### Focus model
 
-- Exactly one focus owner exists at a time: top bar, a sidebar panel, the commit graph, the right pane composer or details, the diff panel, or an overlay.
+- Exactly one focus owner exists at a time: top bar, a sidebar panel, the commit graph, the right pane composer or details, the diff panel, the console, or an overlay.
 - `Tab` and `Shift+Tab` move focus between regions.
+- `1` through `9` focus a region directly. The digits follow screen order, not the Tab order: `1`-`5` are the Branches, Remotes, Tags, Stashes, and Worktrees panels, `6` is the commit graph, `7` is the right pane, `8` is the Diff panel, and `9` is the console. Direct jumps do not fire while a text input or an overlay owns keys; the digit goes to the field. The top bar has no digit and stays reachable with `Tab`, a click, or the Focus Top Bar command.
 - Clicking a region focuses it.
 - Arrow keys and `j` / `k` move within the focused region.
 - `Esc` closes an overlay. With no overlay, it clears the current transient state, then returns focus to the previous region.
@@ -131,6 +132,7 @@ This precedence resolves overlaps such as `p` meaning Pull in the top bar or com
 - The footer still shows contextual disabled reasons, such as "message required", and modal keys. It does not duplicate operation progress or transient success messages.
 - Success messages appear in the top bar status strip and, when relevant, in the console. Failures open a persistent error overlay, appear in the top bar status strip while the overlay is open, and also appear in the console.
 - The footer never wraps. The app hides the least important hints first and keeps Help available.
+- Direct region jumps (`1`-`9`) are documented in Help and the command palette, not in the footer, so nine jump hints never crowd out the context hints.
 
 ### Mouse
 
@@ -999,7 +1001,7 @@ The help action (default `?`) opens the help modal from anywhere outside a text 
 The help modal contains:
 
 - A search field activated by its configured key (default `/`).
-- Sections for Global, Top bar, Sidebar panels, Commit graph, Commit composer, Commit details, Diffs, Console, Modals, and Configuration.
+- Sections for Focus, Global, Top bar, Sidebar panels, Commit graph, Commit composer, Commit details, Diffs, Console, Modals, and Configuration.
 - Each row shows the action, its effective keys after configuration overrides, and a one-line description.
 - The Configuration section shows resolved config, keybindings, and theme paths, load status, active theme, and warnings.
 - The section for the current focus is shown first.
@@ -1542,6 +1544,22 @@ These are the v1 defaults. They can be overridden by F-19. Context keys override
 | `t` | Theme picker |
 | `Esc` | Clear transient state or return focus |
 
+### Direct region jumps
+
+| Key | Region |
+| --- | --- |
+| `1` | Branches |
+| `2` | Remotes |
+| `3` | Tags |
+| `4` | Stashes |
+| `5` | Worktrees |
+| `6` | Commit graph |
+| `7` | Right pane (composer or commit details) |
+| `8` | Diffs |
+| `9` | Console |
+
+These jumps are a spatial map in screen order, not a second copy of the Tab cycle. They do not fire while a text input or an overlay owns keys, so a focused filter, search field, or composer keeps its digits. `9` opens the console if it is closed. Jumping to the region that already has focus does nothing. Every jump preserves the target region's cursor, selection, and scroll position. The top bar is intentionally unbound; bind `focus.region.topBar` when direct access is wanted.
+
 ### Top bar
 
 | Key | Action |
@@ -1667,6 +1685,7 @@ These IDs are stable and are the only names accepted in `config.json` and `keybi
 | Context | Action IDs |
 | --- | --- |
 | Global | `app.quit`, `app.help`, `app.palette`, `app.console`, `app.refresh`, `app.reloadConfig`, `app.themePicker`, `remote.pull`, `remote.push`, `remote.fetch`, `remote.fetchPrune`, `remote.more`, `commit.focus`, `focus.next`, `focus.previous`, `overlay.close` |
+| Direct focus | `focus.region.topBar`, `focus.region.branches`, `focus.region.remotes`, `focus.region.tags`, `focus.region.stashes`, `focus.region.worktrees`, `focus.region.graph`, `focus.region.rightPane`, `focus.region.diff`, `focus.region.console` |
 | Shared navigation | `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.first`, `nav.last`, `nav.activate` |
 | Commit graph | `graph.search` |
 | Top bar | `nav.left`, `nav.right` |
@@ -1687,6 +1706,7 @@ Notes:
 - `nav.activate` performs the primary action for the focused item: checkout, select, confirm, run, or open details. `diff.toggle` shadows it in the Diff panel to expand or collapse a file.
 - `overlay.close` closes modals, the console, the palette, and help.
 - `app.reloadConfig` has no default key and is always available from the command palette.
+- `focus.region.topBar` has no default key. The other direct focus actions default to `1`-`9` in screen order. A direct focus action never runs a region action, and it stays available while a git operation is running.
 - Context action IDs shadow global IDs with the same key. For example, `tag.push` overrides `remote.push` while Tags is focused.
 - Actions that are unbound still appear in the command palette and help.
 
@@ -1774,6 +1794,7 @@ Notes:
 - Launching in a normal repository shows the current branch, upstream state, local branches, remote branches, tags, stashes, worktrees, commit graph, composer, and diffs.
 - Launching outside a repository shows a clear non-repository state and no destructive actions.
 - Focus changes are visible and footer hints match the focused region.
+- `1`-`9` focus the nine labeled regions directly, the top bar stays on Tab only, and no digit fires while a text input or an overlay owns keys.
 - Pull, Push, Fetch, Fetch --prune, safe force push, overwrite force push, and push --no-verify work from the top bar, More menu, and keys.
 - Push with no upstream creates `origin/<local-branch-name>`, sets the upstream, and updates the top bar without an extra modal.
 - Branch create, checkout, and delete work, with correct current-branch and worktree protections.
@@ -1834,6 +1855,7 @@ Notes:
 | D17 | Commit search | `/` or `Ctrl/Cmd+F` opens an inline search above the graph. It matches subject and message body across the full graph scope, loads results lazily, and Esc restores the previous graph state. |
 | D18 | Theme picker | `t` opens a modal theme picker. Highlight previews live, Enter applies and saves the theme, and Esc restores the previous theme. |
 | D19 | Startup splash and update check | Every launch shows a splash with the wordmark and version. Any key opens the workspace. The app checks npm once in the background and shows the exact install command only when a newer version exists. Failures are silent. |
+| D20 | Direct region focus | `1`-`9` focus the nine labeled regions in screen order: sidebar panels `1`-`5`, commit graph `6`, right pane `7`, Diffs `8`, console `9`. The top bar is left unbound because it is rarely a focus target and already has global keys. In a text input the digit types normally, and an overlay captures it. |
 
 ## 10. Assumed defaults
 

@@ -110,7 +110,7 @@ Provider state, read and never recomputed here:
 - `RepositoryProvider`: the repository snapshot, the selected commit identity, the current refresh generation, and the resolved `graph.scope` and `graph.initialPageSize`.
 - `ConfigProvider`: `graph.scope`, `graph.initialPageSize`, and the resolved keymap used for hint text.
 - `StatusProvider`: transient status and any running operation.
-- `FocusProvider`: active region, `previousRegion`, cursor map, and the commit-search text-input flag.
+- `FocusProvider`: derived active region, `previousRegion`, and cursor map. The commit-search input mode is local to the search feature; text focus itself is derived from native focus.
 - `OverlayProvider`: whether an overlay is open, which exits search (F-15).
 
 Rules: this feature never recomputes pending counts, refs, ahead/behind, or upstream state. It reads them from `@/domain/repository/repository.selectors.ts`. It never writes repository state; paging and search are reads only.
@@ -120,9 +120,10 @@ Rules: this feature never recomputes pending counts, refs, ahead/behind, or upst
 Generic path (architecture section 9):
 
 ```text
-key or click -> action ID -> useAction handler -> command from @/domain/commands/commands.registry
+key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(request)
   -> command runner (availability + serialization) -> @/domain/git/git.log.ts -> git CLI
-  -> parse -> RepositoryProvider refresh -> CommitGraph re-render -> console entry + status
+  -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error overlay
+  -> CommitGraph re-render
 ```
 
 | Action ID or trigger | Domain module | Git subcommand |
@@ -160,15 +161,16 @@ Action IDs only (product spec section 6.1). Raw key strings never appear outside
 | `nav.first` (`g`) | Jump to the newest loaded commit. |
 | `nav.last` (`G`) | Jump to the oldest loaded commit and start loading the next older page when more history exists. |
 | `nav.activate` (`Enter`) | Select the current row. On a commit row this replaces the composer with commit details and shows the commit diff; on the Pending Changes row it restores the composer and working tree diffs. Mouse double click dispatches the same ID. |
-| `graph.search` (`/` or `Ctrl/Cmd+F`) | Open the commit search input at the top of the Commit panel and focus it. The palette entry "Search commits" dispatches the same ID from any region, focusing the graph first. |
+| `graph.search` (`/` or `Ctrl/Cmd+F`) | Open the commit search input at the top of the Commit panel and focus it. The binding applies when the graph region is focused and no text input owns the key. The palette entry "Search commits" dispatches the same ID from any region, focusing the graph first. |
 | `app.refresh` (`r`) | Manual refresh; keeps the selected commit selected when it still exists, otherwise selects the nearest row. |
 | `commit.focus` (`c`) | Focus the composer when it is visible. |
 | `overlay.close` (`Esc`) | In search mode: clear the query, cancel any in-flight search, and restore the previous graph state in one press. Otherwise: return focus to `previousRegion`. |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`). |
+| `focus.region.graph` | Direct jump to the graph (default `6`), shell-owned. |
 
 Selection is stored by stable identity (commit OID, or `pending`), so a refresh that preserves the commit preserves the cursor (architecture section 8).
 
-Search keys: while the search input is focused, `nav.up` and `nav.down` move the result selection while printable keys, including `j` and `k`, continue to edit the query; `nav.pageUp` and `nav.pageDown` scroll the result list; `nav.activate` (`Enter`) confirms the highlighted commit, exits search, and selects that commit in the normal graph, loading the containing page first when the commit is not on a loaded page. This is the one deliberate exception to the architecture section 8 rule that arrow keys pass to a focused text input; see Open questions.
+Search keys: while the search input is focused, printable keys, including `j` and `k`, edit the query. `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, and `nav.activate` are routed to the search result list by the `commit-search` input mode. This is a defined input mode, not a general exception to the region focus model: text inputs own unmodified keys by default, and the search mode opts specific navigation keys back into app dispatch. `Esc` cancels the search and restores the previous graph state in one press.
 
 ## 9. Loading, empty, error, and disabled states
 
@@ -250,7 +252,7 @@ Every state carries a text marker; color is never the only signal.
 ## 14. Open questions
 
 - Ownership of `src/domain/graph/graph.paginate.ts` and `graph.search.ts` is claimed by both F-08 and F-17. Resolution here: F-08 defines the page-window and search-matching behavior and owns `graph.types.ts` and `graph.lanes.ts`; F-17 owns the generation-token and refresh interaction and the global bounds table. Confirm this split, or move the two shared files wholly under one doc.
-- Product spec line 657 requires Up and Down to move search results while the input keeps focus, which conflicts with architecture section 8 ("arrow keys pass to the input"). Resolution here: `CommitSearchInput` marks a `commit-search` text-input flag, and `useHotkeys` resolves `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, and `nav.activate` to the search context before the input default while printable keys still reach the input. Confirm this exception, or add dedicated search-navigation action IDs.
+- Product spec line 657 requires Up and Down to move search results while the input keeps focus. Resolved: `commit-search` is a text-input mode that opts `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, and `nav.activate` back into app dispatch while printable keys stay in the input. The mode is local to the search feature; `FocusProvider` only derives text focus from native focus. Confirm the mode name when keymap contexts are finalized in F-19.
 - `graph.scope: all` shows commits reachable from local and remote branches, but product spec line 672 also excludes unreachable commits. Confirm that `--branches --remotes` (without `--tags`) is the exact scope, or whether tag-only commits must be included.
 - Paging uses `--skip`, which re-walks history on each page. For very large histories, confirm whether to switch to a cursor based on the oldest loaded OID plus `--max-count`, and measure the tradeoff.
 - The maximum retained window (how many pages stay loaded before the oldest is released) is not specified. Confirm a value after measuring memory with a 100,000-commit fixture.

@@ -42,7 +42,7 @@ Hooks used:
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
 | `useAction` | `useTags.ts` registers `tag.create`, `tag.delete`, `tag.push`, `nav.activate`, `list.filter`, `app.refresh` | Features receive action IDs, never raw key strings |
 | `useListCursor` | `useTags.ts` navigation, `g`/`G`, and double click detection | Shared cursor and double click logic for custom rows |
-| `useFocus` | `TagsPanel.tsx` refreshes tag knowledge when the region gains focus | Refresh on focus keeps remote tag state current |
+| `useFocusRegion` | `TagsPanel.tsx` refreshes tag knowledge when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `TagRow.tsx` computes the truncation budget for the commit summary | Budget-aware truncation via `@/lib/text.ts` |
 
 `<scrollbox>` versus `<select>` decision: the tag list uses a `<scrollbox>` of `<box>` rows because each row combines a tag name, one or more scope indicators, and a commit summary, which `<select>` cannot render. `<select>` is used only for the uniform scope and remote choices inside `DeleteTagModal.tsx` (architecture section 6 rule 3).
@@ -118,7 +118,7 @@ Provider state (read, never recomputed here):
 - `RepositoryProvider` selected commit: the default Create Tag target when the graph selection is a commit, otherwise HEAD.
 - `ConfigProvider`: `git.path`.
 - `StatusProvider`: operation progress and transient status.
-- `FocusProvider`: active region and cursor map.
+- `FocusProvider`: derived active region and cursor map.
 
 Rules: this feature never recomputes scope indicators or ordering itself. It reads them from `@/domain/git/git.tags.ts` and `@/domain/repository/repository.selectors.ts` (architecture section 9).
 
@@ -127,9 +127,10 @@ Rules: this feature never recomputes scope indicators or ordering itself. It rea
 Generic path (architecture section 9):
 
 ```text
-key or click -> action ID -> useAction handler -> command from @/domain/commands/commands.registry
+key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(request)
   -> command runner (availability + serialization) -> @/domain/git/git.tags.ts -> git CLI
-  -> parse -> RepositoryProvider refresh -> TagsPanel re-render -> console entry + status
+  -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error overlay
+  -> TagsPanel re-render
 ```
 
 | Action ID or refresh | Domain module | Git subcommand |
@@ -173,6 +174,7 @@ Delete order and partial failure: for local and remote, delete the remote tag fi
 | `list.filter` | Focus the tag filter field |
 | `app.refresh` | Manual refresh of repository state |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
+| `focus.region.tags` | Direct jump to this panel (default `3`), shell-owned |
 
 Notes: the footer shows only the actions available for the selected tag, for example `tag.push` only when the tag is local and not on the remote. Modals are overlays and own all keys while open, with `overlay.close` cancelling. Availability comes from `@/domain/commands/commands.availability.ts` so the footer, help, and palette agree.
 
