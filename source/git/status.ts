@@ -1,5 +1,10 @@
 import type { Buffer } from 'node:buffer';
-import { GitError, runGitReadOnly, truncationMarkerPrefix } from './exec.js';
+import {
+	capStoredOutput,
+	GitError,
+	runGitReadOnly,
+	truncationMarkerPrefix,
+} from './exec.js';
 
 /** One side of a changed path: `.` means unchanged on that side. */
 export type StatusCode = '.' | 'M' | 'A' | 'D' | 'R' | 'C' | 'T';
@@ -271,14 +276,17 @@ export const readUnmergedPaths = async (options: {
 	 * record an error and run no command.
 	 */
 	if (result.stdout.includes(truncationMarkerPrefix)) {
+		const message =
+			'git ls-files -u output was truncated; refusing to unstage because unmerged paths may be missing';
+
 		throw new GitError(
 			{
-				args: result.args,
-				exitCode: result.exitCode,
-				stdout: result.stdout,
-				stderr: result.stderr,
+				args: [],
+				exitCode: undefined,
+				stdout: capStoredOutput(result.stdout),
+				stderr: message,
 			},
-			'git ls-files -u output was truncated; refusing to unstage because unmerged paths may be missing',
+			message,
 		);
 	}
 
@@ -312,10 +320,35 @@ export const readUnmergedPaths = async (options: {
 export const readStatus = async (options: {
 	readonly cwd: string;
 }): Promise<RepoStatus> => {
-	const { stdoutBytes } = await runGitReadOnly(
+	const result = await runGitReadOnly(
 		['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal'],
 		{ cwd: options.cwd },
 	);
 
-	return parseStatus(stdoutBytes);
+	/*
+	 * Fail closed on a truncated capture, like the unmerged-path read above.
+	 * The marker exists only on the decoded `stdout`; `stdoutBytes` is a hard
+	 * cap that can end mid-path, so parsing it would invent a row for a path
+	 * that may not exist while silently omitting the rest. A synthetic exit
+	 * code (undefined) keeps the overlay from claiming git exited 0.
+	 */
+	if (result.stdout.includes(truncationMarkerPrefix)) {
+		const message =
+			'git status output was truncated; repository has too many changes to display safely';
+
+		throw new GitError(
+			{
+				// A synthetic failure, not a successful command's argv: the
+				// overlay says `no exit code` and the console does not blame
+				// status for a read that actually succeeded.
+				args: [],
+				exitCode: undefined,
+				stdout: capStoredOutput(result.stdout),
+				stderr: message,
+			},
+			message,
+		);
+	}
+
+	return parseStatus(result.stdoutBytes);
 };

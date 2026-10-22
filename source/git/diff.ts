@@ -1,8 +1,15 @@
-import type { Buffer } from 'node:buffer';
+import { Buffer } from 'node:buffer';
+import { stat } from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
 import process from 'node:process';
 import type { DiffLine, WorkingFile } from '../data/types.js';
-import { runGitReadOnly } from './exec.js';
+import {
+	capStoredOutput,
+	GitError,
+	runGitReadOnly,
+	truncationMarkerPrefix,
+} from './exec.js';
 import { isDirectoryRow } from './working-tree.js';
 
 /** Where a row's diff comes from; it also decides the cache signature. */
@@ -13,11 +20,24 @@ export type DiffSource =
 	| 'untracked-directory'
 	| 'conflicted';
 
-/** Additions/deletions for one row, plus the binary marker numstat cannot count. */
+/** Additions/deletions for one row, plus markers numstat cannot express. */
 export type DiffStat = {
 	readonly additions: number;
 	readonly deletions: number;
 	readonly binary: boolean;
+	/**
+	 * True when the raw diff shows different file modes. Optional because the
+	 * numstat parser cannot see modes; `readWorkingFileStats` fills it in after
+	 * a second, targeted raw read.
+	 */
+	readonly modeChange?: boolean;
+	/**
+	 * The blob oid on the staged side, from `git diff --cached --raw -z`.
+	 * Optional because only staged rows have one. Two equal numstat counts can
+	 * hide a rewritten staged blob, so this token makes such a background
+	 * `git add` invalidate the cached diff.
+	 */
+	readonly indexOid?: string;
 };
 
 const emptyStat: DiffStat = { additions: 0, deletions: 0, binary: false };
@@ -27,6 +47,46 @@ const nullDevice = process.platform === 'win32' ? 'NUL' : os.devNull;
 
 /** Files listed under an untracked directory before the note is capped. */
 const directoryFileCap = 20;
+
+/** Display rows kept for one expanded diff. */
+const diffLineCap = 2000;
+
+/** Raw diff bytes parsed before the row cap applies. */
+const diffByteCap = 256 * 1024;
+
+/** Untracked and conflicted files above this size are not diffed at all. */
+const diffFileSizeCap = 1024 * 1024;
+
+/** Human-readable size for notes, with no trailing `.0` on whole sizes. */
+const formatSize = (bytes: number): string => {
+	const scaled = (value: number, unit: string): string => {
+		const rounded = Math.round(value * 10) / 10;
+		const text = Number.isInteger(rounded)
+			? String(rounded)
+			: rounded.toFixed(1);
+		return `${text} ${unit}`;
+	};
+
+	if (bytes >= 1024 * 1024) {
+		return scaled(bytes / (1024 * 1024), 'MB');
+	}
+
+	if (bytes >= 1024) {
+		return scaled(bytes / 1024, 'KB');
+	}
+
+	return `${bytes} B`;
+};
+
+/**
+ * The note shown when either diff cap stopped the parse.
+ *
+ * Both limits are rendered from their constants, so changing a cap cannot
+ * leave the note claiming an old one.
+ */
+const diffTruncationNote = `... diff truncated: showing first ${diffLineCap} lines / ${formatSize(
+	diffByteCap,
+)} ...`;
 
 /**
  * Per-file `git diff --no-index` commands allowed to run at once.
@@ -71,13 +131,49 @@ const headerLine = (text: string): DiffLine => ({
  * A mode-only change, or a path whose content already matches, produces no
  * textual diff. An empty row list would collapse the expanded panel to nothing
  * and read as broken, so the read explains itself with one header row instead.
+ * A binary row with no metadata says so honestly rather than claiming there
+ * was no textual change.
  */
-const withNoDiffNote = (lines: readonly DiffLine[]): readonly DiffLine[] =>
-	lines.length > 0 ? lines : [headerLine('no textual diff')];
+const withNoDiffNote = (
+	lines: readonly DiffLine[],
+	binary = false,
+): readonly DiffLine[] =>
+	lines.length > 0
+		? lines
+		: [headerLine(binary ? 'binary files differ' : 'no textual diff')];
 
 /** Strip only the trailing CR so CRLF output parses like LF output. */
 const stripCarriageReturn = (line: string): string =>
 	line.endsWith('\r') ? line.slice(0, -1) : line;
+
+/**
+ * Cut raw diff text at a byte cap without splitting a line.
+ *
+ * Git emits huge diffs for generated files and minified bundles. Parsing the
+ * whole capture before capping the rows would still pay the split and parse
+ * cost, so the bytes are capped first. The final newline boundary keeps the
+ * last kept line whole; a byte cut can otherwise leave a partial multibyte
+ * character, which is dropped with the trailing replacement character.
+ */
+const truncateDiffText = (
+	text: string,
+	maxBytes: number,
+): { readonly text: string; readonly truncated: boolean } => {
+	if (Buffer.byteLength(text, 'utf8') <= maxBytes) {
+		return { text, truncated: false };
+	}
+
+	let capped = Buffer.from(text, 'utf8').subarray(0, maxBytes).toString('utf8');
+	if (capped.endsWith('\uFFFD')) {
+		capped = capped.slice(0, -1);
+	}
+
+	const boundary = capped.lastIndexOf('\n');
+	return {
+		text: boundary === -1 ? capped : capped.slice(0, boundary),
+		truncated: true,
+	};
+};
 
 const hunkPattern = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
@@ -182,6 +278,24 @@ export const parseUnifiedDiff = (text: string): DiffLine[] => {
 	return lines;
 };
 
+/**
+ * Parse a diff under both caps, ending with an explicit truncation header.
+ *
+ * The byte cap runs before parsing; the line cap then bounds the display
+ * rows. Whichever cap was hit, the expanded view says so instead of silently
+ * presenting a partial diff as complete.
+ */
+const parseDiffLines = (text: string): DiffLine[] => {
+	const capped = truncateDiffText(text, diffByteCap);
+	const lines = parseUnifiedDiff(capped.text);
+
+	if (lines.length > diffLineCap) {
+		return [...lines.slice(0, diffLineCap), headerLine(diffTruncationNote)];
+	}
+
+	return capped.truncated ? [...lines, headerLine(diffTruncationNote)] : lines;
+};
+
 const statOf = (
 	additions: string | undefined,
 	deletions: string | undefined,
@@ -255,11 +369,147 @@ const readNumstat = async (
 	cwd: string,
 	options: { readonly staged: boolean },
 ): Promise<ReadonlyMap<string, DiffStat>> => {
+	// Rename detection keeps one row per moved file, matching the status row
+	// and the rename-aware diff read.
 	const args = options.staged
-		? ['diff', '--cached', '--numstat', '-z']
-		: ['diff', '--numstat', '-z'];
+		? ['diff', '--cached', '-M', '--numstat', '-z']
+		: ['diff', '-M', '--numstat', '-z'];
+	const result = await runGitReadOnly(args, { cwd });
+
+	/*
+	 * Fail closed on a truncated capture. The marker exists only on the decoded
+	 * `stdout`; `stdoutBytes` is a hard-capped prefix that can end mid-record,
+	 * so parsing it would silently drop rows or invent counts for a path whose
+	 * record was cut. File counts are what the panel renders and what the diff
+	 * signature uses, so a partial map is worse than an explicit failure.
+	 */
+	if (result.stdout.includes(truncationMarkerPrefix)) {
+		const message =
+			'git diff --numstat output was truncated; file change counts cannot be read safely';
+
+		throw new GitError(
+			{
+				args: [],
+				exitCode: undefined,
+				stdout: capStoredOutput(result.stdout),
+				stderr: message,
+			},
+			message,
+		);
+	}
+
+	return parseNumstat(result.stdoutBytes);
+};
+
+/**
+ * One `git diff --raw -z` record.
+ *
+ * The stream is `:oldmode newmode oldoid newoid status<NUL>path<NUL>`.
+ * Rename and copy records carry two path tokens (source then destination), so
+ * the destination is the row path that status also names. The read asks for
+ * full object names (`--no-abbrev`), which keeps `newoid` a stable cache token
+ * instead of a display abbreviation that can grow with the repository.
+ */
+export type RawDiffRecord = {
+	readonly path: string;
+	readonly oldMode: string;
+	readonly newMode: string;
+	readonly newOid: string;
+	readonly status: string;
+};
+
+/**
+ * Parse `git diff --raw -z` records.
+ *
+ * Both readers below need the same framing: mode detection compares the mode
+ * pair, and staged rows take `newoid` as their `indexOid` token. Parsing once
+ * keeps the two from drifting apart on rename/copy token counts.
+ */
+export const parseRawDiff = (
+	stdout: string | Buffer,
+): readonly RawDiffRecord[] => {
+	const text = typeof stdout === 'string' ? stdout : stdout.toString('utf8');
+	const tokens = text.split('\0');
+	const records: RawDiffRecord[] = [];
+	let cursor = 0;
+
+	while (cursor < tokens.length) {
+		const record = tokens[cursor];
+		cursor += 1;
+
+		if (record === undefined || !record.startsWith(':')) {
+			continue;
+		}
+
+		const fields = record.slice(1).split(' ');
+		const oldMode = fields[0] ?? '';
+		const newMode = fields[1] ?? '';
+		const newOid = fields[3] ?? '';
+		const status = fields[4] ?? '';
+		const isRename = status.startsWith('R') || status.startsWith('C');
+		const path = isRename ? tokens[cursor + 1] ?? '' : tokens[cursor] ?? '';
+		cursor += isRename ? 2 : 1;
+
+		records.push({ path, oldMode, newMode, newOid, status });
+	}
+
+	return records;
+};
+
+/**
+ * Whether a raw record carries a mode-only or type change.
+ *
+ * Only `M` and `T` records are relevant: mode-only changes show up as `M`
+ * with equal oids, while renames already have their own row and diff. Every
+ * mode pair is compared even when the content also changed; the row chip
+ * ignores the marker unless there are no counts.
+ */
+const isModeChangeRecord = (record: RawDiffRecord): boolean =>
+	(record.status === 'M' || record.status === 'T') &&
+	record.oldMode !== record.newMode;
+
+/**
+ * Paths whose raw record shows a mode-only or type change. Kept as a pure
+ * parser beside `parseRawDiff` so both derived readings share one framing.
+ */
+export const parseRawModeChanges = (
+	stdout: string | Buffer,
+): ReadonlySet<string> => {
+	const paths = new Set<string>();
+
+	for (const record of parseRawDiff(stdout)) {
+		if (isModeChangeRecord(record) && record.path.length > 0) {
+			paths.add(record.path);
+		}
+	}
+
+	return paths;
+};
+
+const readRawDiff = async (
+	cwd: string,
+	options: { readonly staged: boolean },
+): Promise<readonly RawDiffRecord[]> => {
+	const args = options.staged
+		? ['diff', '--cached', '--raw', '--no-abbrev', '-z']
+		: ['diff', '--raw', '--no-abbrev', '-z'];
 	const { stdoutBytes } = await runGitReadOnly(args, { cwd });
-	return parseNumstat(stdoutBytes);
+	return parseRawDiff(stdoutBytes);
+};
+
+/**
+ * A best-effort raw read: a failure leaves the affected rows without the
+ * marker or token instead of failing the stats the panel needs.
+ */
+const readRawDiffBestEffort = async (
+	cwd: string,
+	options: { readonly staged: boolean },
+): Promise<readonly RawDiffRecord[] | undefined> => {
+	try {
+		return await readRawDiff(cwd, options);
+	} catch {
+		return undefined;
+	}
 };
 
 /**
@@ -270,18 +520,41 @@ const readNumstat = async (
  * side (`dev/null` -> file), and a missed key would silently report zero while
  * the expanded diff shows additions. Untracked and conflicted rows both use it:
  * neither has an index entry to compare against.
+ *
+ * The path is stat-tested first because the expanded diff skips a missing,
+ * non-regular, or above-cap file with its own note, so spawning git for those
+ * rows would only pay for a read whose counts cannot be shown. Their rows keep
+ * zero counts, and a normal file keeps the best-effort no-index read.
  */
 const readNoIndexStat = async (
 	cwd: string,
 	file: WorkingFile,
 ): Promise<readonly [string, DiffStat]> => {
 	try {
-		const { stdoutBytes } = await runGitReadOnly(
+		const info = await stat(path.join(cwd, file.path));
+
+		if (!info.isFile() || info.size > diffFileSizeCap) {
+			return [file.path, emptyStat];
+		}
+	} catch {
+		return [file.path, emptyStat];
+	}
+
+	try {
+		const result = await runGitReadOnly(
 			['diff', '--no-index', '--numstat', '-z', '--', nullDevice, file.path],
 			// A difference is the expected outcome, not a failure.
-			{ cwd, allowExitCodes: [0, 1] },
+			{ cwd, allowExitCodes: [0, 1], literalPathspecs: true },
 		);
-		const parsed = parseNumstat(stdoutBytes);
+
+		// A truncated capture can end mid-record; reporting zero counts is
+		// honest, while parsing the partial map could attribute a count to the
+		// wrong path.
+		if (result.stdout.includes(truncationMarkerPrefix)) {
+			return [file.path, emptyStat];
+		}
+
+		const parsed = parseNumstat(result.stdoutBytes);
 		return [file.path, [...parsed.values()][0] ?? emptyStat];
 	} catch {
 		// The file may have vanished since status; the row still renders
@@ -301,6 +574,14 @@ const readNoIndexStat = async (
  * vanishing between the status read and this call must not fail the whole
  * panel. Directory rows are skipped: `diff --no-index` has no defined meaning
  * for a directory.
+ *
+ * Numstat cannot express a mode-only change: it prints `0<TAB>0<TAB>path`, the
+ * same counts as a content change with no lines. A raw read is run for the
+ * unstaged side only when at least one tracked modified/typechange row looks
+ * like that. The staged side always gets one when it has rows, because
+ * `newoid` is the index content token: two different staged blobs with equal
+ * counts must not share a cached diff. Both raw reads are best effort so a
+ * failure never fails the stats the panel needs.
  */
 export const readWorkingFileStats = async (options: {
 	readonly cwd: string;
@@ -342,6 +623,68 @@ export const readWorkingFileStats = async (options: {
 		}
 	}
 
+	const isModeCandidate = (file: WorkingFile): boolean => {
+		const stat = stats.get(file.path);
+		return (
+			stat !== undefined &&
+			stat.additions === 0 &&
+			stat.deletions === 0 &&
+			!stat.binary &&
+			(file.status === 'modified' || file.status === 'typechange')
+		);
+	};
+
+	const needsUnstagedModes =
+		needsUnstaged &&
+		files.some(
+			file => diffSourceOf(file) === 'unstaged' && isModeCandidate(file),
+		);
+
+	const [unstagedRaw, stagedRaw] = await Promise.all([
+		needsUnstagedModes
+			? readRawDiffBestEffort(cwd, { staged: false })
+			: undefined,
+		needsStaged ? readRawDiffBestEffort(cwd, { staged: true }) : undefined,
+	]);
+
+	const applyRawRecords = (
+		records: readonly RawDiffRecord[] | undefined,
+		source: DiffSource,
+	): void => {
+		for (const record of records ?? []) {
+			const file = filesByPath.get(record.path);
+			const stat = stats.get(record.path);
+
+			if (
+				file === undefined ||
+				stat === undefined ||
+				record.path.length === 0 ||
+				diffSourceOf(file) !== source
+			) {
+				continue;
+			}
+
+			const changesMode = isModeChangeRecord(record) && isModeCandidate(file);
+			const indexOid =
+				source === 'staged' && record.newOid.length > 0
+					? record.newOid
+					: undefined;
+
+			if (indexOid === undefined && !changesMode) {
+				continue;
+			}
+
+			stats.set(record.path, {
+				...stat,
+				...(indexOid === undefined ? {} : { indexOid }),
+				...(changesMode ? { modeChange: true } : {}),
+			});
+		}
+	};
+
+	applyRawRecords(stagedRaw, 'staged');
+	applyRawRecords(unstagedRaw, 'unstaged');
+
 	const noIndexStats: Array<readonly [string, DiffStat]> = [];
 
 	for (
@@ -370,30 +713,34 @@ export const readWorkingFileStats = async (options: {
  * Git collapses an untracked directory to a single status row and offers no
  * diff for it, so the expanded view answers the next question instead: which
  * files are inside, and how many. The list is capped so a directory with
- * thousands of files cannot flood the panel; the count stays honest.
+ * thousands of files cannot flood the panel. A capture that hit the byte cap
+ * cannot be counted: it stops mid-list, so the header says the listing is
+ * truncated and the remainder row is omitted rather than claiming an exact
+ * count.
  */
 const readDirectoryNote = async (
 	cwd: string,
 	path: string,
 ): Promise<readonly DiffLine[]> => {
-	const { stdoutBytes } = await runGitReadOnly(
+	const result = await runGitReadOnly(
 		['ls-files', '--others', '--exclude-standard', '-z', '--', path],
-		{ cwd },
+		{ cwd, literalPathspecs: true },
 	);
-	const paths = stdoutBytes
+	const isTruncated = result.stdout.includes(truncationMarkerPrefix);
+	const paths = result.stdoutBytes
 		.toString('utf8')
 		.split('\0')
 		.filter(entry => entry.length > 0);
-	const label = `${paths.length} untracked file${
-		paths.length === 1 ? '' : 's'
-	}`;
+	const label = isTruncated
+		? '... directory listing truncated ...'
+		: `${paths.length} untracked file${paths.length === 1 ? '' : 's'}`;
 	const lines: DiffLine[] = [headerLine(`directory ${path} - ${label}`)];
 
 	for (const entry of paths.slice(0, directoryFileCap)) {
 		lines.push(headerLine(`  ${entry}`));
 	}
 
-	if (paths.length > directoryFileCap) {
+	if (!isTruncated && paths.length > directoryFileCap) {
 		lines.push(headerLine(`... and ${paths.length - directoryFileCap} more`));
 	}
 
@@ -401,15 +748,67 @@ const readDirectoryNote = async (
 };
 
 /**
+ * Refuse to diff a file git cannot compare cheaply.
+ *
+ * Untracked and conflicted rows have no index side, so their diff reads the
+ * whole worktree file. A directory or a missing path would make git fail; a
+ * large file would flood the capture and the screen for no useful detail, so
+ * both become one honest header row instead of an error or a silent omission.
+ */
+const sizeGuardFor = async (
+	cwd: string,
+	file: WorkingFile,
+): Promise<readonly DiffLine[] | undefined> => {
+	try {
+		const info = await stat(path.join(cwd, file.path));
+
+		if (!info.isFile()) {
+			return [headerLine(`${file.path} is not a regular file; diff skipped`)];
+		}
+
+		if (info.size > diffFileSizeCap) {
+			return [
+				headerLine(
+					`file is ${formatSize(info.size)}; diff skipped (limit ${formatSize(
+						diffFileSizeCap,
+					)})`,
+				),
+			];
+		}
+	} catch {
+		return [headerLine('file is missing; diff unavailable')];
+	}
+
+	return undefined;
+};
+
+/**
+ * Pathspecs that let git recognize a rename.
+ *
+ * The destination alone makes `git diff -M` see a new file: the source is not
+ * in the comparison, so no rename pair can form. Naming both sides produces
+ * the real `rename from`/`rename to` metadata while still scoping the read to
+ * the one row.
+ */
+const trackedPathspecs = (file: WorkingFile): readonly string[] =>
+	file.from === undefined || file.from.length === 0
+		? [file.path]
+		: [file.from, file.path];
+
+/**
  * Read and parse the diff for one working-tree row.
  *
  * Each source is a deliberate command choice, never a guess from the content:
  * staged rows read the index, untracked and conflicted files compare against
  * the null device, and everything else compares the worktree against the index.
+ * Tracked reads enable rename detection and name both sides of a rename, so
+ * git emits a real rename diff instead of a new-file diff for the destination.
  * A conflicted row shows the worktree file with its markers; the conflict note
  * above it makes that explicit, and only the file's own lines become additions
  * so git's no-index framing does not masquerade as conflict content. Paths
  * follow `--` so a name that looks like an option cannot change the command.
+ * Every textual read is capped by bytes and rows, with a visible note when a
+ * cap was hit; files without an index side are also size-checked first.
  */
 export const readFileDiff = async (options: {
 	readonly cwd: string;
@@ -423,39 +822,55 @@ export const readFileDiff = async (options: {
 		}
 
 		case 'untracked-file': {
+			const note = await sizeGuardFor(cwd, file);
+			if (note !== undefined) {
+				return note;
+			}
+
 			const { stdout } = await runGitReadOnly(
 				['diff', '--no-index', '--', nullDevice, file.path],
-				{ cwd, allowExitCodes: [0, 1] },
+				{ cwd, allowExitCodes: [0, 1], literalPathspecs: true },
 			);
-			return withNoDiffNote(parseUnifiedDiff(stdout));
+			return withNoDiffNote(parseDiffLines(stdout), file.binary);
 		}
 
 		case 'conflicted': {
+			const note = await sizeGuardFor(cwd, file);
+			if (note !== undefined) {
+				return note;
+			}
+
 			const { stdout } = await runGitReadOnly(
 				['diff', '--no-index', '--', nullDevice, file.path],
-				{ cwd, allowExitCodes: [0, 1] },
+				{ cwd, allowExitCodes: [0, 1], literalPathspecs: true },
 			);
 			// The worktree file is unresolved by definition: show it verbatim,
-			// markers included, instead of pretending a side resolved it.
+			// markers included, instead of pretending a side resolved it. The
+			// truncation note survives the add-only filter so a capped file
+			// never looks complete.
+			const parsed = parseDiffLines(stdout);
 			return [
 				headerLine('unresolved conflict - showing file with markers'),
-				...parseUnifiedDiff(stdout).filter(line => line.kind === 'add'),
+				...parsed.filter(
+					line => line.kind === 'add' || line.text === diffTruncationNote,
+				),
 			];
 		}
 
 		case 'staged': {
 			const { stdout } = await runGitReadOnly(
-				['diff', '--cached', '--', file.path],
-				{ cwd },
+				['diff', '--cached', '-M', '--', ...trackedPathspecs(file)],
+				{ cwd, literalPathspecs: true },
 			);
-			return withNoDiffNote(parseUnifiedDiff(stdout));
+			return withNoDiffNote(parseDiffLines(stdout), file.binary);
 		}
 
 		default: {
-			const { stdout } = await runGitReadOnly(['diff', '--', file.path], {
-				cwd,
-			});
-			return withNoDiffNote(parseUnifiedDiff(stdout));
+			const { stdout } = await runGitReadOnly(
+				['diff', '-M', '--', ...trackedPathspecs(file)],
+				{ cwd, literalPathspecs: true },
+			);
+			return withNoDiffNote(parseDiffLines(stdout), file.binary);
 		}
 	}
 };

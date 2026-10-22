@@ -135,7 +135,10 @@ function ConsoleRow({ entry, width, onOpenError }: RowProps) {
 	const time = `${formatClockTime(entry.startedAt)} `;
 	const label = singleLine(entry.label);
 	const command = singleLine(commandLabel(entry));
-	const meta = metaLabel(entry);
+	// The phase text comes from parsed stderr, so it gets the same one-line
+	// sanitizing as labels, argv, and summaries: no row may carry a CR or an
+	// escape sequence into Ink.
+	const meta = singleLine(metaLabel(entry));
 
 	// The label may take two fifths of the remaining row; the command gets
 	// whatever is left after the metadata reserves its own share at the right.

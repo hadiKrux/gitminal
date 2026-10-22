@@ -15,10 +15,16 @@ type Props = {
 	readonly selectedIndex: number;
 	readonly width: number;
 	readonly height: number;
+	/** True when older history exists; the footer offers to load it. */
+	readonly hasMore: boolean;
+	/** True while the next page is in flight. */
+	readonly isLoadingMore: boolean;
 	/** When false, e.g. while an overlay owns input, interaction is disabled. */
 	readonly isActive?: boolean;
 	/** Select a commit by hash; the pending row participates like any other. */
 	readonly onSelectCommit: (hash: string) => void;
+	/** Append the next history page when the selection reaches the end. */
+	readonly onLoadMore: () => void;
 };
 
 type RowProps = {
@@ -158,20 +164,37 @@ function CommitRow({
  * An unborn branch has no history but still has a pending row: the quiet
  * "no commits yet" line sits above that row, which stays selectable and keeps
  * counting the working tree until the first commit exists.
+ *
+ * History is paged: reaching the bottom with more commits left asks for the
+ * next page, and a one-row footer explains whether it is available or being
+ * loaded. The footer takes a row from the scroll viewport so the list area
+ * never grows past its panel.
  */
 export default function CommitList({
 	commits,
 	selectedIndex,
 	width,
 	height,
+	hasMore,
+	isLoadingMore,
 	isActive = true,
 	onSelectCommit,
+	onLoadMore,
 }: Props) {
 	const areaRef = useRef<ScrollableAreaHandle>(null);
+	const footerRef = useRef<DOMElement>(null);
 	const graph = buildGraph(commits);
+	const previousSelectedIndexRef = useRef(selectedIndex);
 	const hasHistory = commits.some(commit => commit.pending !== true);
 	const showEmptyState = !hasHistory && height > 1;
-	const listHeight = showEmptyState ? height - 1 : height;
+	// The footer needs a row of its own; on a terminal too short for it the
+	// list keeps its one usable row and the availability note is skipped.
+	const showFooter =
+		(hasMore || isLoadingMore) && height > (showEmptyState ? 2 : 1);
+	const listHeight = Math.max(
+		1,
+		height - (showEmptyState ? 1 : 0) - (showFooter ? 1 : 0),
+	);
 	// One width for every row keeps messages aligned even as branches come and go.
 	let laneCount = 1;
 	for (const row of graph) {
@@ -186,6 +209,17 @@ export default function CommitList({
 	const move = useCallback(
 		(delta: number) => {
 			const lastIndex = Math.max(0, commits.length - 1);
+
+			// Down on the bottom row asks for the next page instead of doing
+			// nothing. The row stays selected until the new page arrives.
+			if (delta > 0 && hasMore && selectedIndex >= lastIndex) {
+				if (!isLoadingMore) {
+					onLoadMore();
+				}
+
+				return;
+			}
+
 			const next = Math.max(0, Math.min(selectedIndex + delta, lastIndex));
 			const commit = commits[next];
 
@@ -195,7 +229,14 @@ export default function CommitList({
 
 			onSelectCommit(commit.hash);
 		},
-		[commits, onSelectCommit, selectedIndex],
+		[
+			commits,
+			hasMore,
+			isLoadingMore,
+			onLoadMore,
+			onSelectCommit,
+			selectedIndex,
+		],
 	);
 
 	// Revealing after the render that applies the new selection covers every
@@ -204,6 +245,44 @@ export default function CommitList({
 	useEffect(() => {
 		areaRef.current?.reveal(selectedIndex);
 	}, [commits, height, selectedIndex]);
+
+	/*
+	 * Arriving on the last row asks for the next page here as well as from the
+	 * down key. The previous index is remembered so a failed load, a refresh,
+	 * or a resize cannot retry while the selection has not moved again: only a
+	 * transition onto the last row starts a read.
+	 */
+	useEffect(() => {
+		const previous = previousSelectedIndexRef.current;
+		previousSelectedIndexRef.current = selectedIndex;
+
+		if (
+			selectedIndex === previous ||
+			selectedIndex !== commits.length - 1 ||
+			!hasMore ||
+			!isActive ||
+			isLoadingMore
+		) {
+			return;
+		}
+
+		onLoadMore();
+	}, [
+		commits.length,
+		hasMore,
+		isActive,
+		isLoadingMore,
+		onLoadMore,
+		selectedIndex,
+	]);
+
+	// The footer is also the wheel/page-down target: a user who never presses
+	// down at the bottom can click the availability line to request the page.
+	useMouseClick(footerRef, () => {
+		if (hasMore && !isLoadingMore) {
+			onLoadMore();
+		}
+	});
 
 	useKeyboardShortcuts(
 		{
@@ -249,6 +328,15 @@ export default function CommitList({
 					))
 				}
 			</ScrollableArea>
+			{showFooter ? (
+				<Box ref={footerRef} paddingLeft={2} flexShrink={0}>
+					<Text color={theme.dimmer} wrap="truncate-end">
+						{isLoadingMore
+							? 'loading older commits...'
+							: 'older commits available: click or select the last row'}
+					</Text>
+				</Box>
+			) : null}
 		</Box>
 	);
 }

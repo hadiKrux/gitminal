@@ -1,4 +1,10 @@
-import { GitError, runGit, runGitReadOnly, type GitResult } from './exec.js';
+import {
+	GitError,
+	operationTimeoutMs,
+	runGit,
+	runGitReadOnly,
+	type GitResult,
+} from './exec.js';
 
 /**
  * Branch mutations built on `runGit`.
@@ -84,6 +90,7 @@ export const createBranch = async (
 	request.onCommand?.(check.args);
 	const result = await runGit(['switch', '-c', request.name], {
 		cwd: request.cwd,
+		timeoutMs: operationTimeoutMs,
 	});
 	request.onCommand?.(result.args);
 	return [check, result];
@@ -99,6 +106,7 @@ export const checkout = async (request: BranchRequest): Promise<GitResult> => {
 	rejectOptionLike(request.name);
 	const result = await runGit(['switch', '--', request.name], {
 		cwd: request.cwd,
+		timeoutMs: operationTimeoutMs,
 	});
 	request.onCommand?.(result.args);
 	return result;

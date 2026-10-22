@@ -82,15 +82,30 @@ const actionsWidth = (stageLabel: string, hasDiscard: boolean): number =>
 	stageLabel.length + 2 + (hasDiscard ? ' Discard '.length + 1 : 0);
 
 /**
- * The row's change summary: numstat counts, or git's binary marker.
+ * The row's change summary: line counts, a binary marker, or a structural
+ * change git cannot count.
  *
- * Zero/zero is not a change worth summarizing (a directory row, or a diff that
- * has not loaded yet), so the chip is omitted entirely. When either side is
- * non-zero both numbers render, which keeps the chip's shape stable.
+ * Zero/zero is not content work worth summarizing (a directory row, or a diff
+ * that has not loaded yet), but it is exactly what a type change or a mode-only
+ * change reports. Those get an honest label instead of a blank chip. When
+ * either side is non-zero both numbers render, which keeps the chip's shape
+ * stable.
  */
 const changeChip = (file: WorkingFile): string | undefined => {
 	if (file.binary) {
 		return 'binary file changed';
+	}
+
+	if (file.status === 'typechange') {
+		return 'type changed';
+	}
+
+	if (
+		file.modeChange === true &&
+		file.additions === 0 &&
+		file.deletions === 0
+	) {
+		return 'mode change';
 	}
 
 	if (file.additions === 0 && file.deletions === 0) {
@@ -152,7 +167,13 @@ export default function WorkingFileRow({
 		0,
 		labelWidth - disclosure.length - 2 - chipGap - textWidth(chip),
 	);
-	const path = truncate(file.path, pathRoom);
+	// The rename target stays the row's identity, but both names explain the
+	// move; `file.path` remains the action and cache key everywhere else.
+	const pathLabel =
+		file.from === undefined || file.from.length === 0
+			? file.path
+			: `${file.from} -> ${file.path}`;
+	const path = truncate(pathLabel, pathRoom);
 	const labelLength =
 		disclosure.length + 2 + textWidth(path) + chipGap + textWidth(chip);
 	const fill = Math.max(0, labelWidth - labelLength);

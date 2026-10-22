@@ -11,6 +11,8 @@ export type ExplorerTab = 'commits' | 'files';
 type Props = {
 	readonly commits: readonly Commit[];
 	readonly selectedCommit: number;
+	readonly hasMoreCommits: boolean;
+	readonly isLoadingMoreCommits: boolean;
 	readonly fileGroups: readonly FileGroup[];
 	readonly width: number;
 	readonly height: number;
@@ -19,6 +21,7 @@ type Props = {
 	readonly isActive?: boolean;
 	readonly onTabChange: (tab: ExplorerTab) => void;
 	readonly onSelectCommit: (hash: string) => void;
+	readonly onLoadMoreCommits: () => void;
 };
 
 const tabs: readonly TabDef[] = [
@@ -40,6 +43,8 @@ const isExplorerTab = (name: string): name is ExplorerTab =>
 export default function ExplorerPanel({
 	commits,
 	selectedCommit,
+	hasMoreCommits,
+	isLoadingMoreCommits,
 	fileGroups,
 	width,
 	height,
@@ -47,6 +52,7 @@ export default function ExplorerPanel({
 	isActive = true,
 	onTabChange,
 	onSelectCommit,
+	onLoadMoreCommits,
 }: Props) {
 	const bodyHeight = Math.max(1, height - 1);
 	const handleTabChange = useCallback(
@@ -84,8 +90,11 @@ export default function ExplorerPanel({
 					selectedIndex={selectedCommit}
 					width={width}
 					height={bodyHeight}
+					hasMore={hasMoreCommits}
+					isLoadingMore={isLoadingMoreCommits}
 					isActive={isActive}
 					onSelectCommit={onSelectCommit}
+					onLoadMore={onLoadMoreCommits}
 				/>
 			)}
 		</Box>

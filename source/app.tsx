@@ -70,6 +70,8 @@ type Overlay =
 	| {
 			readonly kind: 'confirm';
 			readonly label: string;
+			readonly description: string;
+			readonly confirmLabel: string;
 			readonly paths: readonly string[];
 			readonly onConfirm: () => void;
 	  };
@@ -81,6 +83,58 @@ type Overlay =
  * the two ids whose behavior the app implements directly.
  */
 type CommitVariant = 'commit' | 'commit-no-verify';
+
+/** Recently run commands kept for the palette's empty-query order. */
+const recentCommandCap = 5;
+
+/**
+ * The missing-git screen.
+ *
+ * Running gitminal without the git binary cannot work at all, so this replaces
+ * the generic edge message with the two steps that fix it. It stays inside the
+ * normal body layout, which keeps the global quit key available.
+ */
+function GitNotFoundScreen({ height }: { readonly height: number }) {
+	return (
+		<Box height={height} paddingX={1} flexDirection="column">
+			<Text bold color={theme.text}>
+				git not found
+			</Text>
+			<Text color={theme.dim}>
+				gitminal needs the git CLI to read and change the repository.
+			</Text>
+			<Text color={theme.dim}>
+				Install git and make sure it is on PATH, then restart gitminal.
+			</Text>
+		</Box>
+	);
+}
+
+/**
+ * The body for a state with no working tree.
+ *
+ * The missing-git screen is distinct because installing git is the only fix;
+ * every other edge state keeps the existing one-line message.
+ */
+function EdgeBody({
+	kind,
+	detail,
+	height,
+}: {
+	readonly kind: RepoKind;
+	readonly detail: string | undefined;
+	readonly height: number;
+}) {
+	if (kind === 'git-not-found') {
+		return <GitNotFoundScreen height={height} />;
+	}
+
+	return (
+		<Box height={height} paddingX={1}>
+			<Text color={theme.dim}>{edgeMessage(kind, detail)}</Text>
+		</Box>
+	);
+}
 
 /** Body text for every repository state except a normal worktree. */
 const edgeMessage = (kind: RepoKind, detail: string | undefined): string => {
@@ -341,6 +395,11 @@ export default function App({
 	const [isConsoleOpen, setIsConsoleOpen] = useState(false);
 	const [isCommitFocused, setIsCommitFocused] = useState(false);
 	const [message, setMessage] = useState('');
+	// Session-only recency for the palette: the newest command the user ran
+	// floats to the top of the empty-query list, and ties on a query prefer it.
+	const [recentCommandIds, setRecentCommandIds] = useState<
+		readonly CommandId[]
+	>([]);
 	// The active explorer tab lives here because it also decides which panel
 	// owns the arrow keys: COMMITS moves the commit selection, FILES scrolls
 	// the working tree below the commit box.
@@ -359,6 +418,8 @@ export default function App({
 		setOverlay({
 			kind: 'confirm',
 			label: request.label,
+			description: request.description,
+			confirmLabel: request.confirmLabel,
 			paths: request.paths,
 			onConfirm: request.onConfirm,
 		});
@@ -411,6 +472,13 @@ export default function App({
 		setIsConsoleOpen(false);
 	}, []);
 
+	/** Record one dispatched command, newest first, without duplicates. */
+	const rememberCommand = useCallback((id: CommandId) => {
+		setRecentCommandIds(current =>
+			[id, ...current.filter(item => item !== id)].slice(0, recentCommandCap),
+		);
+	}, []);
+
 	/**
 	 * Start a commit and clear the message only when git confirms it.
 	 *
@@ -444,6 +512,7 @@ export default function App({
 	 */
 	const handleCommand = useCallback(
 		(id: CommandId) => {
+			rememberCommand(id);
 			const effect = commandEffects[id];
 
 			if (effect.kind === 'remote') {
@@ -501,6 +570,7 @@ export default function App({
 			commit,
 			refresh,
 			toggleConsole,
+			rememberCommand,
 		],
 	);
 
@@ -632,6 +702,8 @@ export default function App({
 								<ExplorerPanel
 									commits={repoState.commits}
 									selectedCommit={repoState.selectedCommit}
+									hasMoreCommits={repoState.hasMoreCommits}
+									isLoadingMoreCommits={repoState.isLoadingMoreCommits}
 									fileGroups={repoState.fileGroups}
 									width={layout.commitsWidth}
 									height={layout.bodyHeight}
@@ -643,6 +715,7 @@ export default function App({
 									}
 									onTabChange={setActiveTab}
 									onSelectCommit={repoState.selectCommit}
+									onLoadMoreCommits={repoState.loadMoreCommits}
 								/>
 								<RightPanel
 									author={author}
@@ -667,11 +740,11 @@ export default function App({
 								/>
 							</Box>
 						) : (
-							<Box height={layout.bodyHeight} paddingX={1}>
-								<Text color={theme.dim}>
-									{edgeMessage(repoState.kind, repoState.detail)}
-								</Text>
-							</Box>
+							<EdgeBody
+								kind={repoState.kind}
+								detail={repoState.detail}
+								height={layout.bodyHeight}
+							/>
 						)}
 						{isConsoleVisible ? (
 							<ConsolePanel
@@ -691,6 +764,7 @@ export default function App({
 					{overlay?.kind === 'palette' ? (
 						<CommandPalette
 							rows={rows}
+							recentCommandIds={recentCommandIds}
 							availability={commandAvailability}
 							onRun={handleCommand}
 							onClose={closeOverlay}
@@ -718,7 +792,10 @@ export default function App({
 					{overlay?.kind === 'confirm' ? (
 						<ConfirmOverlay
 							label={overlay.label}
+							description={overlay.description}
+							confirmLabel={overlay.confirmLabel}
 							paths={overlay.paths}
+							rows={rows}
 							onConfirm={() => {
 								// Close first, then run: the confirmation is done
 								// and the overlay must not survive the action.

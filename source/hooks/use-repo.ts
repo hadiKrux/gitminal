@@ -129,8 +129,12 @@ export type OperationState = {
  * the confirm overlay and calls `onConfirm` only when the user confirms.
  */
 export type ConfirmRequest = {
-	/** Overlay label, e.g. `Discard` or `Discard All`. */
+	/** Overlay title, e.g. `Discard` or `Discard All`. */
 	readonly label: string;
+	/** What the action does, in the user's terms; the overlay shows it. */
+	readonly description: string;
+	/** The destructive button's verb, e.g. `Delete` or `Discard All`. */
+	readonly confirmLabel: string;
 	readonly paths: readonly string[];
 	readonly onConfirm: () => void;
 };
@@ -171,9 +175,14 @@ export type RepoState = {
 	readonly fileGroups: readonly FileGroup[];
 	/**
 	 * HEAD's history, newest first, with the pending pseudo-commit on top.
+	 * Pages loaded by `loadMoreCommits` are appended to this list.
 	 * Empty outside a normal worktree view.
 	 */
 	readonly commits: readonly Commit[];
+	/** True when `git log` printed a commit after the loaded page. */
+	readonly hasMoreCommits: boolean;
+	/** True while the next history page is being read. */
+	readonly isLoadingMoreCommits: boolean;
 	readonly identity: Identity | undefined;
 	/** Failure detail for the `error` kind; undefined otherwise. */
 	readonly detail: string | undefined;
@@ -187,6 +196,8 @@ export type RepoState = {
 	 * that no longer exists.
 	 */
 	selectCommit: (hash: string) => void;
+	/** Append the next page of history when the list is at its end. */
+	loadMoreCommits: () => void;
 	readonly operation: OperationState;
 	/**
 	 * Short notice for a remote command that was ignored because the queue was
@@ -272,6 +283,7 @@ type RepoSnapshot = Omit<
 	| 'discardAllChanges'
 	| 'refresh'
 	| 'ensureDiff'
+	| 'loadMoreCommits'
 	| 'commit'
 	| 'checkout'
 	| 'createBranch'
@@ -372,6 +384,8 @@ const edge = (kind: RepoKind, detail?: string): RepoSnapshot => ({
 	workingFiles: [],
 	fileGroups: [],
 	commits: [],
+	hasMoreCommits: false,
+	isLoadingMoreCommits: false,
 	selectedCommitHash: undefined,
 	identity: undefined,
 	detail,
@@ -431,6 +445,43 @@ type CommitsCache = {
 	readonly branch: string;
 	readonly fingerprint: string;
 	readonly commits: readonly Commit[];
+	readonly hasMore: boolean;
+};
+
+/** The state a cached history has to match to stay current. */
+type CommitsKey = {
+	readonly root: string;
+	readonly headOid: string | undefined;
+	readonly branch: string;
+	readonly fingerprint: string;
+};
+
+/** Whether a cached history still describes the HEAD and refs just read. */
+const commitsCacheMatches = (
+	cache: CommitsCache | undefined,
+	key: CommitsKey,
+): cache is CommitsCache =>
+	cache !== undefined &&
+	cache.root === key.root &&
+	cache.headOid === key.headOid &&
+	cache.branch === key.branch &&
+	cache.fingerprint === key.fingerprint;
+
+/**
+ * The last sidebar read plus the state that still makes it current.
+ *
+ * Refs are six commands, so a worktree-only refresh must not pay them. The
+ * refs fingerprint covers branch, tag, remote, stash, upstream, worktree, and
+ * submodule movement; the branch and ahead/behind counts are part of the key
+ * because the active row renders them even when no ref moved.
+ */
+type RefsCache = {
+	readonly root: string;
+	readonly fingerprint: string;
+	readonly currentBranch: string | undefined;
+	readonly ahead: number;
+	readonly behind: number;
+	readonly sections: readonly SidebarSection[];
 };
 
 type MutationVerb = 'stage' | 'unstage' | 'discard' | 'recreate-conflict';
@@ -461,6 +512,23 @@ const mutationLabels = (
 	const count = `${paths.length} file${paths.length === 1 ? '' : 's'}`;
 	const words = mutationWords[verb];
 	return { busy: `${words.busy} ${count}`, done: `${words.done} ${count}` };
+};
+
+/** `2 untracked files and 1 directory`, for a discard description. */
+const untrackedCountLabel = (paths: readonly string[]): string => {
+	const directories = paths.filter(path => path.endsWith('/')).length;
+	const files = paths.length - directories;
+	const parts: string[] = [];
+
+	if (files > 0) {
+		parts.push(`${files} untracked file${files === 1 ? '' : 's'}`);
+	}
+
+	if (directories > 0) {
+		parts.push(`${directories} director${directories === 1 ? 'y' : 'ies'}`);
+	}
+
+	return parts.join(' and ');
 };
 
 /**
@@ -565,9 +633,11 @@ const probeFailure = (
  *
  * The row's identity is everything the diff command would read: the status
  * letter, which side is staged, whether the worktree also differs (it changes
- * the task), the numstat counts, the binary marker, and the resulting diff
- * source. Comparing this again after a refresh is what turns a background
- * `git add` or a second-terminal edit into a reload instead of a stale view.
+ * the task), the numstat counts, the binary marker, a mode-only change, the
+ * staged blob oid, the rename source, and the resulting diff source.
+ * Comparing this again after a refresh is what turns a background `git add`
+ * (even one with equal counts) or a second-terminal edit into a reload instead
+ * of a stale view.
  */
 const diffSignature = (file: WorkingFile): string =>
 	[
@@ -577,6 +647,9 @@ const diffSignature = (file: WorkingFile): string =>
 		file.additions,
 		file.deletions,
 		file.binary ? '1' : '0',
+		file.modeChange ? '1' : '0',
+		file.indexOid ?? '',
+		file.from ?? '',
 		diffSourceOf(file),
 	].join(':');
 
@@ -585,9 +658,51 @@ type CachedDiff = {
 	readonly diff: readonly DiffLine[];
 };
 
+/**
+ * Diffs kept for the session.
+ *
+ * A long session can expand hundreds of files, and a large repository can
+ * list thousands. Without a cap the parsed rows would grow with every path the
+ * user ever visited. Sixty-four covers the rows a panel can realistically keep
+ * warm without pinning a whole repository's diffs in memory.
+ */
+const diffCacheCap = 64;
+
+/** Mark one entry as recently used without changing its value. */
+const touchDiffCache = (cache: Map<string, CachedDiff>, path: string): void => {
+	const entry = cache.get(path);
+	if (entry === undefined) {
+		return;
+	}
+
+	cache.delete(path);
+	cache.set(path, entry);
+};
+
+/** Store one diff and evict least-recently-used paths past the cap. */
+const storeDiffCache = (
+	cache: Map<string, CachedDiff>,
+	path: string,
+	entry: CachedDiff,
+): void => {
+	cache.delete(path);
+	cache.set(path, entry);
+
+	while (cache.size > diffCacheCap) {
+		const [oldest] = cache.keys();
+		if (oldest === undefined) {
+			return;
+		}
+
+		cache.delete(oldest);
+	}
+};
+
 /** Identity token for one read, so a stale read cannot clear a newer one. */
 type InFlightDiff = {
 	readonly signature: string;
+	/** Diff-cache generation the read started in; see `diffGenerationRef`. */
+	readonly generation: number;
 };
 
 const noStat: DiffStat = { additions: 0, deletions: 0, binary: false };
@@ -633,6 +748,56 @@ const withWorkingStats = (
 	}
 
 	return next;
+};
+
+/**
+ * Drop cached diffs that a status snapshot cannot prove are still current.
+ *
+ * The signature is built from row metadata, numstat counts, and the staged
+ * blob oid, and none of those are full content identity: replacing a line with
+ * another line of the same length keeps the +add/-del totals unchanged while
+ * the diff body changes. A manual refresh or a post-queue drain therefore
+ * clears the whole cache. Automatic watch and initial loads cannot know what
+ * changed in a file body, so they drop only the rows whose diff can move
+ * without moving the counts: untracked files, conflicted paths, and rows with
+ * an unstaged side (a worktree edit can leave the staged numstat untouched).
+ * The next expansion re-reads whatever was dropped, which is cheap for a row
+ * the user is not looking at.
+ *
+ * It bumps `generation` whenever it clears or would invalidate rows, which is
+ * what stops a read that is already in flight from repopulating the cache or
+ * updating a row after the clear.
+ */
+const invalidateStaleDiffs = (
+	files: readonly WorkingFile[],
+	mode: LoadMode,
+	cache: Map<string, CachedDiff>,
+	generation: { current: number },
+): void => {
+	if (mode === 'manual' || mode === 'drain') {
+		cache.clear();
+		generation.current += 1;
+		return;
+	}
+
+	let invalidated = false;
+
+	for (const file of files) {
+		if (
+			file.status === 'untracked' ||
+			file.status === 'conflicted' ||
+			file.hasUnstaged
+		) {
+			// The row itself is the reason, whether or not it had a cached
+			// diff yet: a read for it may still be in flight.
+			invalidated = true;
+			cache.delete(file.path);
+		}
+	}
+
+	if (invalidated) {
+		generation.current += 1;
+	}
 };
 
 /**
@@ -726,6 +891,16 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	 */
 	const diffInFlightRef = useRef<Map<string, InFlightDiff>>(new Map());
 	/**
+	 * Generation of the diff cache, outside React state.
+	 *
+	 * A diff read can finish after a load invalidated the cache. The signature
+	 * alone cannot catch that when the row still looks the same (for example a
+	 * manual refresh after a same-length body edit), so every invalidation
+	 * bumps this counter and an in-flight read may only land in the generation
+	 * it started in.
+	 */
+	const diffGenerationRef = useRef(0);
+	/**
 	 * The last log read, keyed by the state that still makes it current.
 	 *
 	 * A refresh re-reads the log only when the key moves (root, HEAD oid,
@@ -735,8 +910,15 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	 * commit. The branch label is part of the key because two branches can
 	 * point at the same oid: `%D` then differs while the oid and refs digest
 	 * alone would look unchanged.
+	 *
+	 * Loaded pages live here too, so a refresh that still matches keeps every
+	 * page already appended instead of snapping back to the first window.
 	 */
 	const commitsCacheRef = useRef<CommitsCache | undefined>(undefined);
+	/** The last sidebar read, revalidated against the same refs fingerprint. */
+	const refsCacheRef = useRef<RefsCache | undefined>(undefined);
+	/** One more-history read at a time; a second press while loading is a no-op. */
+	const isLoadingMoreRef = useRef(false);
 	/**
 	 * The selected commit's hash, outside React state.
 	 *
@@ -917,45 +1099,93 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	 * Read HEAD's history, reusing the last read unless the log key moved.
 	 *
 	 * The key is the root, HEAD's oid, the status branch label, and a
-	 * fingerprint of every ref, so a worktree-only refresh pays one cheap
-	 * `for-each-ref` and skips the expensive numstat log entirely. The branch
-	 * label distinguishes two branches that share an oid, whose `%D`
-	 * decorations differ even when the refs digest does not. An unborn HEAD has
-	 * no history to read and `git log` would fail on it, so that case is an
-	 * empty list.
+	 * fingerprint of every ref, so a worktree-only refresh reuses both the
+	 * commit list and every page loaded from it. The caller reads the
+	 * fingerprint once and shares it with the refs cache, so a refresh that
+	 * changes nothing pays neither the numstat log nor the six ref commands.
+	 * An unborn HEAD has no history to read and `git log` would fail on it, so
+	 * that case is an empty page.
 	 */
 	const readCommits = useCallback(
 		async (
 			root: string,
 			headOid: string | undefined,
 			branch: string,
-		): Promise<readonly Commit[]> => {
+			fingerprint: string,
+		): Promise<{
+			readonly commits: readonly Commit[];
+			readonly hasMore: boolean;
+		}> => {
 			if (headOid === undefined) {
-				return [];
+				return { commits: [], hasMore: false };
 			}
 
-			const fingerprint = await readRefsFingerprint({ cwd: root });
 			const cached = commitsCacheRef.current;
 
 			if (
-				cached !== undefined &&
-				cached.root === root &&
-				cached.headOid === headOid &&
-				cached.branch === branch &&
-				cached.fingerprint === fingerprint
+				commitsCacheMatches(cached, {
+					root,
+					headOid,
+					branch,
+					fingerprint,
+				})
 			) {
-				return cached.commits;
+				return { commits: cached.commits, hasMore: cached.hasMore };
 			}
 
-			const commits = await readLog({ cwd: root });
+			const page = await readLog({ cwd: root });
 			commitsCacheRef.current = {
 				root,
 				headOid,
 				branch,
 				fingerprint,
-				commits,
+				commits: page.commits,
+				hasMore: page.hasMore,
 			};
-			return commits;
+			return page;
+		},
+		[],
+	);
+
+	/**
+	 * Read the sidebar sections, reusing the last read while refs still match.
+	 *
+	 * `readRefs` spawns six git commands. The refs fingerprint already proves
+	 * that branches, tags, remotes, stashes, upstreams, worktrees, and
+	 * submodules are unchanged; the checked-out branch and its ahead/behind
+	 * counts are added because the active row renders them and a fetch can move
+	 * the counts without moving a local ref.
+	 */
+	const readSections = useCallback(
+		async (
+			root: string,
+			currentBranch: string | undefined,
+			sync: BranchSync,
+			fingerprint: string,
+		): Promise<readonly SidebarSection[]> => {
+			const cached = refsCacheRef.current;
+
+			if (
+				cached !== undefined &&
+				cached.root === root &&
+				cached.fingerprint === fingerprint &&
+				cached.currentBranch === currentBranch &&
+				cached.ahead === sync.ahead &&
+				cached.behind === sync.behind
+			) {
+				return cached.sections;
+			}
+
+			const sections = await readRefs({ cwd: root, currentBranch, sync });
+			refsCacheRef.current = {
+				root,
+				fingerprint,
+				currentBranch,
+				ahead: sync.ahead,
+				behind: sync.behind,
+				sections,
+			};
+			return sections;
 		},
 		[],
 	);
@@ -1022,7 +1252,16 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				 * git dir, so a linked worktree reads its own merge state.
 				 */
 				const mergeInProgress = fs.existsSync(path.join(gitDir, 'MERGE_HEAD'));
-				const status = await readStatus({ cwd: root });
+				/*
+				 * One refs fingerprint per load feeds both caches. It is cheap
+				 * and independent of status, so the two run together; the
+				 * expensive log and refs reads then reuse their cached result
+				 * when the fingerprint, HEAD, and branch still match.
+				 */
+				const [status, fingerprint] = await Promise.all([
+					readStatus({ cwd: root }),
+					readRefsFingerprint({ cwd: root }),
+				]);
 
 				if (!isCurrent()) {
 					return { status: 'superseded' };
@@ -1052,43 +1291,59 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 				const view = mapStatus(status, mergeInProgress);
 				/*
-				 * Status stats are always needed; the log read runs only when
-				 * its key moved, so both are awaited together and a
-				 * worktree-only refresh skips the expensive numstat read. The
-				 * sidebar refs are small read-only reads and refresh together
-				 * with status so an external branch, tag, or stash change is
-				 * visible on the next load.
+				 * Status stats are always needed; the log and refs reads run
+				 * only when their cache keys moved, so a worktree-only refresh
+				 * skips the expensive numstat log and the six ref commands.
 				 */
-				const [stats, logCommits, sections] = await Promise.all([
+				const currentBranch =
+					status.branch.kind === 'branch' ? status.branch.name : undefined;
+				const [stats, logPage, sections] = await Promise.all([
 					readWorkingFileStats({
 						cwd: root,
 						files: view.workingFiles,
 					}),
-					readCommits(root, status.branch.oid, view.branch),
-					readRefs({
-						cwd: root,
-						currentBranch:
-							status.branch.kind === 'branch' ? status.branch.name : undefined,
-						sync: view.sync,
-					}),
+					readCommits(root, status.branch.oid, view.branch, fingerprint),
+					readSections(root, currentBranch, view.sync, fingerprint),
 				]);
 
 				if (!isCurrent()) {
 					return { status: 'superseded' };
 				}
 
+				invalidateStaleDiffs(
+					view.workingFiles,
+					mode,
+					diffCacheRef.current,
+					diffGenerationRef,
+				);
 				const workingFiles = withWorkingStats(
 					view.workingFiles,
 					stats,
 					diffCacheRef.current,
 				);
 
+				/*
+				 * A load-more read can finish while this load is still waiting
+				 * on stats or refs. When its key still matches, the cache holds
+				 * the appended pages; reading it here keeps a refresh from
+				 * dropping history the user already loaded.
+				 */
+				const latestCommits = commitsCacheRef.current;
+				const committedHistory = commitsCacheMatches(latestCommits, {
+					root,
+					headOid: status.branch.oid,
+					branch: view.branch,
+					fingerprint,
+				})
+					? latestCommits
+					: logPage;
+
 				// The pending row counts real status entries, so it matches
 				// `git status --short | wc -l` exactly, collapsed untracked
 				// directories included.
 				const commits: readonly Commit[] = [
 					pendingCommit(status.entries.length),
-					...logCommits,
+					...committedHistory.commits,
 				];
 				const selectedCommitHash = nextSelectedHash(
 					commits,
@@ -1117,6 +1372,8 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 					workingFiles,
 					fileGroups: view.fileGroups,
 					commits,
+					hasMoreCommits: committedHistory.hasMore,
+					isLoadingMoreCommits: current.isLoadingMoreCommits,
 					selectedCommitHash,
 					identity: probe.identity,
 					detail: undefined,
@@ -1158,7 +1415,7 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				};
 			}
 		},
-		[cancelWatchRetry, readCommits, adoptEdge, adoptLoadEdge],
+		[cancelWatchRetry, readCommits, readSections, adoptEdge, adoptLoadEdge],
 	);
 
 	useEffect(() => {
@@ -1204,19 +1461,33 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		}
 
 		const signature = diffSignature(file);
-		if (diffCacheRef.current.get(path)?.signature === signature) {
+		const generation = diffGenerationRef.current;
+		const cached = diffCacheRef.current.get(path);
+		if (cached?.signature === signature) {
+			touchDiffCache(diffCacheRef.current, path);
 			return;
 		}
 
-		if (diffInFlightRef.current.get(path)?.signature === signature) {
+		const inFlight = diffInFlightRef.current.get(path);
+		if (
+			inFlight?.signature === signature &&
+			inFlight.generation === generation
+		) {
 			return;
 		}
 
-		const token: InFlightDiff = { signature };
+		const token: InFlightDiff = { signature, generation };
 		diffInFlightRef.current.set(path, token);
 
 		const apply = (diff: readonly DiffLine[]): void => {
 			if (!mountedRef.current) {
+				return;
+			}
+
+			// The cache was cleared (or rows were invalidated) after this read
+			// started. Its result describes a generation the panel no longer
+			// trusts, so it must neither repopulate the cache nor reach a row.
+			if (diffGenerationRef.current !== generation) {
 				return;
 			}
 
@@ -1227,10 +1498,14 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 				return;
 			}
 
-			diffCacheRef.current.set(path, { signature, diff });
+			storeDiffCache(diffCacheRef.current, path, { signature, diff });
 			setState(state => {
 				// The updater sees the freshest snapshot, which closes the
 				// window between a load computing files and React applying it.
+				if (diffGenerationRef.current !== generation) {
+					return state;
+				}
+
 				const target = state.workingFiles.find(item => item.path === path);
 				if (target === undefined || diffSignature(target) !== signature) {
 					return state;
@@ -2064,6 +2339,10 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 			if (categoryOf(file) === 'untracked') {
 				requestConfirm({
 					label: 'Discard',
+					description: `Permanently delete this untracked ${
+						path.endsWith('/') ? 'directory' : 'file'
+					}. It has no index copy to restore.`,
+					confirmLabel: 'Delete',
 					paths: [path],
 					onConfirm() {
 						runMutation('discard', [path], discardUntrackedPaths);
@@ -2152,16 +2431,23 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 			// Bulk discards always ask first, for both categories: one click
 			// must not be able to throw away a whole group.
+			const isUntracked = category === 'untracked';
 			requestConfirm({
 				label: 'Discard All',
+				description: isUntracked
+					? `Permanently delete ${untrackedCountLabel(
+							paths,
+					  )}. Untracked paths have no index copy to restore.`
+					: `Restore ${paths.length} tracked file${
+							paths.length === 1 ? '' : 's'
+					  } to the index version. Local edits are lost.`,
+				confirmLabel: isUntracked ? 'Delete All' : 'Discard All',
 				paths,
 				onConfirm() {
 					runMutation(
 						'discard',
 						paths,
-						category === 'untracked'
-							? discardUntrackedPaths
-							: discardTrackedPaths,
+						isUntracked ? discardUntrackedPaths : discardTrackedPaths,
 					);
 				},
 			});
@@ -2231,6 +2517,9 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 
 		requestConfirm({
 			label: 'Discard All',
+			description:
+				'Tracked paths are restored to the index version and untracked paths are deleted permanently.',
+			confirmLabel: 'Discard All',
 			paths,
 			onConfirm() {
 				const { root } = stateRef.current;
@@ -2481,6 +2770,123 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 	}, []);
 
 	/**
+	 * Append the next page of HEAD's history.
+	 *
+	 * The cached read is the authority for where the next page starts: its
+	 * commit list is exactly what the panel has loaded, so `skip` never repeats
+	 * or skips a row. A refresh that re-read the log replaces the cache object,
+	 * and this result is then dropped instead of being spliced onto a different
+	 * history. Duplicate hashes are filtered anyway because a rebase can make
+	 * `--skip` overlap; if that leaves no new hash at all, paging stops with a
+	 * recorded failure so the footer cannot keep promising older commits. A
+	 * failed read lands in the normal failure log so the status line and the
+	 * error overlay explain it.
+	 */
+	const loadMoreCommits = useCallback((): void => {
+		// A renamed local rather than destructuring: the ref read names the
+		// object being read, and the rename keeps the fields below readable.
+		const currentState = stateRef.current;
+		const cached = commitsCacheRef.current;
+
+		if (
+			currentState.kind !== 'repo' ||
+			currentState.root === undefined ||
+			!currentState.hasMoreCommits ||
+			isLoadingMoreRef.current ||
+			cached === undefined ||
+			cached.root !== currentState.root ||
+			cached.branch !== currentState.branch
+		) {
+			return;
+		}
+
+		const cwd = currentState.root;
+		const skip = cached.commits.length;
+		isLoadingMoreRef.current = true;
+		setState(state =>
+			state.kind === 'repo' ? { ...state, isLoadingMoreCommits: true } : state,
+		);
+
+		void readLog({ cwd, skip })
+			.then(page => {
+				if (!mountedRef.current || commitsCacheRef.current !== cached) {
+					return;
+				}
+
+				const commits = [...cached.commits];
+				const seen = new Set(commits.map(commit => commit.hash));
+				let added = 0;
+
+				for (const commit of page.commits) {
+					if (!seen.has(commit.hash)) {
+						seen.add(commit.hash);
+						commits.push(commit);
+						added += 1;
+					}
+				}
+
+				/*
+				 * A read that adds nothing cannot make progress: asking again
+				 * would repeat the same page forever and the footer would keep
+				 * promising older commits. Stop the paging and record why,
+				 * rather than leaving a loading affordance that cannot work.
+				 * `page.hasMore` cannot overrule this: a page that yielded no
+				 * new hash is no evidence that more history is reachable.
+				 */
+				const hasMore = page.hasMore && added > 0;
+
+				commitsCacheRef.current = {
+					...cached,
+					commits,
+					hasMore,
+				};
+
+				setState(state => {
+					if (
+						state.kind !== 'repo' ||
+						state.root !== cached.root ||
+						state.branch !== cached.branch
+					) {
+						return state;
+					}
+
+					return {
+						...state,
+						commits: [
+							...state.commits.filter(commit => commit.pending === true),
+							...commits,
+						],
+						hasMoreCommits: hasMore,
+					};
+				});
+
+				if (added === 0) {
+					recordFailure(
+						'loading older commits',
+						'older commits could not be loaded',
+					);
+				}
+			})
+			.catch((error: unknown) => {
+				recordFailure(
+					'loading older commits',
+					failureSummary(toGitError(error)),
+				);
+			})
+			.finally(() => {
+				isLoadingMoreRef.current = false;
+
+				if (mountedRef.current) {
+					setState(state =>
+						state.isLoadingMoreCommits
+							? { ...state, isLoadingMoreCommits: false }
+							: state,
+					);
+				}
+			});
+	}, [recordFailure]);
+
+	/**
 	 * The selected row's index, derived from the hash so it always names the
 	 * row the list is rendering; an edge snapshot has no commits, so the
 	 * clamp to zero only ever shows an empty list.
@@ -2659,5 +3065,6 @@ export const useRepo = ({ requestConfirm }: UseRepoOptions): RepoState => {
 		createBranch,
 		runCommand,
 		selectCommit,
+		loadMoreCommits,
 	};
 };

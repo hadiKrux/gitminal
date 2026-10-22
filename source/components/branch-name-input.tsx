@@ -6,7 +6,7 @@ import ModalFrame, {
 	FrameRow,
 	Line,
 	Rule,
-	contentWidth,
+	useContentWidth,
 } from './modal-frame.js';
 import SingleLineInput from './single-line-input.js';
 
@@ -25,6 +25,7 @@ type Props = {
  */
 export default function BranchNameInput({ onSubmit, onCancel }: Props) {
 	useKeyboardShortcuts({ 'close-overlay': onCancel });
+	const contentWidth = useContentWidth();
 
 	return (
 		<ModalFrame title="New branch">

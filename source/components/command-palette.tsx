@@ -20,12 +20,14 @@ import ModalFrame, {
 	FrameRow,
 	Line,
 	Rule,
-	contentWidth,
+	useContentWidth,
 } from './modal-frame.js';
 
 type Props = {
 	/** Terminal height, used to cap the row list to the visible screen. */
 	readonly rows: number;
+	/** Recently run commands, newest first; optional for a fresh session. */
+	readonly recentCommandIds?: readonly CommandId[];
 	readonly availability: CommandAvailability;
 	readonly onRun: (id: CommandId) => void;
 	readonly onClose: () => void;
@@ -39,6 +41,16 @@ type Props = {
  * `rows - 8` stops a long catalog from pushing the frame off the screen.
  */
 const paletteChromeRows = 8;
+
+/**
+ * Height below which the decorative rows are dropped.
+ *
+ * The frame, query, and at least one result must always fit. On a short
+ * terminal the spacing blank row, rule, and footer give up their rows first;
+ * the query and the results are what the palette exists for.
+ */
+const compactRowsThreshold = 18;
+const compactChromeRows = 5;
 
 /** Space the label is guaranteed before a long reason is truncated. */
 const minLabelWidth = 11;
@@ -105,6 +117,8 @@ type RankedCommand = {
 	readonly tier: number;
 	readonly start: number;
 	readonly gaps: number;
+	/** Position in the recency list; unbounded when the command was not run. */
+	readonly recentRank: number;
 	readonly catalogIndex: number;
 };
 
@@ -118,6 +132,7 @@ type RankedCommand = {
 const rankCommand = (
 	command: AppCommand,
 	needle: string,
+	recentRank: number,
 	catalogIndex: number,
 ): RankedCommand | undefined => {
 	const label = command.label.toLowerCase();
@@ -129,6 +144,7 @@ const rankCommand = (
 			tier: matchTier.prefix,
 			start: 0,
 			gaps: 0,
+			recentRank,
 			catalogIndex,
 		};
 	}
@@ -139,6 +155,7 @@ const rankCommand = (
 			tier: matchTier.substring,
 			start: labelStart,
 			gaps: 0,
+			recentRank,
 			catalogIndex,
 		};
 	}
@@ -150,6 +167,7 @@ const rankCommand = (
 			tier: matchTier.subsequence,
 			start: labelMatch.start,
 			gaps: labelMatch.gaps,
+			recentRank,
 			catalogIndex,
 		};
 	}
@@ -160,6 +178,7 @@ const rankCommand = (
 			tier: matchTier.section,
 			start: 0,
 			gaps: 0,
+			recentRank,
 			catalogIndex,
 		};
 	}
@@ -180,6 +199,14 @@ const compareRanked = (left: RankedCommand, right: RankedCommand): number => {
 		return left.start - right.start;
 	}
 
+	// Recency is a tie-breaker only: a better match tier, a tighter
+	// subsequence, or an earlier match position always wins first. An explicit
+	// comparison instead of subtraction: an unrun command's rank is Infinity,
+	// and `Infinity - Infinity` is NaN, which a comparator must never return.
+	if (left.recentRank !== right.recentRank) {
+		return left.recentRank < right.recentRank ? -1 : 1;
+	}
+
 	return left.catalogIndex - right.catalogIndex;
 };
 
@@ -188,17 +215,37 @@ const compareRanked = (left: RankedCommand, right: RankedCommand): number => {
  *
  * `sta` finds `stage all` as a label prefix, `unstage all` as a later
  * substring, and `switch branch` as a scattered label subsequence, while
- * `work` finds every Working Tree command through its section. Catalog order
- * breaks ties, and an empty query keeps it untouched.
+ * `work` finds every Working Tree command through its section. An empty query
+ * lists recently run commands first, then catalog order. With a query, recent
+ * commands break ties inside the same match tier without ever outranking a
+ * better match.
  */
-export const filterCommands = (query: string): readonly AppCommand[] => {
+export const filterCommands = (
+	query: string,
+	recentCommandIds: readonly CommandId[] = [],
+): readonly AppCommand[] => {
 	const needle = query.trim().toLowerCase();
+
 	if (needle.length === 0) {
-		return commands;
+		const byId = new Map(commands.map(command => [command.id, command]));
+		const recent = recentCommandIds.flatMap(id => {
+			const command = byId.get(id);
+			return command === undefined ? [] : [command];
+		});
+		const shown = new Set(recent.map(command => command.id));
+
+		return [...recent, ...commands.filter(command => !shown.has(command.id))];
 	}
 
+	const recentRankOf = (id: CommandId): number => {
+		const index = recentCommandIds.indexOf(id);
+		return index === -1 ? Number.POSITIVE_INFINITY : index;
+	};
+
 	return commands
-		.map((command, catalogIndex) => rankCommand(command, needle, catalogIndex))
+		.map((command, catalogIndex) =>
+			rankCommand(command, needle, recentRankOf(command.id), catalogIndex),
+		)
 		.filter((match): match is RankedCommand => match !== undefined)
 		.sort((left, right) => compareRanked(left, right))
 		.map(match => match.command);
@@ -323,14 +370,19 @@ function PaletteRow({
  */
 export default function CommandPalette({
 	rows,
+	recentCommandIds = [],
 	availability,
 	onRun,
 	onClose,
 }: Props) {
 	const [query, setQuery] = useState('');
-	const matches = useMemo(() => filterCommands(query), [query]);
+	const contentWidth = useContentWidth();
+	const matches = useMemo(
+		() => filterCommands(query, recentCommandIds),
+		[query, recentCommandIds],
+	);
 	const [selectedId, setSelectedId] = useState<CommandId | undefined>(() =>
-		firstEnabledId(filterCommands(''), availability),
+		firstEnabledId(filterCommands('', recentCommandIds), availability),
 	);
 
 	const selectedIndex = matches.findIndex(
@@ -345,10 +397,9 @@ export default function CommandPalette({
 	const activeCommand = activeIndex === -1 ? undefined : matches[activeIndex];
 	const activeId = activeCommand?.id;
 
-	const listHeight = Math.max(
-		1,
-		Math.min(matches.length, rows - paletteChromeRows),
-	);
+	const isCompact = rows < compactRowsThreshold;
+	const chromeRows = isCompact ? compactChromeRows : paletteChromeRows;
+	const listHeight = Math.max(1, Math.min(matches.length, rows - chromeRows));
 	const maxOffset = Math.max(0, matches.length - listHeight);
 
 	const [scrollOffset, setScrollOffset] = useState(0);
@@ -398,7 +449,9 @@ export default function CommandPalette({
 	 */
 	const changeQuery = (value: string): void => {
 		setQuery(value);
-		setSelectedId(firstEnabledId(filterCommands(value), availability));
+		setSelectedId(
+			firstEnabledId(filterCommands(value, recentCommandIds), availability),
+		);
 	};
 
 	const move = (delta: number): void => {
@@ -473,7 +526,7 @@ export default function CommandPalette({
 					onSubmit={runSelected}
 				/>
 			</FrameRow>
-			<BlankRow />
+			{isCompact ? null : <BlankRow />}
 			{matches.length === 0 ? (
 				<FrameRow>
 					<Line
@@ -504,21 +557,25 @@ export default function CommandPalette({
 					})}
 				</Box>
 			)}
-			<FrameRow>
-				<Rule />
-			</FrameRow>
-			<FrameRow>
-				<Line
-					segments={[
-						{ text: 'enter', color: theme.accent, isBold: true },
-						{ text: ' run   ', color: theme.dim },
-						{ text: 'esc', color: theme.accent, isBold: true },
-						{ text: ' close   ', color: theme.dim },
-						{ text: 'ctrl+p', color: theme.accent, isBold: true },
-						{ text: ' close', color: theme.dim },
-					]}
-				/>
-			</FrameRow>
+			{isCompact ? null : (
+				<>
+					<FrameRow>
+						<Rule />
+					</FrameRow>
+					<FrameRow>
+						<Line
+							segments={[
+								{ text: 'enter', color: theme.accent, isBold: true },
+								{ text: ' run   ', color: theme.dim },
+								{ text: 'esc', color: theme.accent, isBold: true },
+								{ text: ' close   ', color: theme.dim },
+								{ text: 'ctrl+p', color: theme.accent, isBold: true },
+								{ text: ' close', color: theme.dim },
+							]}
+						/>
+					</FrameRow>
+				</>
+			)}
 		</ModalFrame>
 	);
 }

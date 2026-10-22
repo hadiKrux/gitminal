@@ -75,6 +75,11 @@ const commitUnavailable = (state: CommandAvailability): string | undefined => {
 	return state.hasMessage ? undefined : 'message is empty';
 };
 
+/** Remote commands need a loaded repository, not an edge state. */
+const repositoryUnavailable = (
+	state: CommandAvailability,
+): string | undefined => (state.isRepo ? undefined : 'not in a repo');
+
 export const commands: readonly AppCommand[] = [
 	{
 		id: 'pull',
@@ -82,15 +87,29 @@ export const commands: readonly AppCommand[] = [
 		section: 'Pull',
 		isToolbar: true,
 		isMenu: true,
+		enabledWhen: repositoryUnavailable,
 	},
-	{ id: 'fetch', label: 'fetch', section: 'Pull', isMenu: true },
-	{ id: 'fetch-prune', label: 'fetch --prune', section: 'Pull', isMenu: true },
+	{
+		id: 'fetch',
+		label: 'fetch',
+		section: 'Pull',
+		isMenu: true,
+		enabledWhen: repositoryUnavailable,
+	},
+	{
+		id: 'fetch-prune',
+		label: 'fetch --prune',
+		section: 'Pull',
+		isMenu: true,
+		enabledWhen: repositoryUnavailable,
+	},
 	{
 		id: 'push',
 		label: 'push',
 		section: 'Push',
 		isToolbar: true,
 		isMenu: true,
+		enabledWhen: repositoryUnavailable,
 	},
 	{
 		id: 'push-force',
@@ -98,12 +117,14 @@ export const commands: readonly AppCommand[] = [
 		section: 'Push',
 		isMenu: true,
 		isDanger: true,
+		enabledWhen: repositoryUnavailable,
 	},
 	{
 		id: 'push-no-verify',
 		label: 'push --no-verify',
 		section: 'Push',
 		isMenu: true,
+		enabledWhen: repositoryUnavailable,
 	},
 	{
 		id: 'switch-branch',
@@ -112,7 +133,7 @@ export const commands: readonly AppCommand[] = [
 		isMenu: true,
 		enabledWhen(state) {
 			if (!state.isRepo) {
-				return 'not in a repository';
+				return 'not in a repo';
 			}
 
 			return state.hasBranches ? undefined : 'no other branches';
@@ -124,7 +145,7 @@ export const commands: readonly AppCommand[] = [
 		section: 'Branch',
 		isMenu: true,
 		enabledWhen(state) {
-			return state.isRepo ? undefined : 'not in a repository';
+			return state.isRepo ? undefined : 'not in a repo';
 		},
 	},
 	{
@@ -132,7 +153,7 @@ export const commands: readonly AppCommand[] = [
 		label: 'stage all',
 		section: 'Working Tree',
 		enabledWhen(state) {
-			return state.hasUnstaged ? undefined : 'nothing to stage';
+			return state.hasUnstaged ? undefined : 'no changes to stage';
 		},
 	},
 	{
@@ -144,7 +165,7 @@ export const commands: readonly AppCommand[] = [
 				return 'nothing staged';
 			}
 
-			return state.hasUnstageable ? undefined : 'merge-resolved only';
+			return state.hasUnstageable ? undefined : 'merge-resolved';
 		},
 	},
 	{

@@ -1,4 +1,4 @@
-import { runGit, type GitResult } from './exec.js';
+import { operationTimeoutMs, runGit, type GitResult } from './exec.js';
 
 /**
  * Commit creation built on `runGit`.
@@ -26,5 +26,8 @@ export const commit = async (request: CommitRequest): Promise<GitResult> => {
 		args.push('--no-verify');
 	}
 
-	return runGit(args, { cwd: request.cwd });
+	return runGit(args, {
+		cwd: request.cwd,
+		timeoutMs: operationTimeoutMs,
+	});
 };

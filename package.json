@@ -8,7 +8,9 @@
 		"node": ">=20.15"
 	},
 	"scripts": {
+		"prebuild": "node --input-type=module -e \"import fs from 'node:fs'; fs.rmSync('dist',{recursive:true,force:true})\"",
 		"build": "tsc",
+		"predev": "node --input-type=module -e \"import fs from 'node:fs'; fs.rmSync('dist',{recursive:true,force:true})\"",
 		"dev": "tsc --watch",
 		"lint": "prettier --check . && xo"
 	},

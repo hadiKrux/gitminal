@@ -133,17 +133,28 @@ check(
 	'push rejected: stale remote state; fetch first',
 );
 
+/** Drop cursor-control sequences, then the escape codes themselves. */
+const plainText = captured =>
+	captured
+		.replaceAll('\u001B[2K', '')
+		.replaceAll('\u001B[1A', '')
+		.replaceAll('\u001B[G', '')
+		.replaceAll('\u001B[2J', '')
+		.replaceAll('\u001B[3J', '')
+		.replaceAll('\u001B[H', '')
+		// eslint-disable-next-line no-control-regex -- ANSI escapes are the point
+		.replace(/\u001B\[[\d;?]*[ -/]*[@-~]/g, '');
+
 /**
- * Render the real overlay once and check the fatal line is its own row.
+ * Render the real overlay once at a fixed size.
  *
- * The shared splitter is already asserted above; this proves the component
- * that consumes it also renders the rows separately. The fake stdin supplies
- * raw mode so `useInput` can mount outside an interactive terminal.
+ * The fake stdin supplies raw mode so `useInput` can mount outside an
+ * interactive terminal.
  */
-const checkOverlayRender = async () => {
+const renderOverlay = async (operation, columns = 100, rows = 40) => {
 	const stdout = new PassThrough();
-	stdout.columns = 100;
-	stdout.rows = 40;
+	stdout.columns = columns;
+	stdout.rows = rows;
 	const stdin = new PassThrough();
 	stdin.isTTY = true;
 	stdin.setRawMode = () => {};
@@ -154,22 +165,10 @@ const checkOverlayRender = async () => {
 		captured += chunk;
 	});
 
-	const error = pushError(framed);
-	const operation = {
-		id: 1,
-		kind: 'git',
-		label: 'pushing',
-		args: [error.args],
-		startedAt: 0,
-		endedAt: 1,
-		status: 'failed',
-		summary: failureSummary(error),
-		error,
-	};
 	const instance = render(
 		React.createElement(
 			Box,
-			{ width: 100, height: 40 },
+			{ width: columns, height: rows },
 			React.createElement(ErrorOverlay, { operation, onClose() {} }),
 		),
 		{ stdout, stdin, patchConsole: false },
@@ -182,16 +181,29 @@ const checkOverlayRender = async () => {
 		setTimeout(resolve, 30);
 	});
 
-	// Drop cursor-control sequences, then the escape codes themselves.
-	const plain = captured
-		.replaceAll('\u001B[2K', '')
-		.replaceAll('\u001B[1A', '')
-		.replaceAll('\u001B[G', '')
-		.replaceAll('\u001B[2J', '')
-		.replaceAll('\u001B[3J', '')
-		.replaceAll('\u001B[H', '')
-		// eslint-disable-next-line no-control-regex -- ANSI escapes are the point
-		.replace(/\u001B\[[\d;?]*[ -/]*[@-~]/g, '');
+	return plainText(captured);
+};
+
+/**
+ * The fatal line must be its own rendered row.
+ *
+ * The shared splitter is already asserted above; this proves the component
+ * that consumes it also renders the rows separately.
+ */
+const checkOverlayRender = async () => {
+	const error = pushError(framed);
+	const operation = {
+		id: 1,
+		kind: 'git',
+		label: 'pushing',
+		args: [error.args],
+		startedAt: 0,
+		endedAt: 1,
+		status: 'failed',
+		summary: failureSummary(error),
+		error,
+	};
+	const plain = await renderOverlay(operation);
 	const rows = plain.split('\n');
 	assert.equal(
 		rows.some(row => row.includes('done.fatal')),
@@ -210,6 +222,44 @@ const checkOverlayRender = async () => {
 	process.stdout.write('ok B1 overlay widget renders a separate fatal row\n');
 };
 
+/**
+ * A timeout reason must render even when progress left stderr non-empty.
+ *
+ * The captured output here is only a progress line, so without the summary row
+ * the overlay would show transport noise and hide why the command stopped.
+ */
+const checkTimeoutSummary = async () => {
+	const error = new GitError(
+		{
+			args: ['--no-pager', '-c', 'color.ui=false', 'push'],
+			exitCode: undefined,
+			stdout: '',
+			stderr: 'Writing objects:  40% (4/10), 1.00 KiB | 0 bytes/s, done.\n',
+		},
+		'git push timed out after 30000 ms',
+		true,
+	);
+	const operation = {
+		id: 2,
+		kind: 'git',
+		label: 'pushing',
+		args: [error.args],
+		startedAt: 0,
+		endedAt: 1,
+		status: 'failed',
+		summary: failureSummary(error),
+		error,
+	};
+	const plain = await renderOverlay(operation);
+	assert.equal(
+		plain.includes('timed out; operation killed'),
+		true,
+		'the overlay hides the timeout reason behind progress output',
+	);
+	process.stdout.write('ok L5 overlay renders the timeout reason\n');
+};
+
 await checkOverlayRender();
+await checkTimeoutSummary();
 
 process.stdout.write('remote error regressions passed\n');

@@ -1,4 +1,9 @@
-import { GitError, runGit, type GitResult } from './exec.js';
+import {
+	GitError,
+	operationTimeoutMs,
+	runGit,
+	type GitResult,
+} from './exec.js';
 
 /**
  * Working-tree mutations built on `runGit`.
@@ -58,6 +63,8 @@ export const chunkPaths = (
  * same repository, so overlapping chunks would race those writes. Each
  * successful command is reported before the next one starts, so a failure
  * partway through still leaves the completed argv history with the caller.
+ * The per-command timeout is applied by each `runGit` call, so a large bulk
+ * operation can span several windows; the chunks are not one timed command.
  */
 const runEach = async (
 	chunks: ReadonlyArray<readonly string[]>,
@@ -91,13 +98,27 @@ const isRestoreUnavailable = (error: unknown): boolean =>
 			error.stderr,
 		));
 
+/**
+ * Options for a mutation command.
+ *
+ * Every command below passes its paths after `--`, so each one opts into
+ * literal pathspecs; a tracked path named `a*` or `:(exclude)foo` must name
+ * itself rather than match other rows.
+ */
+const mutationOptions = (cwd: string) => ({
+	cwd,
+	timeoutMs: operationTimeoutMs,
+	literalPathspecs: true,
+});
+
 /** `git add -- <paths>`: stages the worktree state of every path. */
 export const stage = async (
 	mutation: WorkingTreePaths,
 ): Promise<readonly GitResult[]> =>
 	runEach(
 		chunkPaths(mutation.paths),
-		async chunk => runGit(['add', '--', ...chunk], { cwd: mutation.cwd }),
+		async chunk =>
+			runGit(['add', '--', ...chunk], mutationOptions(mutation.cwd)),
 		mutation.onCommand,
 	);
 
@@ -112,17 +133,19 @@ export const unstage = async (
 		chunkPaths(mutation.paths),
 		async chunk => {
 			try {
-				return await runGit(['restore', '--staged', '--', ...chunk], {
-					cwd: mutation.cwd,
-				});
+				return await runGit(
+					['restore', '--staged', '--', ...chunk],
+					mutationOptions(mutation.cwd),
+				);
 			} catch (error: unknown) {
 				if (!isRestoreUnavailable(error)) {
 					throw error;
 				}
 
-				return runGit(['reset', 'HEAD', '--', ...chunk], {
-					cwd: mutation.cwd,
-				});
+				return runGit(
+					['reset', 'HEAD', '--', ...chunk],
+					mutationOptions(mutation.cwd),
+				);
 			}
 		},
 		mutation.onCommand,
@@ -143,7 +166,7 @@ export const recreateConflict = async (
 	runEach(
 		chunkPaths(mutation.paths),
 		async chunk =>
-			runGit(['checkout', '-m', '--', ...chunk], { cwd: mutation.cwd }),
+			runGit(['checkout', '-m', '--', ...chunk], mutationOptions(mutation.cwd)),
 		mutation.onCommand,
 	);
 
@@ -161,15 +184,19 @@ export const discardTracked = async (
 		chunkPaths(mutation.paths),
 		async chunk => {
 			try {
-				return await runGit(['restore', '--worktree', '--', ...chunk], {
-					cwd: mutation.cwd,
-				});
+				return await runGit(
+					['restore', '--worktree', '--', ...chunk],
+					mutationOptions(mutation.cwd),
+				);
 			} catch (error: unknown) {
 				if (!isRestoreUnavailable(error)) {
 					throw error;
 				}
 
-				return runGit(['checkout', '--', ...chunk], { cwd: mutation.cwd });
+				return runGit(
+					['checkout', '--', ...chunk],
+					mutationOptions(mutation.cwd),
+				);
 			}
 		},
 		mutation.onCommand,
@@ -195,7 +222,10 @@ export const discardUntracked = async (
 			...(await runEach(
 				chunkPaths(directories),
 				async chunk =>
-					runGit(['clean', '-f', '-d', '--', ...chunk], { cwd: mutation.cwd }),
+					runGit(
+						['clean', '-f', '-d', '--', ...chunk],
+						mutationOptions(mutation.cwd),
+					),
 				mutation.onCommand,
 			)),
 		);
@@ -206,7 +236,10 @@ export const discardUntracked = async (
 			...(await runEach(
 				chunkPaths(files),
 				async chunk =>
-					runGit(['clean', '-f', '--', ...chunk], { cwd: mutation.cwd }),
+					runGit(
+						['clean', '-f', '--', ...chunk],
+						mutationOptions(mutation.cwd),
+					),
 				mutation.onCommand,
 			)),
 		);

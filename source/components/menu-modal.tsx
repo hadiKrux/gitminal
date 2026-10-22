@@ -7,7 +7,7 @@ import ModalFrame, {
 	FrameRow,
 	Line,
 	Rule,
-	contentWidth,
+	useContentWidth,
 } from './modal-frame.js';
 
 export type MenuItem<Id extends string = string> = {
@@ -42,6 +42,7 @@ export default function MenuModal<Id extends string>({
 	onClose,
 }: Props<Id>) {
 	const items = sections.flatMap(section => section.items);
+	const contentWidth = useContentWidth();
 
 	// Track the highlighted item by id, not index: the branch picker can
 	// refresh while it is open, and the same index then names a different

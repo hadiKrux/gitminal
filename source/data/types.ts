@@ -94,6 +94,11 @@ export type WorkingFileStatus =
 /** A single file in the working tree, with the diff of its pending change. */
 export type WorkingFile = {
 	readonly path: string;
+	/**
+	 * Source path for a rename or copy. `path` stays the destination because
+	 * that is what status names and what every action targets.
+	 */
+	readonly from?: string;
 	readonly status: WorkingFileStatus;
 	/** True when the index holds a change for the path (git's X side). */
 	readonly staged: boolean;
@@ -106,6 +111,14 @@ export type WorkingFile = {
 	readonly deletions: number;
 	/** True when git calls the change binary and numstat reports no counts. */
 	readonly binary: boolean;
+	/** True when only the executable bit or another file mode changed. */
+	readonly modeChange?: boolean;
+	/**
+	 * Staged blob oid from the index side; present only for staged rows. It
+	 * makes two equal-count staged contents distinguishable, so a background
+	 * `git add` invalidates the cached diff.
+	 */
+	readonly indexOid?: string;
 	readonly diff: readonly DiffLine[];
 };
 

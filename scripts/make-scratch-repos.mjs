@@ -11,7 +11,11 @@
  * location, and a plain re-run always lands on exactly the same state.
  *
  * Usage: node scripts/make-scratch-repos.mjs [--dir <path>] [--big]
+ *
+ * The generated scenarios expect a POSIX filesystem: symlinks, executable
+ * chmod bits, and literal glob/magic filenames are part of the fixtures.
  */
+import { Buffer } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import {
 	chmodSync,
@@ -19,7 +23,11 @@ import {
 	existsSync,
 	mkdirSync,
 	openSync,
+	renameSync,
 	rmSync,
+	statSync,
+	symlinkSync,
+	unlinkSync,
 	writeFileSync,
 } from 'node:fs';
 import { devNull } from 'node:os';
@@ -492,9 +500,159 @@ const createSlow = outputDir => {
 	};
 };
 
+const createEdgeCases = outputDir => {
+	const repo = join(outputDir, 'edge-cases');
+	const lineCount = 2100;
+	const lines = prefix =>
+		Array.from(
+			{ length: lineCount },
+			(_, index) => `${prefix} line ${index + 1}`,
+		).join('\n') + '\n';
+
+	git(outputDir, ['init', 'edge-cases']);
+
+	write(repo, 'rename-staged.txt', 'staged rename source\n');
+	write(repo, 'rename-unstaged.txt', 'unstaged rename source\n');
+	write(repo, 'binary.dat', Buffer.from([0, 1, 2, 3, 0, 255, 17, 0, 9]));
+	write(repo, 'script.sh', '#!/bin/sh\necho mode-only change\n');
+	write(repo, 'typechange.txt', 'regular file before the typechange\n');
+	write(repo, 'large-tracked.txt', lines('original'));
+
+	const weirdNames = [
+		'weird name with spaces.txt',
+		'unicode-café.txt',
+		'quote"name.txt',
+		'tab\tname.txt',
+		// Pathspec magic characters: without literal pathspecs, a single-row
+		// action on one of these would also touch unrelated matching paths.
+		'glob-*.txt',
+		'question-?.txt',
+		'bracket-[1].txt',
+		// A leading colon makes git read the name itself as pathspec magic
+		// (`:(exclude)magic.txt` excludes `magic.txt`), so it is literal only
+		// under the app's flag.
+		':(exclude)magic.txt',
+	];
+
+	// Plain-named files that each glob/magic row would match without literal
+	// pathspecs. They are modified too, so a leaky action is visibly wider than
+	// the one row it targeted.
+	const decoyNames = ['glob-decoy.txt', 'question-a.txt', 'bracket-1.txt'];
+
+	for (const name of [...weirdNames, ...decoyNames]) {
+		write(repo, name, `tracked path: ${name}\n`);
+	}
+
+	git(repo, ['add', '-A']);
+	git(repo, ['commit', '-m', 'edge case base commit']);
+
+	// A staged rename (index side) and an unstaged one (worktree side) so the
+	// app's old -> new rows are exercised from both status columns.
+	git(repo, ['mv', 'rename-staged.txt', 'rename-staged-new.txt']);
+	renameSync(
+		join(repo, 'rename-unstaged.txt'),
+		join(repo, 'rename-unstaged-new.txt'),
+	);
+
+	write(repo, 'binary.dat', Buffer.from([0, 9, 8, 7, 0, 1, 2, 3, 0]));
+	chmodSync(join(repo, 'script.sh'), 0o755);
+
+	// Regular file -> symlink is a typechange, not a content edit.
+	unlinkSync(join(repo, 'typechange.txt'));
+	symlinkSync('rename-staged-new.txt', join(repo, 'typechange.txt'));
+
+	// More than the overlay's 2000-line diff cap, so the truncation note shows.
+	write(repo, 'large-tracked.txt', lines('changed'));
+
+	for (const name of [...weirdNames, ...decoyNames]) {
+		append(repo, name, 'modified after the base commit\n');
+	}
+
+	// Above the 1 MB diff skip threshold, for the "diff skipped" note.
+	write(repo, 'untracked-large.bin', Buffer.alloc(1_500_000, 'x'));
+
+	const status = git(repo, ['status', '--porcelain=v2', '-z']);
+	for (const path of [
+		'rename-staged-new.txt',
+		'rename-unstaged-new.txt',
+		'binary.dat',
+		'script.sh',
+		'typechange.txt',
+		'large-tracked.txt',
+		'untracked-large.bin',
+		...weirdNames,
+		...decoyNames,
+	]) {
+		assert(status.includes(path), `edge-cases/ status is missing: ${path}`);
+	}
+
+	const summary = git(repo, ['diff', '--summary']);
+	assert(
+		summary.includes('mode change'),
+		`edge-cases/ has no mode-only change:\n${summary}`,
+	);
+
+	const largeStat = git(repo, ['diff', '--numstat', '--', 'large-tracked.txt']);
+	const largeAdded = Number.parseInt(largeStat.split('\t')[0] ?? '', 10);
+	assert(
+		largeAdded > 2000,
+		`large-tracked.txt is below the diff cap: ${largeStat}`,
+	);
+
+	const binaryStat = git(repo, ['diff', '--numstat', '--', 'binary.dat']);
+	assert(
+		binaryStat.startsWith('-\t-'),
+		`binary.dat is not reported as binary: ${binaryStat}`,
+	);
+
+	assert(
+		statSync(join(repo, 'untracked-large.bin')).size > 1_000_000,
+		'untracked-large.bin is not above 1 MB',
+	);
+
+	return {
+		paths: [repo],
+		lines: [
+			'the working tree holds a staged rename, an unstaged move (git reports it as a delete plus an untracked path), a modified binary, a mode-only chmod, a file->symlink typechange, eight weird tracked paths (spaces, unicode, a double quote, a tab, and pathspec glob/magic names `glob-*.txt`, `question-?.txt`, `bracket-[1].txt`, and the leading-colon `:(exclude)magic.txt`), three plain decoys (`glob-decoy.txt`, `question-a.txt`, `bracket-1.txt`) modified too, a >1 MB untracked file, and a tracked file with 2100 changed lines.',
+			'expand each row: the staged rename reads `old -> new`, the binary and mode-only/typechange rows keep honest labels, the large diff stops at the truncation note, and the >1 MB untracked file skips its diff with a note.',
+			'the unicode, quote, and tab paths prove that `-z` plumbing survives names a line-oriented parser would mangle.',
+			'stage, unstage, discard, and diff each glob/magic path on its own: literal pathspecs keep the action on that one file instead of also matching `glob-decoy.txt`, `question-a.txt`, or `bracket-1.txt`, and `:(exclude)magic.txt` is treated as a literal name rather than an exclude rule.',
+		],
+	};
+};
+
+const createWorktree = outputDir => {
+	const main = join(outputDir, 'worktree-main');
+	const linked = join(outputDir, 'worktree-linked');
+
+	git(outputDir, ['init', 'worktree-main']);
+	write(main, 'README.md', '# worktree scratch repo\n');
+	git(main, ['add', '-A']);
+	git(main, ['commit', '-m', 'worktree base commit']);
+	git(main, ['worktree', 'add', '-b', 'linked', '../worktree-linked']);
+
+	assert(
+		statSync(join(linked, '.git')).isFile(),
+		'worktree-linked/.git is not a file',
+	);
+
+	write(linked, 'linked-only.txt', 'work in the linked worktree\n');
+
+	return {
+		paths: [main, linked],
+		lines: [
+			'worktree-linked/ is a linked worktree whose `.git` is a file that points into worktree-main/.git/worktrees.',
+			'launch gitminal inside worktree-linked/ and verify status, stage, commit, and live sync all use the linked worktree.',
+			'the sidebar WORKTREES section lists both checkouts; the linked worktree has one untracked file to exercise the worktree-only refresh.',
+		],
+	};
+};
+
 const createBig = outputDir => {
 	const repo = join(outputDir, 'big');
-	const fileCount = 20;
+	// `lore.txt` is tracked from the seed commit and grows with every commit;
+	// 299 data files keep the repository at 300 tracked files.
+	const fileCount = 299;
 	const seed = index => `seed ${index}\n`;
 
 	git(outputDir, ['init', '--bare', 'big-origin.git']);
@@ -503,6 +661,8 @@ const createBig = outputDir => {
 	for (let index = 1; index <= fileCount; index += 1) {
 		write(repo, `data/file-${index}.txt`, seed(index));
 	}
+
+	write(repo, 'lore.txt', 'lore seed\n');
 
 	git(repo, ['add', '-A']);
 	git(repo, ['commit', '-m', 'seed big repo']);
@@ -517,7 +677,7 @@ const createBig = outputDir => {
 		git(repo, ['commit', '-am', `big commit ${index}`]);
 	};
 
-	for (let index = 1; index <= 100; index += 1) {
+	for (let index = 1; index <= 600; index += 1) {
 		commit(index);
 	}
 
@@ -526,7 +686,7 @@ const createBig = outputDir => {
 
 	// A second batch gives the captured `push --progress` stream enough objects
 	// to report percentages; the framing (CR updates, phase lines) must survive.
-	for (let index = 101; index <= 140; index += 1) {
+	for (let index = 601; index <= 640; index += 1) {
 		commit(index);
 	}
 
@@ -541,7 +701,7 @@ const createBig = outputDir => {
 	// objects to receive.
 	git(outputDir, ['clone', 'big-origin.git', 'big-clone']);
 
-	for (let index = 141; index <= 180; index += 1) {
+	for (let index = 641; index <= 680; index += 1) {
 		commit(index);
 	}
 
@@ -553,7 +713,8 @@ const createBig = outputDir => {
 	return {
 		paths: [repo, join(outputDir, 'big-clone')],
 		lines: [
-			'stress repo: about 180 commits and 20 tracked files; the last 40 commits are unpushed so a live push transfers objects.',
+			'stress repo: about 680 commits and 300 tracked files; the last 40 commits are unpushed so a live push transfers objects.',
+			'the initial 500-commit window leaves older pages to load, so pagination is verifiable on scratch/big/.',
 			'a push in big/ shows Compressing/Writing objects percentages and then drops the ahead count to 0.',
 			'fetching in big-clone/ receives that batch and shows Receiving objects.',
 			`push progress was captured to ${join(
@@ -614,6 +775,9 @@ const resetOutput = outputDir => {
 		'remote-unreachable',
 		'hooks',
 		'slow',
+		'edge-cases',
+		'worktree-main',
+		'worktree-linked',
 		'big',
 		'big-clone',
 		'big-origin.git',
@@ -656,6 +820,8 @@ const main = () => {
 		createRemoteUnreachable(outputDir),
 		createHooks(outputDir),
 		createSlow(outputDir),
+		createEdgeCases(outputDir),
+		createWorktree(outputDir),
 	];
 
 	if (options.big) {

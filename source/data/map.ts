@@ -89,6 +89,9 @@ const hasUnstagedChanges = (entry: StatusEntry): boolean => {
 
 const toWorkingFile = (entry: StatusEntry): WorkingFile => ({
 	path: entry.path,
+	...(entry.kind === 'renamed' && entry.from.length > 0
+		? { from: entry.from }
+		: {}),
 	status: statusOf(entry),
 	staged: isStaged(entry),
 	hasUnstaged: hasUnstagedChanges(entry),
