@@ -1,6 +1,6 @@
 # Gitminal Project Architecture
 
-Last updated: 2026-10-22
+Last updated: 2026-10-23
 Scope: Enforced file, folder, layering, and OpenTUI component rules for the Gitminal v1 implementation.
 Product spec: `docs/product-spec.md`
 Feature docs: `docs/technical-implmentations/01-*.md` through `20-*.md`
@@ -69,7 +69,7 @@ Forbidden imports and key access (enforced by the section 12 scripts):
 - Process spawning (`node:child_process`, `Bun.spawn`, `Bun.spawnSync`, `Bun.shell`, or `Bun.$`) outside `src/domain/git/git.client.ts` and `src/test/git.fixture.ts`.
 - Network access (`fetch`, `Bun.fetch`, `globalThis.fetch`, `window.fetch`, `Bun.connect`, `WebSocket`, or a `node:http`, `node:https`, `node:http2`, `node:net`, `node:dgram`, `node:tls`, or `undici` import) outside `src/domain/update/update.check.ts`.
 - Hex color literals outside `src/domain/theme/theme.catppuccin.ts`.
-- Raw key string comparisons outside `src/domain/keymap/**` and `src/app/hooks/useHotkeys.ts`. `src/app/quit.key.ts` is the only exception: `SplashGate` and `WorkspacePlaceholder` run before the keymap mounts and compare only the fixed `Ctrl+C` quit chord (`key.ctrl` plus `key.name`) through that single helper until the shell's `app.quit` handler replaces them. The boundary check flags equality comparisons between a string literal and a key-like `name`, `sequence`, `raw`, or `code` access, and allows only those three paths. See `21-startup-splash.md` section 8.
+- Raw key string comparisons outside `src/domain/keymap/**` and `src/app/hooks/useHotkeys.ts`. `src/app/quit.key.ts` is the only exception: `SplashGate` runs before any provider mounts and `WorkspacePlaceholder` mounts after dismissal inside the config, theme, and keymap providers, and both compare only the fixed `Ctrl+C` quit chord (`key.ctrl` plus `key.name`) through that single helper until the shell's `app.quit` handler replaces them. The boundary check flags equality comparisons between a string literal and a key-like `name`, `sequence`, `raw`, or `code` access, and allows only those three paths. See `21-startup-splash.md` section 8.
 - Any external package import inside `src/domain/**` or `src/lib/**`, including React and `@opentui/*`. Node builtins are limited to this per-module allowlist; every other builtin is rejected under domain and lib:
 
   | Module | Allowed Node builtins |
@@ -126,11 +126,14 @@ gitminal/
       quit.key.ts
       providers/
         ConfigProvider.tsx
+        ConfigProvider.types.ts
         ThemeProvider.tsx
+        ThemeProvider.types.ts
         RepositoryProvider.tsx
         DraftProvider.tsx
         FocusProvider.tsx
         KeymapProvider.tsx
+        KeymapProvider.types.ts
         OverlayProvider.tsx
         StatusProvider.tsx
         ConsoleProvider.tsx
@@ -373,6 +376,7 @@ gitminal/
       semver.types.ts
     test/
       git.fixture.ts
+      react.guard.tsx
 ```
 
 Rules for this tree:
@@ -380,7 +384,7 @@ Rules for this tree:
 - Folders are kebab-case, singular, and match the feature name.
 - `src/features/<name>/` owns exactly one feature from the feature catalog. A feature never adds a folder under another feature.
 - Shared presentational code goes in `src/ui/`. Shared non-UI code goes in `src/lib/`. Shared git code goes in `src/domain/git/`.
-- `src/app/providers/` holds React context providers only. `src/app/hooks/` holds cross-feature hooks only. A hook used by exactly one feature lives in that feature folder.
+- `src/app/providers/` holds React context providers and their colocated `*.types.ts` files only. `src/app/hooks/` holds cross-feature hooks only. A hook used by exactly one feature lives in that feature folder.
 - `src/test/` holds test-only harness code. `git.fixture.ts` creates, seeds, and removes temporary repositories for integration tests; no production module imports it, and the boundary check rejects a `src/test/**` import outside a colocated test file or another `src/test/**` module.
 - `scripts/` holds the section 12 developer checks only. It is tooling, not a feature folder, so the feature naming rule does not apply.
 - `AppShellHost.tsx` is the composition root. Feature components never import one another; they receive cross-feature data through providers, commands, or selectors.
@@ -392,6 +396,7 @@ Enforced:
 - React components: `PascalCase.tsx`, one exported component per file, file name equals the exported component name.
 - Hooks: `useThing.ts` or `useThing.tsx`, file name equals the exported hook.
 - Types only: `<name>.types.ts`. Constants only: `<name>.constants.ts`. Pure logic: `<name>.ts` matching the primary export. Raw-key predicates: `<name>.key.ts` for a pure predicate in the documented pre-shell key path; `src/app/quit.key.ts` is the only current file.
+- Value-derived aliases and catalogue-describing interfaces may stay beside the runtime value they describe, because splitting them would make the type and its source drift apart. These are the only named type exports allowed in a runtime module: `ActionId` in `keymap.defaults.ts`, `ThemeToken` and `ThemeTokenTarget` in `theme.tokens.ts`, and `IconName` in `icons.ts`. Every other feature-owned named type or interface belongs in the sibling `*.types.ts` file.
 - Tests: colocated `*.test.ts` or `*.test.tsx` next to the file under test. No separate `__tests__` tree. Matching `AGENTS.md`, test files are exempt from the JSDoc, one-exported-component-per-file, component-constants, and function-size split guidance; test helpers and fixtures may stay inline and undocumented.
 - No `index.ts` barrels. Import from the exact module path. This keeps dependency edges visible and prevents cycles.
 - No file is named `utils.ts`, `helpers.ts`, `common.ts`, or `misc.ts`. Name the concern.
@@ -460,9 +465,9 @@ Hooks available from `@opentui/react` 0.6.6:
 
 Component rules:
 
-1. Keyboard ownership is centralized. `useHotkeys` is the only `useKeyboard` caller after the shell mounts. `SplashGate` and `WorkspacePlaceholder` are the documented exception before the providers and keymap mount, and exactly one of them subscribes at a time: `SplashGate` owns dismissal and quit while the splash is visible, and `WorkspacePlaceholder` owns quit after dismissal. The shell's `app.quit` path replaces the temporary quit path. `useHotkeys` resolves precedence (open overlay, then text input, then native list widget, then focused region context, then global), and it calls `preventDefault()` only when it handles the key. Features register handlers by action ID through `useAction`. No feature inspects `KeyEvent` directly.
+1. Keyboard ownership is centralized. `useHotkeys` is the only `useKeyboard` caller after the shell mounts. `SplashGate` runs before the providers mount, and `WorkspacePlaceholder` mounts after dismissal inside the config, theme, and keymap providers. They are the documented exception, and exactly one of them subscribes at a time: `SplashGate` owns dismissal and quit while the splash is visible, and `WorkspacePlaceholder` owns only quit after dismissal until the shell's `useHotkeys` and `app.quit` path replace the temporary subscription. `useHotkeys` resolves precedence (open overlay, then text input, then native list widget, then focused region context, then global), and it calls `preventDefault()` only when it handles the key. Features register handlers by action ID through `useAction`. No feature inspects `KeyEvent` directly.
 2. OpenTUI native focus is the single focus authority. The renderer's `currentFocusedRenderable` receives keys. `FocusProvider` is a projection: it derives `activeRegion` from the focused renderable's nearest ancestor region frame, derives `textInputFocused` from `currentFocusedEditor`, and stores `previousRegion` plus the per-region cursor map. It does not hold a competing writable `activeRegion`. Every region frame is a focusable `<box>` with a stable id and `focusedBorderColor`, so the border follows native focus, including when a descendant text input is focused. The focused region also gets a leading text marker; color is never the only signal.
-3. Every navigable list is either a `<select>` (uniform rows, native up/down and Enter, focused when it is the active widget) or a non-focusable `<scrollbox>` of `<box>` rows when rows need custom content such as graph lanes, ref badges, diff headers, or inline actions. In the custom case, the region frame owns focus, and navigation, selection, and `g`/`G` are implemented by `useListCursor` and rendered as a leading marker plus a highlighted row background.
+3. Every navigable list is either a `<select>` (uniform rows, native up/down and Enter, focused when it is the active widget) or a non-focusable `<scrollbox>` of `<box>` rows when rows need custom content such as graph lanes, ref badges, diff headers, or inline actions. In the custom case, the region frame owns focus, and navigation and selection are implemented by `useListCursor` and rendered as a leading marker plus a highlighted row background. `useListCursor` implements `g`/`G` only where the keymap binds `nav.first` and `nav.last`; `tags`, `stashes`, and `worktrees` deliberately do not bind them.
 4. Mouse focus uses OpenTUI `autoFocus`. Clicking a text input focuses it; clicking any other element focuses the nearest focusable ancestor, normally the region frame. Region and row mouse handlers must not call `focus()` directly; they select the row and dispatch, and native focus follows the click. Double click is detected by `useListCursor` (two clicks on the same row inside a threshold). Mouse never exposes an action that has no keybinding.
 5. Diffs always use `<diff>` with `view="unified"`, `showLineNumbers`, and theme-mapped `addedBg`, `removedBg`, `addedSignColor`, `removedSignColor`. Collapsed unchanged runs are computed in `@/domain/diff/diff.collapse.ts` before the diff string is passed in. Every string passed to `<diff>` must be a valid unified patch with recomputed hunk headers; truncation cuts at hunk boundaries. The unified view draws one line-number gutter. The mockup's two-gutter appearance is illustrative; v1 deliberately renders one gutter rather than adding a custom renderer.
 6. Long lists are bounded and virtualized by rendering only the visible window inside a `<scrollbox>` with `viewportCulling`. The graph keeps a loaded-page window in `@/domain/graph/graph.paginate.ts`.
@@ -480,7 +485,7 @@ Rules:
 
 1. Single source. `src/theme/icons.ts` is the only place a reusable icon or marker value is defined. Components import `ICONS` from `@/theme/icons` and never inline a reusable marker. The glyph check in section 12 fails on non-ASCII and box-drawing characters outside this file; printable ASCII UI text is allowed, and intent is enforced by review.
 2. ASCII-safe. Every value uses printable ASCII only. No unicode arrows, box-drawing characters, emoji, or Nerd Font glyphs. This is required by product spec F-18.
-3. Never the only signal. Every icon that conveys state is rendered next to, or has, a text equivalent. Color is never the only signal either. For example the missing-upstream icon `[?]` is always shown with the words "upstream not found" or "remote branch deleted".
+3. Never the only signal. Every icon that conveys state is rendered next to, or has, a text equivalent. Color is never the only signal either. For example the missing-upstream icon `[?]` is always shown with the words "upstream not found" or "remote branch deleted". This pairing is a design and review rule, not a machine-checked test, because the text equivalent is written where the icon is used.
 4. Plain data, no hook. `ICONS` is a static module, so both UI and non-UI code can read it. It is not resolved through React. Because it lives in the theme folder, a future user-override layer can be added in `ThemeProvider` without changing consumers.
 5. User overrides are deferred. v1 centralizes icons in the file but does not read them from user configuration. Making them user-configurable would extend `theme.json` with an optional `icons` object and requires a product spec change to F-20.
 6. One-line values. Multi-character markers such as `[?]`, `[ ]`, and `[x]` are still single-line strings rendered inside `<text>` or `<span>`. Icons never introduce layout.
@@ -515,7 +520,7 @@ Consumers, all of which read from `ICONS`:
 - `src/features/diff/DiffFileRow.tsx` renders file status letters.
 - `src/features/console/ConsoleOutput.tsx` renders `omittedLines`.
 
-Tests: `src/theme/icons.test.ts` asserts that every value is printable ASCII, that array values are non-empty, and that every state marker has an associated text equivalent.
+Tests: `src/theme/icons.test.ts` asserts that every required group and key from section 6.1 is present, that every value is printable ASCII, and that array values are non-empty and frozen.
 
 ## 7. UI primitive catalog
 
@@ -576,11 +581,13 @@ Direct region jumps use the digits `1`-`9` in screen order: `1`-`5` are the five
   - `form` keeps printable keys and Enter in a single-line field, routes `Tab`/`Shift+Tab` between fields and footer actions, and maps `Ctrl/Cmd+Enter` to `form.submit`. A multiline form field keeps `Tab` for indentation and uses `Ctrl/Cmd+Enter` for `form.submit`.
 - OpenTUI editing behavior is preserved. In text input mode, only an explicit text-input-safe allowlist of app actions may fire: `app.palette`, `app.console`, `commit.submit`, `commit.options`, and `form.submit`. Such an action fires only when its effective binding uses `Ctrl`, `Cmd`, or `Alt`; an unmodified default binding for the same action never fires while an editor is focused. This is why `commit.options` remains reachable as `Alt+.` in the composer while plain `.` types a period. Every other key, including every modified key not in that allowlist, passes to the input or textarea untouched. This preserves `Enter` submit on single-line inputs, `Enter` newline on textareas, and the OpenTUI editing bindings: `Ctrl+A/E/F/B/W`, `Ctrl+Backspace/Delete`, `Ctrl+K/U`, `Ctrl+-/.`, `Super+A/Z`, and `Alt+D/F/B` plus arrow variants. Configured app bindings outside the allowlist never fire while typing, even when they use a modified key. `Ctrl+C` remains the hardcoded app quit path from the product spec and is the one deliberate exception.
 - `Ctrl`/`Cmd`-modified shortcuts do not resolve through the app keymap in text input mode. They do so only outside text input mode or when they are in the text-input-safe allowlist above and use a modifier. Unmodified keys always pass to the input.
-- Native list mode applies when a `<select>` or `<tab-select>` is focused. That widget owns `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.first`, `nav.last`, and `nav.activate`; `useHotkeys` must not prevent those keys from reaching it. Global modified shortcuts, `focus.next`/`focus.previous`, and the `focus.region.*` digit jumps still work.
+- Native list mode applies when a `<select>` or `<tab-select>` is focused. That widget owns `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.first`, `nav.last`, and `nav.activate`; `useHotkeys` must not prevent those keys from reaching it. A focused `<tab-select>` also consumes Left and Right natively, which is how the collapsed sidebar switches panels; no app action binds those keys in a sidebar context. Global modified shortcuts, `focus.next`/`focus.previous`, and the `focus.region.*` digit jumps still work.
 - `overlay` is not a region. On open, `OverlayProvider` captures the current focused renderable, blurs it, and focuses the first focusable element in the modal after mount. While open, the overlay owns keys. The overlay context applies the same text-input and native-list delegation for keys it does not handle; region focus does not apply. On close, it restores the captured renderable if it is still mounted, otherwise it focuses that renderable's region frame.
 - The only global actions that may resolve while an overlay is open are the overlay's own toggle and `overlay.close`: `app.palette` when the palette is the open overlay, `app.help` when help is the open overlay, and `app.quit` as the hardcoded quit escape hatch. They toggle or close that overlay. No other global action, including `remote.*`, `app.themePicker`, or `app.reloadConfig`, is reachable until the overlay closes. The console drawer is not an overlay; `app.console` stays global while it is open.
 - The startup splash is not a region and has no focus. It renders before the providers and the keymap mount. `SplashGate` owns the only `useKeyboard` subscription while the splash is visible: `Ctrl+C` calls `onQuit` without dismissing, and every other key calls `onDismiss`. After dismissal `SplashGate` unmounts and `WorkspacePlaceholder` owns the only `useKeyboard` subscription, which handles only `Ctrl+C` through the same quit callback. Exactly one subscriber is mounted until `useHotkeys` and the shell's `app.quit` replace the temporary path. Both read the fixed quit chord only through `src/app/quit.key.ts`. See `21-startup-splash.md`.
 - Action IDs are exactly the IDs in product spec section 6.1 and live in `src/domain/keymap/keymap.defaults.ts`. Features receive action IDs only.
+- `KeymapContext` uses the exact `RegionId` values plus `global` and `overlay`: `top-bar`, `branches`, `remotes`, `tags`, `stashes`, `worktrees`, `graph`, `right-pane`, `diff`, and `console`. `useHotkeys` therefore looks up `contexts.get(activeRegion)` directly, with no adapter or cast between the focus model and the keymap.
+- `nav.left` and `nav.right` bind the top bar, the right pane, and overlays, with `Left`/`h` and `Right`/`l` as defaults. Sidebar panels do not bind them: the collapsed switcher is a native `<tab-select>` and owns those keys in native list mode.
 - Precedence is computed in `src/domain/keymap/keymap.resolve.ts`. A key may appear once per context. Context overrides global for the same key.
 - Footer hints come from `src/domain/keymap/keymap.describe.ts` filtered by the focused region and current availability. Help and the palette read the same effective keys and availability reasons, but they keep unavailable actions visible; only footer hints drop them. The `focus.region.*` actions are help- and palette-only and are never emitted as footer hints.
 
@@ -641,7 +648,7 @@ The startup splash (`21-startup-splash.md`) runs before any provider mounts. It 
 Providers, outermost to innermost:
 
 1. `ConfigProvider`: resolved config, warnings, reload. Source: `@/domain/config`.
-2. `ThemeProvider`: resolved tokens and color capability. Source: `@/domain/theme`. Exposes tokens through `@/theme/useTokens.ts`.
+2. `ThemeProvider`: resolved tokens and color capability. Source: `@/domain/theme`. Exposes tokens through `@/theme/useTokens.ts` and the full resolved theme through `app/hooks/useTheme.ts`.
 3. `KeymapProvider`: resolved action to keys map. Source: `@/domain/keymap`.
 4. `RepositoryProvider`: repository snapshot, the right-pane selection union (`pending`, `commit`, `stash`, `worktree`, or `diffFile`), and the refresh cycle. Source: `@/domain/repository` and `@/domain/git`. It does not own row expansion.
 5. `DraftProvider`: the composer draft string and `hasUnsavedDraft`. The shell's quit handler and the composer both read this provider; the composer does not duplicate it, and no feature imports another feature to answer the unsaved-work question.
@@ -753,7 +760,7 @@ A read path (`app.refresh`, watcher, focus refresh) never enters this flow. It c
 - `@/domain/theme/theme.catppuccin.ts` is the only place hex colors exist. It defines the four flavors and the token table from F-20.
 - `@/domain/theme/theme.capability.ts` detects truecolor, 256-color, and monochrome, and honors `NO_COLOR`. Token resolution returns final colors per capability.
 - UI reads colors only through `useTokens()`. No component holds a hex literal.
-- `@/theme/icons.ts` is the single configuration file for every icon, marker, and glyph. No component inlines a glyph. Icons are ASCII-only and always have a text equivalent. See section 6.1.
+- `@/theme/icons.ts` is the single configuration file for every icon, marker, and glyph. No component inlines a glyph. Icons are ASCII-only and always have a text equivalent; the pairing is enforced by review, not by a module test. See section 6.1.
 - The theme picker previews by swapping tokens in `ThemeProvider` without writing the file; Enter persists through `config.writer.ts`.
 
 ## 12. Enforcement
@@ -834,7 +841,7 @@ Ticket index: [`index.md`](index.md). Recommended build order: [`index.md`](inde
 
 | File | Feature | Feature folder(s) and cross-cutting paths |
 | --- | --- | --- |
-| `01-app-shell-and-focus.md` | F-01 App shell and focus | `features/shell`, `app/AppShellHost.tsx`, `app/providers/FocusProvider.tsx`, `app/providers/KeymapProvider.tsx`, `app/providers/StatusProvider.tsx`, `app/hooks/useHotkeys.ts` |
+| `01-app-shell-and-focus.md` | F-01 App shell and focus | `features/shell`, `app/AppShellHost.tsx`, `app/providers/FocusProvider.tsx`, `app/providers/StatusProvider.tsx`, `app/hooks/useHotkeys.ts` |
 | `02-top-bar.md` | F-02 Top bar | `features/top-bar` |
 | `03-branches-panel.md` | F-03 Branches panel | `features/branches` |
 | `04-remotes-panel.md` | F-04 Remotes panel | `features/remotes` |
@@ -852,8 +859,8 @@ Ticket index: [`index.md`](index.md). Recommended build order: [`index.md`](inde
 | `16-repository-states.md` | F-16 Repository states | `domain/repository/repository.states.ts` |
 | `17-freshness-and-performance.md` | F-17 Freshness and performance | `app/providers/RepositoryProvider.tsx`, `domain/git/git.client.ts`, `domain/git/git.watcher.ts`, `domain/git/git.progress.ts`, `domain/graph/graph.paginate.ts`, `domain/graph/graph.search.ts`, `domain/diff/diff.limits.ts`, `domain/commands/commands.runner.ts` |
 | `18-safety-and-platform-behavior.md` | F-18 Safety and platform behavior | `domain/git/git.errors.ts`, `domain/git/git.redact.ts`, `app/hooks/useCommandRunner.ts` |
-| `19-configuration-and-keybindings.md` | F-19 Configuration and keybindings | `domain/config`, `domain/keymap`, `app/providers/ConfigProvider.tsx`, `app/providers/KeymapProvider.tsx` |
-| `20-theme-and-colors.md` | F-20 Theme and colors | `features/theme-picker`, `domain/theme`, `theme` |
+| `19-configuration-and-keybindings.md` | F-19 Configuration and keybindings | `domain/config`, `domain/keymap`, `app/providers/ConfigProvider.tsx`, `app/providers/ConfigProvider.types.ts`, `app/providers/KeymapProvider.tsx`, `app/providers/KeymapProvider.types.ts` |
+| `20-theme-and-colors.md` | F-20 Theme and colors | `features/theme-picker`, `domain/theme`, `theme`, `app/providers/ThemeProvider.tsx`, `app/providers/ThemeProvider.types.ts`, `app/hooks/useTheme.ts` |
 | `21-startup-splash.md` | F-21 Startup splash and update check | `features/splash`, `features/splash/SplashScreen.constants.ts`, `features/splash/SplashUpdateNotice.tsx`, `domain/update`, `app/App.tsx`, `app/SplashGate.tsx`, `app/WorkspacePlaceholder.tsx`, `app/quit.key.ts`, `lib/semver.ts`, `lib/semver.types.ts` |
 
 ## 16. How to add a feature or file

@@ -1697,6 +1697,8 @@ These jumps are a spatial map in screen order, not a second copy of the Tab cycl
 | Key | Action |
 | --- | --- |
 | `Up` / `Down`, `j` / `k` | Navigate options |
+| `PageUp` / `PageDown` | Move by a page |
+| `g` / `G` | First / last option |
 | `Enter` | Confirm or run |
 | `Esc` | Cancel or close |
 | `Tab` / `Shift+Tab` | Move between fields and actions |
@@ -1735,7 +1737,7 @@ Notes:
 - Actions that are unbound still appear in the command palette and help.
 - `remote.pushForceSafe`, `remote.pushForceOverwrite`, and `remote.pushNoVerify` have no default key; they are reachable from the More menu and the command palette.
 - `commit.submitNoVerify`, `commit.amend`, and `commit.amendNoVerify` have no default key; they are reachable from the commit options menu and the command palette. `commit.submit` remains the default `Ctrl/Cmd+S` action.
-- `diff.deleteUntracked` and `diff.deleteAllUntracked` are the untracked-delete intents. `diff.discard` and `diff.discardAll` act only on tracked working-tree files. The Diff context binds `d` and `D` to the intent that matches the selected section.
+- `diff.deleteUntracked` and `diff.deleteAllUntracked` are the untracked-delete intents. `diff.discard` and `diff.discardAll` act only on tracked working-tree files. Pressing `d` or `D` in the Diff panel performs the tracked or untracked intent that matches the selected section; the keymap resolves `d` and `D` to `diff.discard` and `diff.discardAll`, and the Diff handler routes to the untracked intent for untracked targets.
 - `form.submit` defaults to `Ctrl/Cmd+Enter` and is the submit action for every multiline form. Single-line forms keep native Enter submission.
 - `app.help` defaults to `?` plus `F1`, and `app.palette` defaults to `Ctrl/Cmd+P` plus `F2`, so both remain reachable when a terminal reserves the primary binding. These are alternative keys for the same action ID, not separate actions.
 - Internal selection commands such as `graph.selectCommit`, `stash.select`, and `worktree.select` are command IDs used by the palette and other features. They have no action ID and no default key.

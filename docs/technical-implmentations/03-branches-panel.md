@@ -174,7 +174,6 @@ Both `branch.create` and `branch.delete` are gated in an empty repository with t
 | --- | --- |
 | `nav.up`, `nav.down` | Move the cursor one row |
 | `nav.first`, `nav.last` | Jump to the first or last branch |
-| `nav.pageUp`, `nav.pageDown` | Move by a screen |
 | `nav.activate` | Check out the selected branch; no confirmation |
 | `branch.create` | Open New Branch modal |
 | `branch.delete` | Open Delete Branch modal |

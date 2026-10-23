@@ -40,7 +40,7 @@ Hooks used:
 | --- | --- | --- |
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
 | `useAction` | `useTags.ts` registers the region-scoped handlers `tag.create`, `tag.delete`, `tag.push`, `nav.activate`, and `list.filter` with `scope: "tags"` | One handler per `(actionId, scope)`; global actions such as `app.refresh` and `focus.*` are owned by the app or shell and are never registered here |
-| `useListCursor` | `useTags.ts` navigation, `g`/`G`, and double click detection | Shared cursor and double click logic for custom rows |
+| `useListCursor` | `useTags.ts` navigation and double click detection | Shared cursor and double click logic for custom rows |
 | `useFocusRegion` | `TagsPanel.tsx` refreshes tag knowledge when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `TagRow.tsx` computes the truncation budget for the commit summary | Budget-aware truncation via `@/lib/text.ts` |
 
@@ -172,8 +172,6 @@ Delete order and partial failure: for local and remote, delete the remote tag fi
 | Action ID | Behavior in the Tags region |
 | --- | --- |
 | `nav.up`, `nav.down` | Move the cursor one row |
-| `nav.first`, `nav.last` | Jump to the first or last tag |
-| `nav.pageUp`, `nav.pageDown` | Move by a screen |
 | `nav.activate` | Select the tagged commit in the commit graph and show its details through the internal command `graph.selectCommit` |
 | `tag.create` | Open the Create Tag modal |
 | `tag.delete` | Open the Delete Tag modal for the selected tag |
@@ -182,7 +180,7 @@ Delete order and partial failure: for local and remote, delete the remote tag fi
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
 | `focus.region.tags` | Direct jump to this panel (default `3`), shell-owned |
 
-Notes: `app.refresh` is a global action owned by the app or shell; it is not registered by this feature. The footer shows only the actions available for the selected tag, for example `tag.push` only when the tag is local and the last successful remote check says it is absent. A tag known only remotely has no `tag.push`, and an `unknown` remote state disables it with "remote tag state unknown; refresh to retry". Modals are overlays and own all keys while open, with `overlay.close` cancelling. Availability comes from `@/domain/commands/commands.availability.ts` so the footer, help, and palette agree.
+Notes: `app.refresh` is a global action owned by the app or shell; it is not registered by this feature. `nav.first` and `nav.last` are unbound in the Tags context per product spec section 6, so `g` and `G` are not claimed here. The footer shows only the actions available for the selected tag, for example `tag.push` only when the tag is local and the last successful remote check says it is absent. A tag known only remotely has no `tag.push`, and an `unknown` remote state disables it with "remote tag state unknown; refresh to retry". Modals are overlays and own all keys while open, with `overlay.close` cancelling. Availability comes from `@/domain/commands/commands.availability.ts` so the footer, help, and palette agree.
 
 ## 9. Loading, empty, error, and disabled states
 

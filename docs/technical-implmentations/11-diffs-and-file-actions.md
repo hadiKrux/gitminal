@@ -46,13 +46,13 @@ Hooks used:
 | Hook | Where used | Why |
 | --- | --- | --- |
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
-| `useAction` | `useDiffPanel.ts` registers only `diff` scoped handlers: `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.expand`, `nav.collapse`, `diff.toggle`, `diff.stage`, `diff.unstage`, `diff.discard`, `diff.deleteUntracked`, `diff.stageAll`, `diff.unstageAll`, `diff.discardAll`, `diff.deleteAllUntracked` | Features receive action IDs, never raw key strings. `app.refresh` and every other global action are owned by the app and `useRepository`, never by this feature |
+| `useAction` | `useDiffPanel.ts` registers only `diff` scoped handlers: `nav.up`, `nav.down`, `nav.expand`, `nav.collapse`, `diff.toggle`, `diff.stage`, `diff.unstage`, `diff.discard`, `diff.deleteUntracked`, `diff.stageAll`, `diff.unstageAll`, `diff.discardAll`, `diff.deleteAllUntracked` | Features receive action IDs, never raw key strings. `app.refresh` and every other global action are owned by the app and `useRepository`, never by this feature |
 | `useListCursor` | `useDiffPanel.ts` row navigation and double click detection | Shared cursor and double click logic for custom rows |
 | `useFileDiff` | `DiffContent.tsx` through `useDiffPanel.ts` | Lazy per-file diff load with a single in-flight request |
 | `useFocusRegion` | `DiffPanel.tsx` refreshes the sections when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `DiffFileRow.tsx` computes the path truncation budget | Budget-aware truncation through `@/lib/text.ts` |
 | `useOverlay` | `useDiffPanel.ts` opens the destructive confirmations | Modal stack lives in `OverlayProvider` |
-| `useTheme` | `DiffContent.tsx` reads the diff tokens through `@/theme/useTokens.ts` | Diffs map added and removed backgrounds from theme tokens, never hex literals |
+| `useTokens` | `DiffContent.tsx` reads the diff tokens through `@/theme/useTokens.ts` | Diffs map added and removed backgrounds from theme tokens, never hex literals |
 | `useRepository`, `useStatus` | `useDiffPanel.ts` reads the snapshot and publishes status | Provider state is never copied locally |
 
 All icons and markers used by this feature come from `src/theme/icons.ts`; see architecture section 6.1. No glyph literal is written in feature code.
@@ -173,7 +173,7 @@ key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(re
 | commit read-only diff | `git.log.ts` `readCommitDiff(sha)` -> `parse.diff.ts` | `git show --no-color -U<diff.contextLines> --format= --diff-merges=first-parent <sha>` |
 | stash read-only diff | `git.stashes.ts` `showStash(ref)` -> `parse.diff.ts` | `git stash show -p --no-color <ref>` |
 
-Section to action mapping: `diff.stage` and `diff.stageAll` apply to Working Directory and Untracked Files, but each bulk command receives only its own section's path set. `diff.discard` and `diff.discardAll` act only on tracked working-tree paths; `diff.deleteUntracked` and `diff.deleteAllUntracked` act only on untracked paths; `diff.unstage` and `diff.unstageAll` act only on staged paths. The `diff` context binds `d` and `D` to the tracked intent on a tracked working row and to the untracked intent on an untracked row.
+Section to action mapping: `diff.stage` and `diff.stageAll` apply to Working Directory and Untracked Files, but each bulk command receives only its own section's path set. `diff.discard` and `diff.discardAll` act only on tracked working-tree paths; `diff.deleteUntracked` and `diff.deleteAllUntracked` act only on untracked paths; `diff.unstage` and `diff.unstageAll` act only on staged paths. The `diff` context binds `d` to `diff.discard` and `D` to `diff.discardAll`. Resolution is context-only and never inspects the row or section; when the target section is untracked, `useDiffPanel` routes the same key to `diff.deleteUntracked` or `diff.deleteAllUntracked` for the selected path set.
 
 Bulk actions apply only to the section's own path set. Working Directory Stage All stages only the working-tree paths listed in that section, Untracked Stage All stages only the untracked paths, Unstage All unstages only the staged paths, and Discard All discards only tracked working paths. A rename contributes both of its paths to the section set, and bulk discard applies the same rename rule as the per-file command. The builders never use `git add -A -- .`, `git restore -- .`, or any whole-tree pathspec.
 
@@ -202,22 +202,21 @@ The footer, palette, help, buttons, and confirmations all read the same result.
 | Action ID | Behavior in the Diff region |
 | --- | --- |
 | `nav.up`, `nav.down` | Move the cursor one row, across section headers and file rows |
-| `nav.pageUp`, `nav.pageDown` | Move by a screen |
 | `nav.expand` | Expand the selected section or file row |
 | `nav.collapse` | Collapse the selected section or file row |
 | `diff.toggle` | Toggle the selected file row; this ID shadows `nav.activate` in the diff panel (F-11) |
 | `diff.stage` | Stage the selected file; no confirmation |
 | `diff.unstage` | Unstage the selected file; no confirmation |
-| `diff.discard` | Discard the selected tracked working-tree file; unavailable on untracked rows |
-| `diff.deleteUntracked` | Delete the selected untracked file, with confirmation |
+| `diff.discard` (`d`) | Discard the selected tracked working-tree file. On an untracked row the handler routes the same key to `diff.deleteUntracked`. |
+| `diff.deleteUntracked` | Delete the selected untracked file, with confirmation. Reached by `d` on an untracked row, and from the menu and palette. |
 | `diff.stageAll` | Stage all files in the current section, using only that section's path set; unavailable during a merge, rebase, or cherry-pick |
 | `diff.unstageAll` | Unstage all files in the current section, using only the staged path set; unavailable during a merge, rebase, or cherry-pick |
-| `diff.discardAll` | Discard all tracked working-tree files in the current section, with confirmation |
-| `diff.deleteAllUntracked` | Delete all untracked files in the current section, with confirmation |
+| `diff.discardAll` (`D`) | Discard all tracked working-tree files in the current section, with confirmation. Routes to `diff.deleteAllUntracked` when the section is untracked. |
+| `diff.deleteAllUntracked` | Delete all untracked files in the current section, with confirmation. Reached by `D` on an untracked section, and from the menu and palette. |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
 | `focus.region.diff` | Direct jump to the Diff panel (default `8`), shell-owned |
 
-Notes: Up and Down or `j` and `k` move, Left and Right or `h` and `l` collapse and expand, and Enter toggles a file (F-11). The `diff` context binds `d` and `D` to the intent that matches the selected row: `diff.discard` and `diff.discardAll` on tracked working rows, `diff.deleteUntracked` and `diff.deleteAllUntracked` on untracked rows. The footer reflects the current section and selected row, so a Working Directory row shows Stage and Discard while an Untracked row shows Stage and Delete and a Staged Files row shows Unstage. In read-only mode every stage, unstage, discard, and delete action is unavailable with the reason "read-only". During a merge, rebase, or cherry-pick, `diff.stageAll`, `diff.unstageAll`, and unstaging a conflicted file are unavailable with the reason "merge state"; per-file stage on a resolved file remains available. Confirmations are overlays and own all keys while open, with `overlay.close` cancelling.
+Notes: Up and Down or `j` and `k` move, Left and Right or `h` and `l` collapse and expand, and Enter toggles a file (F-11). The `diff` context resolves `d` and `D` to `diff.discard` and `diff.discardAll`; `useDiffPanel` routes those intents to `diff.deleteUntracked` and `diff.deleteAllUntracked` when the selected row's section is untracked. The footer reflects the current section and selected row, so a Working Directory row shows Stage and Discard while an Untracked row shows Stage and Delete and a Staged Files row shows Unstage. In read-only mode every stage, unstage, discard, and delete action is unavailable with the reason "read-only". During a merge, rebase, or cherry-pick, `diff.stageAll`, `diff.unstageAll`, and unstaging a conflicted file are unavailable with the reason "merge state"; per-file stage on a resolved file remains available. Confirmations are overlays and own all keys while open, with `overlay.close` cancelling.
 
 ## 9. Loading, empty, error, and disabled states
 
@@ -321,9 +320,9 @@ With `diff.contextLines` set to 0, no run is collapsed because the threshold is 
 - `src/features/diff/DiffFileRow.test.tsx`: status letters `M`, `A`, `D`, `R`, `C`, `U`, the rename `old -> new` header, add and remove counts, and the expand indicator.
 - `src/features/diff/DiffContent.test.tsx`: the binary notice, the oversized notice, the truncation notice, the "N unchanged lines" marker, the metadata-only diff, and a synthetic conflict patch rendered with visible conflict markers.
 - `src/features/diff/DiffPanel.test.tsx`: the three sections in order, the first Working Directory file expanded only when `diff.expandFirstWorkingFile` and it has a text diff, per-section bulk availability, section-scoped bulk dispatch, disabled actions during a running operation, disabled bulk staging and unstaging during a merge, rebase, or cherry-pick, read-only mode for a commit or stash selection, selection preserved across a collapse, and target-aware `diff.discard` versus `diff.deleteUntracked` availability.
-- `src/features/diff/useDiffPanel.test.tsx`: duplicate `(actionId, scope)` registration is rejected; the feature registers no `app.refresh` or other global handler; bulk handlers receive only the section's paths; a handler with a stale or missing target returns a blocked result without refreshing.
+- `src/features/diff/useDiffPanel.test.tsx`: duplicate `(actionId, scope)` registration is rejected; the feature registers no `app.refresh` or other global handler; bulk handlers receive only the section's paths; a handler with a stale or missing target returns a blocked result without refreshing; an untracked target routes `d` and `D` to `diff.deleteUntracked` and `diff.deleteAllUntracked` while tracked targets keep `diff.discard` and `diff.discardAll`.
 - `src/features/diff/ConflictBanner.test.tsx`: the conflict banner text and the merge, rebase, or cherry-pick banner.
-- `src/domain/keymap/keymap.resolve.test.ts` (shared): `d` resolves to `diff.discard` on a tracked working row and to `diff.deleteUntracked` on an untracked row; `D` resolves to `diff.discardAll` or `diff.deleteAllUntracked` by section; `diff.toggle` shadows `nav.activate` in the `diff` context.
+- `src/domain/keymap/keymap.resolve.test.ts` (shared): `d` resolves to `diff.discard` and `D` to `diff.discardAll` in the `diff` context, independent of the selected row; `diff.toggle` shadows `nav.activate` in the `diff` context. Target-based routed intents are asserted in `useDiffPanel.test.tsx`, not in the keymap resolver.
 - `src/domain/git/parsers/parse.status.test.ts` (shared): the canonical `git status --porcelain=v2 --branch -z --untracked-files=all` invocation and parsing of `-z` output with bracket characters and newlines in paths.
 
 ## 14. Open questions

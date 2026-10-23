@@ -1,7 +1,7 @@
 # Implementation order
 
 Status: Active
-Last updated: 2026-10-22
+Last updated: 2026-10-23
 Source: the architecture contract in [`00-project-architecture.md`](00-project-architecture.md) and the `Dependencies` line in each ticket.
 Ticket index: [`index.md`](index.md)
 
@@ -31,8 +31,8 @@ Done when:
 
 Current gaps:
 
-- 23 `src/**` paths are claimed as owned by more than one ticket. The main groups are `useHotkeys.ts` and `KeymapProvider.tsx` (01 and 19), `git.client.ts`, `commands.runner.ts`, and `git.errors.ts` (17 and 18), `console.buffer.ts`, `diff.limits.ts`, `graph.paginate.ts`, and `graph.search.ts` (17 and the feature owners), the `domain/git` read modules (`git.branches.ts`, `git.diff.ts`, `git.log.ts`, `git.stashes.ts`, `git.status.ts`, `git.tags.ts`, `parsers/parse.log.ts`), `repository.selectors.ts` and `repository.upstream.ts`, `useFileDiff.ts`, and the overlay components (15 and 18).
-- Structural open questions still unresolved: `RepositoryState` ownership between `repository.types.ts` and `repository.states.ts`, the error overlay as a stack entry versus a provider field, session ownership of the palette recent list, and provider ownership for config, keymap, and theme.
+- 22 `src/**` paths are claimed as owned by more than one ticket. The main groups are `useHotkeys.ts` (01 and 19), `git.client.ts`, `commands.runner.ts`, and `git.errors.ts` (17 and 18), `console.buffer.ts`, `diff.limits.ts`, `graph.paginate.ts`, and `graph.search.ts` (17 and the feature owners), the `domain/git` read modules (`git.branches.ts`, `git.diff.ts`, `git.log.ts`, `git.stashes.ts`, `git.status.ts`, `git.tags.ts`, `parsers/parse.log.ts`), `repository.selectors.ts` and `repository.upstream.ts`, `useFileDiff.ts`, and the overlay components (15 and 18).
+- Structural open questions still unresolved: `RepositoryState` ownership between `repository.types.ts` and `repository.states.ts`, the error overlay as a stack entry versus a provider field, and session ownership of the palette recent list.
 
 ## M1 - Bootstrap and splash
 
@@ -50,7 +50,7 @@ Why first: it has no runtime dependencies, it establishes the entry point and te
 
 ## M2 - Keymap, configuration, and theme core
 
-Status: Ready for dev
+Status: Done
 
 Tickets: [`19-configuration-and-keybindings.md`](19-configuration-and-keybindings.md) (core), [`20-theme-and-colors.md`](20-theme-and-colors.md) (core)
 
@@ -60,7 +60,7 @@ Scope for 20: theme token types, the Catppuccin tokens, the icons module, and a 
 
 Observable outcome: the app boots with a resolved default keymap and theme tokens. No config file is required.
 
-Deferred for 19: file loading and precedence, validation and warnings, reload, conflict reporting, help and palette integration, and alternate binding forms.
+Deferred for 19: file loading and precedence, validation and warnings, reload, conflict-reporting surfaces in help and the palette, `useHotkeys` dispatch, and the help and palette integration. Conflict settlement already rejects conflicting overrides and warns, and the string, array, `null` reset, and `[]` unbind override forms are implemented.
 
 Deferred for 20: theme file loading, the theme picker, capability detection, and `NO_COLOR` behavior.
 

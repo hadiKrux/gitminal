@@ -189,7 +189,6 @@ Repository switching: this feature never runs `cd` or changes the repository roo
 | Action ID | Behavior in the Worktrees region |
 | --- | --- |
 | `nav.up`, `nav.down` | Move the cursor one worktree |
-| `nav.pageUp`, `nav.pageDown` | Move by a screen |
 | `nav.activate` | Select the worktree in `RepositoryProvider.selection` and render read-only `WorktreeDetails`; never switches the repository |
 | `worktree.create` | Open the New Worktree modal |
 | `worktree.delete` | Open the Delete Worktree confirmation for the selected path |

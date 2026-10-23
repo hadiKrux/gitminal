@@ -175,7 +175,6 @@ Pop drop semantics: the app resolves the selected object name to the current `st
 | Action ID | Behavior in the Stashes region |
 | --- | --- |
 | `nav.up`, `nav.down` | Move the cursor one stash |
-| `nav.pageUp`, `nav.pageDown` | Move by a screen |
 | `nav.activate` | Select the stash in `RepositoryProvider.selection`, render `StashDetails` in the right pane, and show the read-only stash diff in the Diff panel |
 | `stash.create` | Open the Create Stash modal |
 | `stash.apply` | Apply the selected stash and keep it; no confirmation |

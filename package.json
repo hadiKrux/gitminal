@@ -18,7 +18,11 @@
     "tui",
     "terminal",
     "cli",
-    "opentui"
+    "opentui",
+    "gitclient",
+    "gitui",
+    "gitminal",
+    "gitterminal"
   ],
   "author": "Md Habibullah Al Hadi",
   "scripts": {

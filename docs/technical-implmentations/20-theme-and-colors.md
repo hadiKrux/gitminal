@@ -13,6 +13,9 @@
   - `src/theme/ThemeContext.tsx`
   - `src/theme/useTokens.ts`
   - `src/theme/icons.ts`
+  - `src/app/providers/ThemeProvider.tsx`
+  - `src/app/providers/ThemeProvider.types.ts`
+  - `src/app/hooks/useTheme.ts`
   - `src/features/theme-picker/ThemePicker.tsx`
   - `src/features/theme-picker/ThemeRow.tsx`
   - `src/features/theme-picker/useThemePicker.ts`
@@ -93,6 +96,9 @@ The component contract has two distinct roles. `src/features/overlays/OverlayHos
 - `src/theme/ThemeContext.tsx`
 - `src/theme/useTokens.ts`
 - `src/theme/icons.ts`
+- `src/app/providers/ThemeProvider.tsx`
+- `src/app/providers/ThemeProvider.types.ts`
+- `src/app/hooks/useTheme.ts`
 - `src/features/theme-picker/ThemePicker.tsx`
 - `src/features/theme-picker/ThemeRow.tsx`
 - `src/features/theme-picker/useThemePicker.ts`
@@ -101,7 +107,9 @@ The component contract has two distinct roles. `src/features/overlays/OverlayHos
 ## 6. State model
 
 - `ThemeProvider` (provider state): the active base theme name, the resolved token set for the current capability, and the override layer loaded from `theme.json`. It also exposes a preview override used during picker highlight.
-- `src/theme/useTokens.ts`: the read-only hook returning resolved tokens; the only way components read colors.
+- `src/theme/useTokens.ts`: the read-only hook returning resolved tokens; the only way components read colors. It lives in the theme folder and reads `ThemeContext` directly because theme must not import app.
+- `src/app/hooks/useTheme.ts`: the app-layer read-only hook returning the full `ResolvedTheme`, including the resolved label, variant, and warnings, for components that need theme metadata rather than a color. It uses the same throw-outside-provider contract as `useTokens`.
+- `ThemeProvider.types.ts`: `ThemeProviderProps`. The optional `themeName` prop is a static test and embedding override, not a live preview; the picker preview is provider state in the later milestone.
 - `ConfigProvider` (provider state): the `theme` field and the resolved `theme.json` path.
 - `KeymapProvider` (provider state): effective bindings for `app.themePicker` and the picker's overlay-scoped actions. The picker never parses a key or keeps a binding copy.
 - `useThemePicker` (view state): the highlighted index, the previously active theme (for Esc), the list of built-in flavors, and the preview-in-progress flag.
@@ -209,8 +217,9 @@ The picker has no text field and no multiline field, so `form.submit` and the te
 
 - `src/domain/theme/theme.resolve.test.ts`: base selection, per-token override, graph lane override, subset merge, unknown token ignored, invalid color ignored.
 - `src/domain/theme/theme.capability.test.ts`: truecolor, 256-color nearest match, monochrome, `NO_COLOR`, markers preserved.
-- `src/domain/theme/theme.catppuccin.test.ts`: all four flavors define every token; Mocha default values match the spec roles.
-- `src/domain/theme/theme.tokens.test.ts`: every token maps to the documented OpenTUI props.
+- `src/domain/theme/theme.catppuccin.test.ts`: all four flavors define every token; Mocha default values match the spec roles; a few documented Mocha palette values are pinned; every exported flavor, token object, and graph array is frozen.
+- `src/domain/theme/theme.tokens.test.ts`: every token maps to a documented OpenTUI prop, with a representative subset asserted by name.
+- `src/app/providers/ThemeProvider.test.tsx`: the configured theme resolves to its label and tokens through `useTokens`; an unknown configured theme falls back to Catppuccin Mocha with the resolution warning; the static `themeName` override wins for tests and embeddings.
 - `src/features/theme-picker/useThemePicker.test.ts`: highlight preview, Enter persist, Esc restore, same-theme Enter closes.
 - `src/features/theme-picker/ThemePicker.test.tsx`: the list renders as a `<scrollbox>` of custom `ThemeRow` `<box>` rows with `Swatch` cells and no `<select>`; active `*` marker, light or dark label, note below the list when `theme.json` is present; `nav.up` and `nav.down` preview live; `nav.activate` applies and closes; `overlay.close` restores the previous theme.
 - Handler ownership test: the theme picker registers only overlay-scoped handlers; `app.themePicker` is registered exactly once by the app or shell, and a duplicate global registration is rejected.

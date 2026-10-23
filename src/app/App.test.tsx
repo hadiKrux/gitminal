@@ -3,7 +3,11 @@ import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { App } from "@/app/App";
 import { APP_VERSION } from "@/app/app.constants";
+import { ACTION_CATALOGUE } from "@/domain/keymap/keymap.defaults";
+import { DEFAULT_THEME_NAME } from "@/domain/theme/theme.catppuccin";
+import { resolveTheme } from "@/domain/theme/theme.resolve";
 import type { UpdateCheckResult } from "@/domain/update/update.types";
+import { ICONS } from "@/theme/icons";
 
 /** A check that never settles, proving the splash does not wait for the network. */
 const pendingCheck = new Promise<UpdateCheckResult>(() => {});
@@ -59,9 +63,14 @@ describe("App splash gate", () => {
     });
 
     const dismissedFrame = setup.captureCharFrame();
+    const resolvedThemeLabel = resolveTheme(DEFAULT_THEME_NAME).label;
 
     expect(dismissedFrame).toContain("Gitminal workspace");
     expect(dismissedFrame).not.toContain("Press any key to continue");
+    expect(resolvedThemeLabel).toBe("Catppuccin Mocha");
+    expect(dismissedFrame).toContain(
+      `Theme: ${resolvedThemeLabel} ${ICONS.hintSeparator} ${ACTION_CATALOGUE.length} actions`,
+    );
     expect(countKeyboardSubscribers(setup)).toBe(1);
 
     await act(async () => {

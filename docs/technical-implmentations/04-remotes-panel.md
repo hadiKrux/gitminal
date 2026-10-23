@@ -146,7 +146,6 @@ Availability is target-aware and scoped. `useRemotes` calls `getAvailability(com
 | --- | --- |
 | `nav.up`, `nav.down` | Move the cursor one row |
 | `nav.first`, `nav.last` | Jump to the first or last row |
-| `nav.pageUp`, `nav.pageDown` | Move by a screen |
 | `nav.activate` | No action in v1; unavailable with the reason "Enter does nothing in v1; press Space to create a local branch" |
 | `remote.createLocal` | Open the Create Local Branch modal for the selected remote branch |
 | `list.filter` | Focus the filter field |
