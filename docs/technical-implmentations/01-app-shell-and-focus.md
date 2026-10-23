@@ -50,7 +50,7 @@ OpenTUI hooks used:
 
 | Hook | Where used | Note |
 | --- | --- | --- |
-| `useKeyboard` | Called exactly once, inside `src/app/hooks/useHotkeys.ts`. The startup splash gate in `src/app/App.tsx` owns the only subscription before the shell mounts. | Features never call `useKeyboard` directly. This is enforced by architecture section 6 and the boundary check in section 12. |
+| `useKeyboard` | Called exactly once, inside `src/app/hooks/useHotkeys.ts`. `src/app/SplashGate.tsx` owns the only subscription while the splash is visible, and `src/app/WorkspacePlaceholder.tsx` owns the quit-only subscription after dismissal, one at a time. | Features never call `useKeyboard` directly. This is enforced by architecture section 6 and the boundary check in section 12. |
 | `useOnResize` | `ResponsiveGate` and `AppShell` recompute the layout mode on terminal resize. | Resize is the trigger for fallback transitions. |
 | `useTerminalDimensions` | Minimum-size checks, sidebar width budget, and hint fitting budgets. | Single source for columns and rows. |
 | `useRenderer` | Bootstrap focus acquisition and terminal restore on quit. | Owned by `App.tsx` and the quit handler, not by feature components. |
@@ -250,8 +250,8 @@ Focus visibility: each region frame is a focusable `<box>` with a stable `region
 | Selecting Pending Changes restores the composer; selecting a commit, stash, or worktree shows its details. (F-01, F-10, F-06, F-07) | `src/app/AppShellHost.tsx` derives the right-pane surface from `RepositoryProvider.selection`; no sub-mode flag is stored. |
 | Quitting with an unsent commit message asks for confirmation. (section 3 lifecycle) | The `app.quit` handler in `src/app/AppShellHost.tsx` reads `DraftProvider.hasUnsavedDraft`; it never imports the composer. |
 | "The app restores the terminal before exit." (section 3 lifecycle) | The `app.quit` handler aborts any running child through the `useCommandRunner` signal, waits for exit, then calls `useRenderer().destroy()`; `exitOnCtrlC` is false and `Ctrl+C` dispatches `app.quit`. |
-| "Launching the app shows the splash with the wordmark, the running version, and the press-any-key hint." (F-21) | `src/features/splash/SplashScreen.tsx` mounted by the splash gate in `src/app/App.tsx`. |
-| "Pressing any key opens the workspace, and `Ctrl+C` quits." (F-21) | The any-key handler in the splash gate in `src/app/App.tsx`; `Ctrl+C` reaches `app.quit` once the shell mounts. |
+| "Launching the app shows the splash with the wordmark, the running version, and the press-any-key hint." (F-21) | `src/features/splash/SplashScreen.tsx` mounted by `SplashGate` in `src/app/SplashGate.tsx`. |
+| "Pressing any key opens the workspace, and `Ctrl+C` quits." (F-21) | The any-key handler in `SplashGate` (`src/app/SplashGate.tsx`) and the quit-only handler in `WorkspacePlaceholder` (`src/app/WorkspacePlaceholder.tsx`), both using `src/app/quit.key.ts`; `Ctrl+C` reaches `app.quit` once the shell mounts. |
 
 ## 13. Tests to add
 

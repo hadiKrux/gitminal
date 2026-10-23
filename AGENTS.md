@@ -1,4 +1,7 @@
 - Every function or class methods should have standard jsdoc
 - If a function becomes big, split it
+- Each component should be in its own file
+- If a component contains constants, move them to `[name].constants.ts` file
+- Above rules does not apply for test files
 - Read `docs/technical-implmentations/00-project-architecture.md` before implementing anything. It is the enforced contract for folder structure, layering, OpenTUI component usage, state, git execution, configuration, testing, and the feature document format. Follow it over personal preference, and update it in the same change when a rule must change.
 - `docs/product-spec.md` is the product source of truth. Feature docs under `docs/technical-implmentations/` describe the behavior for each feature; implement from them and do not invent structure or components they do not specify.

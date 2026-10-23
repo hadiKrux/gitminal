@@ -42,12 +42,12 @@ src/index.tsx            bootstrap only (renderer + root)
    |
    v
 src/app/**               providers, hooks, composition root
-   |         \
-   v          v
-src/features/**   src/ui/**        feature UI and reusable presentational primitives
-   |         \        |
-   v          v       v
-src/domain/**     (ui imports theme tokens + lib only)
+   |         \             \
+   v          v             v
+src/features/**   src/ui/**   src/theme/**   feature UI, UI primitives, tokens and icons
+   |         \        |          |
+   v          v       v          v
+src/domain/**     (ui composes ui primitives and theme; theme reads only domain theme and lib)
    |
    v
 src/lib/**               pure utilities, no React, no git
@@ -57,19 +57,30 @@ Allowed imports:
 
 - `src/lib/**` imports only `src/lib/**`.
 - `src/domain/**` imports `src/domain/**` and `src/lib/**`. Never React, never a React hook, never `@opentui/*`, never `src/features/**`, never `src/app/**`.
-- `src/ui/**` imports `src/lib/**` and `src/theme/**` (token types/context) and React and `@opentui/*`. It does not import `src/domain/**` or `src/features/**`.
-- `src/features/**` imports `src/ui/**`, `src/app/hooks/**`, `src/app/providers/**` (hooks only), `src/domain/**`, `src/lib/**`, `src/theme/**`, React, and `@opentui/*`.
-- `src/app/**` imports everything.
+- `src/ui/**` imports `src/ui/**`, `src/lib/**`, and `src/theme/**` (tokens, context, and icons) and React and `@opentui/*`. UI primitives compose other UI primitives. It does not import `src/domain/**`, `src/features/**`, or `src/app/**`.
+- `src/features/**` imports `src/ui/**`, `src/app/hooks/**`, provider hooks under `src/app/providers/**`, `src/domain/**`, `src/lib/**`, `src/theme/**`, React, and `@opentui/*`.
+- `src/theme/**` imports React, `@opentui/*`, `src/theme/**`, any module under `src/domain/theme/**`, and `src/lib/**`. Type-only use of the domain theme modules is the review norm for token types. It does not import `src/ui/**`, `src/features/**`, `src/app/**`, or a domain module outside `src/domain/theme/**`.
+- `src/app/**` imports everything except the test-only imports: the test runners `bun:test` and `node:test`, and the harness under `src/test/**`. No production module imports any of them; only colocated `*.test.*` files and modules already under `src/test/` may.
 - Feature to feature imports are forbidden. Cross-feature coordination goes through a provider, a domain command, or a selector exported from `src/domain/**`.
 - `src/app/AppShellHost.tsx` is the composition root. It is the only module that imports `features/shell` together with the feature panels, graph, composer, details, diff, console, and overlays. `features/shell/AppShell.tsx` owns layout, region frames, and the shell's own UI, but it receives feature surfaces as `ReactNode` props or children and never imports another feature. The quit handler reads `hasUnsavedDraft` from `DraftProvider`, never from the composer feature.
 
-Forbidden imports (enforced by lint, see section 12):
+Forbidden imports and key access (enforced by the section 12 scripts):
 
-- `node:child_process`, `Bun.spawn`, or any process spawn outside `src/domain/git/git.client.ts`.
-- `fetch` or any other network call outside `src/domain/update/update.check.ts`.
+- Process spawning (`node:child_process`, `Bun.spawn`, `Bun.spawnSync`, `Bun.shell`, or `Bun.$`) outside `src/domain/git/git.client.ts` and `src/test/git.fixture.ts`.
+- Network access (`fetch`, `Bun.fetch`, `globalThis.fetch`, `window.fetch`, `Bun.connect`, `WebSocket`, or a `node:http`, `node:https`, `node:http2`, `node:net`, `node:dgram`, `node:tls`, or `undici` import) outside `src/domain/update/update.check.ts`.
 - Hex color literals outside `src/domain/theme/theme.catppuccin.ts`.
-- Raw key string comparisons outside `src/domain/keymap/**` and `src/app/hooks/useHotkeys.ts`.
-- `@opentui/*` inside `src/domain/**`.
+- Raw key string comparisons outside `src/domain/keymap/**` and `src/app/hooks/useHotkeys.ts`. `src/app/quit.key.ts` is the only exception: `SplashGate` and `WorkspacePlaceholder` run before the keymap mounts and compare only the fixed `Ctrl+C` quit chord (`key.ctrl` plus `key.name`) through that single helper until the shell's `app.quit` handler replaces them. The boundary check flags equality comparisons between a string literal and a key-like `name`, `sequence`, `raw`, or `code` access, and allows only those three paths. See `21-startup-splash.md` section 8.
+- Any external package import inside `src/domain/**` or `src/lib/**`, including React and `@opentui/*`. Node builtins are limited to this per-module allowlist; every other builtin is rejected under domain and lib:
+
+  | Module | Allowed Node builtins |
+  | --- | --- |
+  | `src/domain/git/git.client.ts` | `node:child_process`, `node:path` |
+  | `src/domain/git/git.watcher.ts` | `node:fs`, `node:fs/promises`, `node:path` |
+  | `src/domain/config/**` | `node:fs`, `node:fs/promises`, `node:path`, `node:os` |
+  | `src/lib/paths.ts` | `node:path`, `node:os` |
+
+  `src/test/**` is test-only. It has no layer import rule of its own, so this builtin allowlist does not apply there. Every module under `src/test/**` remains subject to the spawn and network checks, and `src/test/git.fixture.ts` is the documented spawn exception.
+
 - Non-ASCII or box-drawing glyph literals outside `src/theme/icons.ts`; reusable printable-ASCII markers must also come from `ICONS`.
 
 ## 4. Enforced folder structure
@@ -78,6 +89,24 @@ Forbidden imports (enforced by lint, see section 12):
 gitminal/
   package.json
   tsconfig.json
+  scripts/
+    check-boundary.ts
+    check-boundary.constants.ts
+    check-boundary.files.ts
+    check-boundary.files.test.ts
+    check-boundary.imports.ts
+    check-boundary.keys.ts
+    check-boundary.process.ts
+    check-boundary.types.ts
+    check-boundary.test.ts
+    check-glyph.ts
+    check-glyph.test.ts
+    check-structure.ts
+    check-structure.types.ts
+    check-structure.test.ts
+    check-support.ts
+    check-support.types.ts
+    check-support.test.ts
   docs/
     product-spec.md
     technical-implmentations/
@@ -91,7 +120,10 @@ gitminal/
     app/
       App.tsx
       AppShellHost.tsx
+      SplashGate.tsx
+      WorkspacePlaceholder.tsx
       app.constants.ts
+      quit.key.ts
       providers/
         ConfigProvider.tsx
         ThemeProvider.tsx
@@ -121,7 +153,10 @@ gitminal/
     features/
       splash/
         SplashScreen.tsx
+        SplashScreen.constants.ts
+        SplashUpdateNotice.tsx
         useUpdateCheck.ts
+        useUpdateCheck.types.ts
       shell/
         AppShell.tsx
         Sidebar.tsx
@@ -335,6 +370,7 @@ gitminal/
       async.ts
       invariant.ts
       semver.ts
+      semver.types.ts
     test/
       git.fixture.ts
 ```
@@ -345,7 +381,8 @@ Rules for this tree:
 - `src/features/<name>/` owns exactly one feature from the feature catalog. A feature never adds a folder under another feature.
 - Shared presentational code goes in `src/ui/`. Shared non-UI code goes in `src/lib/`. Shared git code goes in `src/domain/git/`.
 - `src/app/providers/` holds React context providers only. `src/app/hooks/` holds cross-feature hooks only. A hook used by exactly one feature lives in that feature folder.
-- `src/test/` holds test-only harness code. `git.fixture.ts` creates, seeds, and removes temporary repositories for integration tests; no production module imports it.
+- `src/test/` holds test-only harness code. `git.fixture.ts` creates, seeds, and removes temporary repositories for integration tests; no production module imports it, and the boundary check rejects a `src/test/**` import outside a colocated test file or another `src/test/**` module.
+- `scripts/` holds the section 12 developer checks only. It is tooling, not a feature folder, so the feature naming rule does not apply.
 - `AppShellHost.tsx` is the composition root. Feature components never import one another; they receive cross-feature data through providers, commands, or selectors.
 
 ## 5. File naming rules
@@ -354,11 +391,11 @@ Enforced:
 
 - React components: `PascalCase.tsx`, one exported component per file, file name equals the exported component name.
 - Hooks: `useThing.ts` or `useThing.tsx`, file name equals the exported hook.
-- Types only: `<name>.types.ts`. Constants only: `<name>.constants.ts`. Pure logic: `<name>.ts` matching the primary export.
-- Tests: colocated `*.test.ts` or `*.test.tsx` next to the file under test. No separate `__tests__` tree.
+- Types only: `<name>.types.ts`. Constants only: `<name>.constants.ts`. Pure logic: `<name>.ts` matching the primary export. Raw-key predicates: `<name>.key.ts` for a pure predicate in the documented pre-shell key path; `src/app/quit.key.ts` is the only current file.
+- Tests: colocated `*.test.ts` or `*.test.tsx` next to the file under test. No separate `__tests__` tree. Matching `AGENTS.md`, test files are exempt from the JSDoc, one-exported-component-per-file, component-constants, and function-size split guidance; test helpers and fixtures may stay inline and undocumented.
 - No `index.ts` barrels. Import from the exact module path. This keeps dependency edges visible and prevents cycles.
 - No file is named `utils.ts`, `helpers.ts`, `common.ts`, or `misc.ts`. Name the concern.
-- Path aliases: `@/*` maps to `src/*`. Use `@/domain/...`, `@/ui/...`, `@/features/...`. Relative imports are allowed only within the same folder.
+- Path aliases: `@/*` maps to `src/*`. Use `@/domain/...`, `@/ui/...`, `@/features/...`. Relative imports are allowed only within the same folder. One documented exception: `src/app/app.constants.ts` and its colocated test import the root manifest as `../../package.json`, because the app version and package name must have a single source and the manifest sits outside `src`. These are the only cross-folder relative imports; every other import uses `@/*`.
 
 Required `tsconfig.json` addition:
 
@@ -375,12 +412,13 @@ Required `tsconfig.json` addition:
 
 Enforced:
 
-- Every function, class method, and exported arrow function has a standard JSDoc block that states what it does, its parameters, and its return value. Use `@param` and `@returns` tags. A one-line `/** ... */` is acceptable only for a trivial, self-evident helper.
+- Every function, class method, and exported arrow function has a standard JSDoc block that states what it does, its parameters, and its return value. Use `@param` and `@returns` tags. A one-line `/** ... */` is acceptable only for a trivial, self-evident helper. Colocated `*.test.ts` and `*.test.tsx` files are exempt from this requirement, and their helpers may stay undocumented.
 - Non-obvious behavior, side effects, error cases, and invariants are documented in the JSDoc, not only in the implementation.
 - React components are documented with JSDoc on the component function, describing the props and the rendered behavior.
-- If a function becomes big, split it. The target is a function that does one thing and reads top to bottom without deep nesting. Split a function that mixes data preparation with side effects, that nests more than three control-flow levels, or that fallow flags for complexity or size. The old "about 40 lines" rule is a review prompt, not a CI parser. Extract named helpers in the same module or the owning folder rather than growing the function.
+- If a production function becomes big, split it. The target is a function that does one thing and reads top to bottom without deep nesting. Split a function that mixes data preparation with side effects, that nests more than three control-flow levels, or that fallow flags for complexity or size. The old "about 40 lines" rule is a review prompt, not a CI parser. Extract named helpers in the same module or the owning folder rather than growing the function.
 - A hook follows the same rule. If a hook grows past a single concern, split it into a hook plus pure helpers in `@/lib` or `@/domain`, or into smaller hooks composed together.
 - Pure logic that a JSDoc would otherwise duplicate belongs in `@/domain` or `@/lib` with its own tests, not inline in a component.
+- Test files are exempt from the JSDoc, one-exported-component-per-file, component-constants, and function-size split guidance in this document, matching `AGENTS.md`. Test helpers and fixtures may stay inline and undocumented.
 
 ## 6. OpenTUI component usage rules
 
@@ -411,7 +449,7 @@ Hooks available from `@opentui/react` 0.6.6:
 
 | Hook | Use for |
 | --- | --- |
-| `useKeyboard(handler, { release? })` | The single global key dispatcher, owned by `src/app/hooks/useHotkeys.ts`. The startup splash gate in `src/app/App.tsx` is the only other caller and only while the splash is visible. Features never call it directly. |
+| `useKeyboard(handler, { release? })` | The single global key dispatcher, owned by `src/app/hooks/useHotkeys.ts`. `src/app/SplashGate.tsx` and `src/app/WorkspacePlaceholder.tsx` are the only other callers before the shell mounts, one at a time: `SplashGate` while the splash is visible and `WorkspacePlaceholder` after dismissal. The temporary quit path is replaced by the shell's `app.quit` path. Features never call it directly. See `21-startup-splash.md`. |
 | `useOnResize(cb)` | Responsive layout fallbacks in `ResponsiveGate` and `AppShell`. |
 | `useTerminalDimensions()` | Minimum-size checks, truncation budgets, hint fitting. |
 | `useRenderer()` | Bootstrap access, focus management, console drawer access. |
@@ -422,7 +460,7 @@ Hooks available from `@opentui/react` 0.6.6:
 
 Component rules:
 
-1. Keyboard ownership is centralized. `useHotkeys` is the only `useKeyboard` caller. It resolves precedence (open overlay, then text input, then native list widget, then focused region context, then global), and it calls `preventDefault()` only when it handles the key. Features register handlers by action ID through `useAction`. No feature inspects `KeyEvent` directly.
+1. Keyboard ownership is centralized. `useHotkeys` is the only `useKeyboard` caller after the shell mounts. `SplashGate` and `WorkspacePlaceholder` are the documented exception before the providers and keymap mount, and exactly one of them subscribes at a time: `SplashGate` owns dismissal and quit while the splash is visible, and `WorkspacePlaceholder` owns quit after dismissal. The shell's `app.quit` path replaces the temporary quit path. `useHotkeys` resolves precedence (open overlay, then text input, then native list widget, then focused region context, then global), and it calls `preventDefault()` only when it handles the key. Features register handlers by action ID through `useAction`. No feature inspects `KeyEvent` directly.
 2. OpenTUI native focus is the single focus authority. The renderer's `currentFocusedRenderable` receives keys. `FocusProvider` is a projection: it derives `activeRegion` from the focused renderable's nearest ancestor region frame, derives `textInputFocused` from `currentFocusedEditor`, and stores `previousRegion` plus the per-region cursor map. It does not hold a competing writable `activeRegion`. Every region frame is a focusable `<box>` with a stable id and `focusedBorderColor`, so the border follows native focus, including when a descendant text input is focused. The focused region also gets a leading text marker; color is never the only signal.
 3. Every navigable list is either a `<select>` (uniform rows, native up/down and Enter, focused when it is the active widget) or a non-focusable `<scrollbox>` of `<box>` rows when rows need custom content such as graph lanes, ref badges, diff headers, or inline actions. In the custom case, the region frame owns focus, and navigation, selection, and `g`/`G` are implemented by `useListCursor` and rendered as a leading marker plus a highlighted row background.
 4. Mouse focus uses OpenTUI `autoFocus`. Clicking a text input focuses it; clicking any other element focuses the nearest focusable ancestor, normally the region frame. Region and row mouse handlers must not call `focus()` directly; they select the row and dispatch, and native focus follows the click. Double click is detected by `useListCursor` (two clicks on the same row inside a threshold). Mouse never exposes an action that has no keybinding.
@@ -541,7 +579,7 @@ Direct region jumps use the digits `1`-`9` in screen order: `1`-`5` are the five
 - Native list mode applies when a `<select>` or `<tab-select>` is focused. That widget owns `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.first`, `nav.last`, and `nav.activate`; `useHotkeys` must not prevent those keys from reaching it. Global modified shortcuts, `focus.next`/`focus.previous`, and the `focus.region.*` digit jumps still work.
 - `overlay` is not a region. On open, `OverlayProvider` captures the current focused renderable, blurs it, and focuses the first focusable element in the modal after mount. While open, the overlay owns keys. The overlay context applies the same text-input and native-list delegation for keys it does not handle; region focus does not apply. On close, it restores the captured renderable if it is still mounted, otherwise it focuses that renderable's region frame.
 - The only global actions that may resolve while an overlay is open are the overlay's own toggle and `overlay.close`: `app.palette` when the palette is the open overlay, `app.help` when help is the open overlay, and `app.quit` as the hardcoded quit escape hatch. They toggle or close that overlay. No other global action, including `remote.*`, `app.themePicker`, or `app.reloadConfig`, is reachable until the overlay closes. The console drawer is not an overlay; `app.console` stays global while it is open.
-- The startup splash is not a region and has no focus. It renders before the providers and the keymap mount, and its any-key handler is the only keyboard subscriber while it is visible. See `21-startup-splash.md`.
+- The startup splash is not a region and has no focus. It renders before the providers and the keymap mount. `SplashGate` owns the only `useKeyboard` subscription while the splash is visible: `Ctrl+C` calls `onQuit` without dismissing, and every other key calls `onDismiss`. After dismissal `SplashGate` unmounts and `WorkspacePlaceholder` owns the only `useKeyboard` subscription, which handles only `Ctrl+C` through the same quit callback. Exactly one subscriber is mounted until `useHotkeys` and the shell's `app.quit` replace the temporary path. Both read the fixed quit chord only through `src/app/quit.key.ts`. See `21-startup-splash.md`.
 - Action IDs are exactly the IDs in product spec section 6.1 and live in `src/domain/keymap/keymap.defaults.ts`. Features receive action IDs only.
 - Precedence is computed in `src/domain/keymap/keymap.resolve.ts`. A key may appear once per context. Context overrides global for the same key.
 - Footer hints come from `src/domain/keymap/keymap.describe.ts` filtered by the focused region and current availability. Help and the palette read the same effective keys and availability reasons, but they keep unavailable actions visible; only footer hints drop them. The `focus.region.*` actions are help- and palette-only and are never emitted as footer hints.
@@ -722,35 +760,49 @@ A read path (`app.refresh`, watcher, focus refresh) never enters this flow. It c
 
 These rules are checked, not aspirational. Enforcement lands in slices, not all at once:
 
-1. Slice 1 enables typecheck, Biome, unit tests, and the dependency-boundary checks. The structure check runs in warning mode for folders that are planned but not yet created.
+1. Slice 1 enables typecheck, Biome, unit tests, and all three enforcement scripts: `scripts/check-boundary.ts`, `scripts/check-glyph.ts`, and `scripts/check-structure.ts`. The structure check runs in warning mode for folders that are planned but not yet created.
 2. Each later slice adds the checks for the code it introduces and turns the structure warning for its own folders into an error.
 3. The v1 freeze runs `bun run check:structure --strict`, which asserts the full tree in section 4 and the complete doc-to-folder map in section 15.
+
+Package commands:
+
+- `bun run check` runs `biome check .`, then `check:boundary`, `check:glyph`, and `check:structure`.
+- `bun run check:all` runs `bun run check`, `bun run typecheck`, and `bun run test`.
+- `bun run check:fix` stays the Biome autofix only.
+- `bun run check:boundary`, `bun run check:glyph`, and `bun run check:structure` run the TypeScript checkers directly through Bun. `bun run check:structure --strict` promotes planned path warnings to errors.
 
 Rules:
 
 - TypeScript strict mode is already on. Keep `noUncheckedIndexedAccess` and `noImplicitOverride`. `resolveJsonModule` is on for `app.constants.ts`.
 - `bun run typecheck` must pass before any change is considered done.
 - Biome handles linting, formatting, and import organization. `bun run check` (or `bun run check:fix` to apply safe fixes) must pass before any change is considered done. Configuration lives in `biome.json`; Markdown under `docs/` is excluded from formatting because its tables are hand-aligned.
-- Husky manages Git hooks. The pre-commit hook runs `fallow audit` against the merge base with the branch upstream and blocks commits that introduce error-severity findings (dead code, complexity, duplication, or styling). Configuration lives in `.fallowrc.jsonc`; the `.fallow/` cache is git-ignored. `bun run audit` runs the same analysis manually. Function-size and complexity review uses fallow's findings, not a hand-written line-count parser.
+- Husky manages Git hooks. The pre-commit hook runs `fallow audit` against the merge base with the branch upstream and blocks commits that introduce error-severity findings (dead code, complexity, duplication, or styling). Configuration lives in `.fallowrc.jsonc`; the `.fallow/` cache is git-ignored. `bun run audit` runs the same analysis manually. Function-size and complexity review uses fallow's findings, not a hand-written line-count parser. The `scripts/**` enforcement checkers use the default health ceilings and have colocated unit tests, so no `health.thresholdOverrides` entry is needed.
 - `bun test` runs the unit suite and must pass. `bun test:integration` runs `*.integration.test.ts` against temporary repositories created by `src/test/git.fixture.ts`. CI runs both. Unit tests never spawn a process; integration tests may spawn the system git only through the fixture.
-- A dependency-boundary check script (a node script run through `bun`, per global instructions) walks `src/` and fails on:
-  - `@opentui/*` or React imports under `src/domain/**` or `src/lib/**`.
-  - any import from `src/app/**` or `src/features/**` under `src/domain/**`; the command runner must not reach a provider, a hook, or feature code.
-  - any spawn call outside `src/domain/git/git.client.ts` and `src/test/git.fixture.ts`.
-  - any `fetch` or other network call outside `src/domain/update/update.check.ts`.
+- `scripts/check-boundary.ts` (`bun run check:boundary`) walks every `.ts`, `.tsx`, `.js`, and `.jsx` file under `src/` with the TypeScript AST and fails on:
+  - any external package import under `src/domain/**` or `src/lib/**`; React and `@opentui/*` are included, so domain and lib stay free of runtime packages. Any Node builtin under domain or lib outside the per-module allowlist in section 3 is rejected the same way.
+  - any local import under `src/domain/**` outside `src/domain/**` and `src/lib/**`.
+  - any local import under `src/lib/**` outside `src/lib/**`.
+  - any external package or builtin import under `src/ui/**` other than React and `@opentui/*`; any local import under `src/ui/**` outside `src/ui/**`, `src/lib/**`, and `src/theme/**`. UI may import only React, `@opentui/*`, `src/ui/**` primitives, `src/lib/**`, and `src/theme/**`.
+  - any external package or builtin import under `src/theme/**` other than React and `@opentui/*`; any local import outside `src/theme/**`, `src/domain/theme/**`, and `src/lib/**`. Theme may import any module under `src/domain/theme/**`, using token types type-only as the review norm. It never imports UI, features, app, or another domain folder.
+  - any import of a test-only module from a production module. The test-only imports are the test runners `bun:test` and `node:test`, plus `src/test` and any module under `src/test/**`. A colocated `*.test.*` file and a module already under `src/test/` may import both a test runner and a module under `src/test/**`. The domain, lib, ui, theme, and feature rules reject all of them with their own layer message; the app layer and `src/index.tsx` are otherwise unconstrained, so this guard is the one edge they cannot cross.
+  - any external package or builtin import under `src/features/**` other than React and `@opentui/*`; any local import outside `src/ui/**`, `src/domain/**`, `src/lib/**`, `src/theme/**`, and the same feature folder; any `src/app/**` import other than `src/app/hooks/**` and provider hooks under `src/app/providers/**` (a file whose basename starts with `use`). `src/app/App.tsx`, `src/app/AppShellHost.tsx`, and other app modules are never allowed from a feature.
+  - feature to feature imports (covered by the same rule). `src/app/AppShellHost.tsx` is the composition root and is exempt because the app layer may import everything except the test-only imports, `bun:test`, `node:test`, and `src/test/**`.
+  - process spawning through a `node:child_process` or `child_process` import, or a `Bun.spawn`, `Bun.spawnSync`, `Bun.shell`, or `Bun.$` call or tagged template outside `src/domain/git/git.client.ts` and `src/test/git.fixture.ts`.
+  - network access through a `node:http`, `node:https`, `node:http2`, `node:net`, `node:dgram`, `node:tls`, or `undici` import; a `fetch`, `Bun.fetch`, `globalThis.fetch`, or `window.fetch` call; a `Bun.connect` call; or a `WebSocket` construction outside `src/domain/update/update.check.ts`.
+  - raw key string comparisons: an equality operator (`===`, `==`, `!==`, `!=`) between a string literal and a key-like `name`, `sequence`, `raw`, or `code` property access outside `src/domain/keymap/**`, `src/app/hooks/useHotkeys.ts`, and `src/app/quit.key.ts`. A receiver named `key` or ending in `Key` is key-like for every key field. A receiver named `e`, `ev`, `event`, or ending in `Event` is key-like only in a key-aware file, so outside a key-aware file a plain `catch (e) { e.code === "ENOENT" }` and a non-key-aware `event.code` are not flagged. `name` and `sequence` follow the same receiver rule. A bare `name`, `sequence`, `raw`, or `code` identifier is flagged only in a file that mentions `KeyEvent`, `useKeyboard`, or `key.name`/`key.sequence`. Ordinary data fields such as `error.code` and `branch.name` are not key fields. Two known limitations are deliberate heuristics to revisit when the keymap layer adds type-aware checks: in a key-aware file a `catch` binding named `e` is treated as a key receiver, so `catch (e) { e.code === "ENOENT" }` is a known false positive; and the checker inspects only equality comparisons and property access, so element access such as `key["name"] === "c"` and `switch (key.name)` are known false negatives.
   - hex color literals outside `src/domain/theme/theme.catppuccin.ts`.
-  - feature to feature imports. `src/app/AppShellHost.tsx` is the composition root and is exempt by path.
-  - `index.ts` barrel files.
-  - files named `utils.ts`, `helpers.ts`, `common.ts`, `misc.ts`.
-  - exported functions, class methods, and components without a JSDoc block, checked with the TypeScript AST. Function body size is not machine-checked; fallow owns complexity and size findings.
-- A glyph check walks string literals in `src/` and fails on non-ASCII codepoints and box-drawing characters outside `src/theme/icons.ts`. It deliberately allows printable ASCII punctuation and letters such as `>`, `v`, `M`, `[?]`, and `|`; those are UI text in many places and cannot be distinguished mechanically from icon values. Icon intent is enforced by review and by the rule that all reusable markers come from `ICONS`.
-- A structure check script reads the doc-to-folder map in section 15. It asserts that every implemented feature folder has a doc and that every doc's listed folders exist. It warns for planned folders in earlier slices and errors in strict mode.
-- Review checklist for every change: layer direction respected, action IDs and command targets used instead of raw keys, exactly one handler per action and scope, tokens used instead of colors, icons used from `@/theme/icons` instead of inline reusable glyphs, JSDoc present on every function and method, oversized functions split, states covered, tests added for domain logic, region frames focusable with stable ids, and no application code writes `activeRegion` directly or calls `focus()` from a mouse handler.
+  - `index.ts`, `index.tsx`, `index.js`, and `index.jsx` barrel files other than the bootstrap `src/index.tsx`.
+  - files named `utils`, `helpers`, `common`, or `misc`.
+  - top-level functions, class methods, and exported arrow functions without a JSDoc block, checked with the TypeScript AST. Colocated `*.test.*` files are exempt. Function body size is not machine-checked; fallow owns complexity and size findings for production files. Test files are exempt from the split guidance but are still reported by fallow as review signals.
+  - `bun:test` and `node:test` imports are allowed in colocated `*.test.*` files and modules under `src/test/`; these imports are test-only and rejected from every production module. Colocated test files and `src/test/**` modules may also import the shared fixture under `src/test/**`; every other external and local import still follows the layer rule.
+- `scripts/check-glyph.ts` (`bun run check:glyph`) walks string, template, and JSX text literals in every `.ts`, `.tsx`, `.js`, and `.jsx` file under `src/` with the TypeScript AST and fails on non-ASCII codepoints outside `src/theme/icons.ts`. It deliberately allows printable ASCII punctuation and letters such as `>`, `v`, `M`, `[?]`, and `|`; those are UI text in many places and cannot be distinguished mechanically from icon values. Icon intent is enforced by review and by the rule that all reusable markers come from `ICONS`.
+- `scripts/check-structure.ts` (`bun run check:structure`) reads the section 4 tree and the section 15 doc map. It fails when an implemented source file under `src/` or `scripts/`, including a `.js` or `.jsx` file, is absent from the section 4 tree; when a section 15 doc file does not exist under `docs/technical-implmentations/`; or when an implemented feature folder has no section 15 doc entry. Colocated `*.test.*` files are excluded from the unlisted-file scan. If the architecture document itself is missing or unreadable, or the section 4 or section 15 heading, fence, or tree cannot be parsed, it reports a file diagnostic against the architecture document instead of throwing. It warns for planned paths that do not exist yet; `--strict` promotes those warnings to errors for the v1 freeze. It compresses a missing planned folder to one warning instead of one per planned file.
+- Review checklist for every change: layer direction respected, action IDs and command targets used instead of raw keys, exactly one handler per action and scope, tokens used instead of colors, icons used from `@/theme/icons` instead of inline reusable glyphs, JSDoc present on every production function and method (test files are exempt), oversized production functions split (test files are exempt from the split guidance), states covered, tests added for domain logic, region frames focusable with stable ids, and no application code writes `activeRegion` directly or calls `focus()` from a mouse handler.
 
 ## 13. Testing strategy
 
 - Domain: pure unit tests with recorded git fixtures. No spawning in unit tests.
-- Integration: `*.integration.test.ts` uses `src/test/git.fixture.ts` to create a temporary repository, configure a local identity, seed commits, run the real git commands through `git.client.ts`, and remove the directory. Fixtures cover prompting hooks (`pre-commit` that reads stdin or invokes an editor), SSH/credential failures, destructive operations, merge conflicts, renames with pathspec metacharacters, empty repositories, and lock files. They are skipped when `git --version` is below the documented minimum.
+- Integration: `*.integration.test.ts` uses `src/test/git.fixture.ts` to create a temporary repository, configure a local identity, seed commits, run the real git commands through `git.client.ts`, and remove the directory. Colocated test files may import `@/test/git.fixture`; production modules must not, and external package rules still apply inside tests. Fixtures cover prompting hooks (`pre-commit` that reads stdin or invokes an editor), SSH/credential failures, destructive operations, merge conflicts, renames with pathspec metacharacters, empty repositories, and lock files. They are skipped when `git --version` is below the documented minimum.
 - Keymap and config: table-driven tests for precedence, conflicts, `null` reset, `[]` unbind, and per-field fallback.
 - Commands: availability matrix tests covering detached HEAD, no upstream, no remote, empty repository, operation in progress, missing target, and stale target. `commands.runner.test.ts` asserts pure execution, write serialization, the blocked result, progress events, and cancellation. `useCommandRunner.test.tsx` asserts exactly one repository refresh, one console append, and one status transition per result, plus error routing and draft preservation on failure.
 - UI: component tests with `@opentui/react` test-utils and `test-utils.ts` to assert rendered text markers, footer hints, and focus transitions.
@@ -778,7 +830,7 @@ Each feature document `docs/technical-implmentations/NN-<name>.md` must contain,
 
 ## 15. Feature document index
 
-Ticket index: [`index.md`](index.md). Recommended build order: [`implementation-order.md`](implementation-order.md).
+Ticket index: [`index.md`](index.md). Recommended build order: [`index.md`](index.md).
 
 | File | Feature | Feature folder(s) and cross-cutting paths |
 | --- | --- | --- |
@@ -802,7 +854,7 @@ Ticket index: [`index.md`](index.md). Recommended build order: [`implementation-
 | `18-safety-and-platform-behavior.md` | F-18 Safety and platform behavior | `domain/git/git.errors.ts`, `domain/git/git.redact.ts`, `app/hooks/useCommandRunner.ts` |
 | `19-configuration-and-keybindings.md` | F-19 Configuration and keybindings | `domain/config`, `domain/keymap`, `app/providers/ConfigProvider.tsx`, `app/providers/KeymapProvider.tsx` |
 | `20-theme-and-colors.md` | F-20 Theme and colors | `features/theme-picker`, `domain/theme`, `theme` |
-| `21-startup-splash.md` | F-21 Startup splash and update check | `features/splash`, `domain/update`, `app/App.tsx` |
+| `21-startup-splash.md` | F-21 Startup splash and update check | `features/splash`, `features/splash/SplashScreen.constants.ts`, `features/splash/SplashUpdateNotice.tsx`, `domain/update`, `app/App.tsx`, `app/SplashGate.tsx`, `app/WorkspacePlaceholder.tsx`, `app/quit.key.ts`, `lib/semver.ts`, `lib/semver.types.ts` |
 
 ## 16. How to add a feature or file
 

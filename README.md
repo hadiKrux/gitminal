@@ -6,7 +6,7 @@ A keyboard-first terminal git client.
 
 The screenshot above is the authoritative UI reference. The app must match it.
 
-Requires [Bun](https://bun.sh/) 1.3.0 or later.
+Requires [Bun](https://bun.sh/) 1.3.14 or later.
 
 To install dependencies:
 
@@ -26,13 +26,15 @@ To typecheck:
 bun run typecheck
 ```
 
-To lint and format with [Biome](https://biomejs.dev/):
+To lint, format, and run the architecture checks:
 
 ```bash
-bun run check        # lint, format, and import checks
-bun run check:fix    # apply safe fixes and formatting
-bun run lint         # lint only
-bun run format       # format only
+bun run check                  # Biome plus boundary, glyph, and structure checks
+bun run check:all              # check, typecheck, and unit tests
+bun run check:fix              # apply safe Biome fixes and formatting
+bun run check:structure --strict # fail on planned paths too, for the v1 freeze
+bun run lint                   # lint only
+bun run format                 # format only
 ```
 
 To check code health with [Fallow](https://fallow.tools/):

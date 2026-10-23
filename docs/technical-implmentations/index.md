@@ -27,21 +27,20 @@ Done when:
 - [x] The fixed stack in section 1 matches `package.json`, `tsconfig.json`, `biome.json`, Husky, and fallow.
 - [ ] Every implemented `src/**` path has exactly one owning ticket. Cross-cutting modules name one owner and list their consumers in the ticket header.
 - [ ] Structural open questions that change file ownership or provider layout are resolved or explicitly deferred with a named decision point. Behavior-only open questions may stay open in their feature ticket.
-- [ ] Section 12 slice 1 enforcement work is assigned with concrete script names for the boundary, glyph, and structure checks. The checks themselves land in M1.
+- [x] Section 12 slice 1 enforcement work is assigned with concrete script names for the boundary, glyph, and structure checks, and the checks now exist.
 
 Current gaps:
 
 - 23 `src/**` paths are claimed as owned by more than one ticket. The main groups are `useHotkeys.ts` and `KeymapProvider.tsx` (01 and 19), `git.client.ts`, `commands.runner.ts`, and `git.errors.ts` (17 and 18), `console.buffer.ts`, `diff.limits.ts`, `graph.paginate.ts`, and `graph.search.ts` (17 and the feature owners), the `domain/git` read modules (`git.branches.ts`, `git.diff.ts`, `git.log.ts`, `git.stashes.ts`, `git.status.ts`, `git.tags.ts`, `parsers/parse.log.ts`), `repository.selectors.ts` and `repository.upstream.ts`, `useFileDiff.ts`, and the overlay components (15 and 18).
 - Structural open questions still unresolved: `RepositoryState` ownership between `repository.types.ts` and `repository.states.ts`, the error overlay as a stack entry versus a provider field, session ownership of the palette recent list, and provider ownership for config, keymap, and theme.
-- The `check:structure`, boundary, and glyph scripts named in section 12 do not exist in `package.json` yet. They are M1 work, but M0 must name them so they are not lost.
 
 ## M1 - Bootstrap and splash
 
-Status: Ready for dev
+Status: Done
 
 Tickets: [`21-startup-splash.md`](21-startup-splash.md)
 
-Scope: the real `src/index.tsx` bootstrap with `exitOnCtrlC: false`, `src/app/App.tsx` as the splash gate, `src/app/app.constants.ts`, the splash UI, the any-key dismissal, the `Ctrl+C` quit path, and the one-shot update check.
+Scope: the real `src/index.tsx` bootstrap with `exitOnCtrlC: false`, the splash gate components (`src/app/App.tsx`, `src/app/SplashGate.tsx`, `src/app/WorkspacePlaceholder.tsx`, `src/app/quit.key.ts`), `src/app/app.constants.ts`, the splash UI (`src/features/splash/SplashScreen.tsx`, `SplashScreen.constants.ts`, `SplashUpdateNotice.tsx`), the any-key dismissal, the `Ctrl+C` quit path, and the one-shot update check.
 
 Observable outcome: `bun run dev` renders the splash with the wordmark and running version; any key opens the workspace placeholder; `Ctrl+C` quits and restores the terminal. A failed or slow update check is silent and never blocks dismissal.
 
