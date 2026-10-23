@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-Status: Ready for dev.
 Spec reference: `docs/product-spec.md` section 3 "Application shell" (lines 67-162), section 5 F-02 (lines 207-319), section 6 "Keyboard map" Top bar (lines 1539-1704), section 6.1 "Action IDs" (lines 1705-1742), section 9 "Resolved product decisions" D4, D14, and D15 (lines 1865-1889), and section 10 "Assumed defaults" (lines 1890-1908).
 Dependencies: F-01 `01-app-shell-and-focus.md` (the `top-bar` region and `nav.left` / `nav.right`), F-04 `04-remotes-panel.md` (fetch scope and remote list), F-05 `05-tags-panel.md` (`tag.push` shadowing `remote.push`), F-13 `13-console.md` (command log), F-15 `15-overlays-and-confirmations.md` (force push confirmations and error overlay), F-16 `16-repository-states.md` (detached, no upstream, upstream gone, no remote, no origin), F-17 `17-freshness-and-performance.md` (refresh after operations), F-18 `18-safety-and-platform-behavior.md` (redaction, no prompts), F-20 `20-theme-and-colors.md` (progress bar colors).
 Owned paths: `src/features/top-bar/TopBar.tsx`, `src/features/top-bar/TopBarStatus.tsx`, `src/features/top-bar/SyncStateBadge.tsx`, `src/features/top-bar/TopBarActions.tsx`, `src/features/top-bar/MoreMenu.tsx`, `src/features/top-bar/useTopBar.ts`.

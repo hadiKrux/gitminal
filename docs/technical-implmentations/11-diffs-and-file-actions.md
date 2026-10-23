@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-11 (lines 838-953), F-16 (lines 1067-1095), the keyboard map (lines 1539-1704), action IDs (lines 1705-1742), F-19 for the `diff.*` configuration keys, and F-20 for the diff theme tokens.
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`
 - Region id: `diff` (`src/features/shell/regions.ts`)

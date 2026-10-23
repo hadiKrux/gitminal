@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-07 (lines 562-609), decision D8 (line 1876), action IDs (lines 1705-1742), branch worktree marker (lines 331 and 365), key precedence (lines 113-123)
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`
 - Region id: `worktrees` (`src/features/shell/regions.ts`)

@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-Status: Ready for dev
 Spec reference: `docs/product-spec.md` F-13 Console (lines 980-1015); action IDs section 6.1 (lines 1705-1742); keyboard map (lines 1539-1704); key precedence section 3 (lines 109-119)
 Dependencies: F-01 app shell and focus, F-15 overlays and confirmations (clear confirmation), F-18 safety and platform behavior (redaction), F-17 freshness and performance (routine refresh grouping), F-19 configuration and keybindings
 Owned paths:

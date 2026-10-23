@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-Status: Ready for dev.
 Spec reference: `docs/product-spec.md` F-16 (lines 1067-1095), plus F-17 (lines 1096-1125), F-18 (lines 1126-1153), F-19 (lines 1154-1323) and F-20 (lines 1324-1487) for the configuration and theme rows, F-02 fetch and upstream rules (lines 207-319), F-11 conflicts (lines 838-953), and the action IDs in section 6.1 (lines 1705-1742).
 Dependencies: F-01 `01-app-shell-and-focus.md` (the shell that renders the state screens and banners), F-02 `02-top-bar.md` (detached, no upstream, upstream gone, no remote, no origin), F-08 `08-commit-graph.md` (empty repository and pagination), F-09 `09-commit-composer.md` (missing git identity and hook failure), F-11 `11-diffs-and-file-actions.md` (conflicted files, binary and oversized files, conflict-marker diff), F-12 `12-command-palette.md` and F-14 `14-help.md` (invalid configuration details), F-13 `13-console.md` (config and theme warnings), F-15 `15-overlays-and-confirmations.md` (error overlay), F-17 `17-freshness-and-performance.md` (external changes, huge repository), F-19 `19-configuration-and-keybindings.md` (invalid configuration), F-20 `20-theme-and-colors.md` (invalid theme).
 Owned paths: `src/domain/repository/repository.states.ts` (state detection and repository-wide gating).

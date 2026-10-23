@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-Status: Ready for dev.
 Spec reference: `docs/product-spec.md` section 3 "Application shell" (lines 67-162), section 5 F-21 "Startup splash and update check" (lines 1488-1538), section 6 "Keyboard map" startup splash (lines 1543-1549), decision D19 (line 1887), and the assumed defaults for the splash and npm check (lines 1890-1908).
 Dependencies: none at runtime. This feature runs before the providers in `01-app-shell-and-focus.md` mount. `01-app-shell-and-focus.md` owns the shell that appears after dismissal, including the `app.quit` path and the `exitOnCtrlC: false` renderer contract.
 Owned paths: `src/features/splash/SplashScreen.tsx`, `src/features/splash/useUpdateCheck.ts`, `src/app/App.tsx` (splash gate), `src/app/app.constants.ts`, `src/domain/update/update.check.ts`, `src/domain/update/update.types.ts`, `src/domain/update/update.constants.ts`, `src/lib/semver.ts`.

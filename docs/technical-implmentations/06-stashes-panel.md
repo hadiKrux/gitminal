@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-06 (lines 507-561), decision D7 (line 1875), action IDs (lines 1705-1742), key precedence (lines 113-123), config key `stash.includeUntrackedByDefault` (line 1203), stash flow (lines 1796-1802)
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`
 - Region id: `stashes` (`src/features/shell/regions.ts`)

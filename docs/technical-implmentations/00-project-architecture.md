@@ -1,6 +1,5 @@
 # Gitminal Project Architecture
 
-Status: Ready for dev
 Last updated: 2026-10-22
 Scope: Enforced file, folder, layering, and OpenTUI component rules for the Gitminal v1 implementation.
 Product spec: `docs/product-spec.md`
@@ -778,6 +777,8 @@ Each feature document `docs/technical-implmentations/NN-<name>.md` must contain,
 14. Open questions.
 
 ## 15. Feature document index
+
+Ticket index: [`index.md`](index.md). Recommended build order: [`implementation-order.md`](implementation-order.md).
 
 | File | Feature | Feature folder(s) and cross-cutting paths |
 | --- | --- | --- |

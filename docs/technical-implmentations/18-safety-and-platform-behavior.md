@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-18 (lines 1126-1153), F-15 overlay and message rules (lines 1041-1066), F-16 repository-state gates (lines 1067-1095), F-21 startup splash and its `Ctrl+C` path (lines 1488-1538), decisions D4 (line 1872), D13 (line 1881), D14 (line 1882), D15 (line 1883), the keyboard map quit paths (lines 1543-1567), and the action IDs in section 6.1 (lines 1705-1742).
 - Dependencies: `01-app-shell-and-focus.md` (quit handler, `Ctrl+C`, renderer teardown), `03-branches-panel.md`, `05-tags-panel.md`, `06-stashes-panel.md`, `07-worktrees-panel.md`, `11-diffs-and-file-actions.md`, `15-overlays-and-confirmations.md`, `16-repository-states.md`, `17-freshness-and-performance.md` (serialization and refresh), `19-configuration-and-keybindings.md` (non-configurability), `20-theme-and-colors.md` (NO_COLOR markers), `21-startup-splash.md` (startup `Ctrl+C`).
 - Owned paths (cross-cutting):

@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-- Status: Ready for dev.
 - Spec reference: `docs/product-spec.md` F-08 (lines 610-739), D3 (line 1871), D16 (line 1884), D17 (line 1885), graph config keys `graph.scope` and `graph.initialPageSize` (lines 1199-1200), action IDs (lines 1705-1742).
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`.
 - Region id: `graph` (`src/features/shell/regions.ts`).

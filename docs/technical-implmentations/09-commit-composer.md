@@ -2,7 +2,6 @@
 
 ## 1. Header
 
-- Status: Ready for dev.
 - Spec reference: `docs/product-spec.md` F-09 (lines 740-804), F-10 (lines 805-837), F-11 (lines 838-953), F-16 (lines 1067-1095), the keyboard map (lines 1539-1704), action IDs (lines 1705-1742).
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`.
 - Region id: `right-pane` (`src/features/shell/regions.ts`), owned by `MainArea.tsx`. The composer is the right-pane mode when `RepositoryProvider.selection.kind === "pending"`. The other right-pane modes are commit details for a commit selection, stash details for a stash selection, and worktree details for a worktree selection (F-10).
