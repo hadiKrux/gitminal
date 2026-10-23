@@ -3,7 +3,7 @@
 ## 1. Header
 
 Status: Draft for review
-Spec reference: `docs/product-spec.md` F-14 Help (lines 973-995); F-19 help and discovery (lines 1254-1265); action IDs section 6.1 (lines 1583-1611); key precedence section 3 (lines 109-119)
+Spec reference: `docs/product-spec.md` F-14 Help (lines 1016-1040); F-19 help and discovery (lines 1300-1323); keyboard map (lines 1539-1704); action IDs section 6.1 (lines 1705-1742); key precedence section 3 (lines 109-119)
 Dependencies: F-19 configuration and keybindings, F-20 theme and colors, F-01 app shell and focus, F-15 overlays and confirmations (modal frame and focus trap)
 Owned paths:
 - `src/features/help/HelpModal.tsx`
@@ -29,17 +29,19 @@ Consumed paths (not owned):
 ## 2. Scope and non-goals
 
 In scope:
-- The help modal opened with the configured help key (action `app.help`, default `?`) from anywhere outside a text input or a modal.
+- The help modal opened with the configured help key (action `app.help`, default `?` or `F1`) from anywhere outside a text input or a modal.
 - A search field activated by its configured key (action `help.search`, default `/`).
 - Sections for Focus, Global, Top bar, Sidebar panels, Commit graph, Commit composer, Commit details, Diffs, Console, Modals, and Configuration.
-- Each row showing the action, its effective keys after configuration overrides, and a one-line description.
+- Each row showing the action, its effective keys after configuration overrides, a one-line description, and, when the action is currently unavailable, its availability reason.
+- Every implemented action listed, including actions that are currently unavailable, unbound, or reported as disabled by availability.
 - The section for the current focus shown first.
-- Case-insensitive search across actions, keys, and descriptions (and action IDs).
+- Case-insensitive search across actions, keys, descriptions, and action IDs.
 - Up and Down, or `j` and `k`, navigating results.
 - `Esc` clearing the search, then closing help on a second press.
-- The help key closing help.
+- The help key closing help, including the configured alternative key such as `F1`.
 - Help being scrollable and never trapping the user.
 - The Configuration section showing the resolved config path, the keybindings path or "not present", the theme path or "not present", load status, warnings, the active theme name, and the note that Reload configuration is available from the command palette.
+- Documenting the three input modes (`field`, `search`, and `form`), including that single-line forms submit with `Enter`, multiline forms submit with `form.submit` (`Ctrl/Cmd+Enter`), and `Tab` indents in a multiline field.
 - Unbound actions labeled "Unbound".
 
 Non-goals:
@@ -89,6 +91,7 @@ OverlayProvider (src/app/providers/OverlayProvider.tsx)
               text                                 // action name
               span                                 // effective keys, or "Unbound"
               text                                 // one-line description
+              text                                 // availability reason when currently unavailable
         HelpConfiguration (src/features/help/HelpConfiguration.tsx)   // the Configuration section
           box
             markdown                               // notes
@@ -97,15 +100,15 @@ OverlayProvider (src/app/providers/OverlayProvider.tsx)
         KeyHint (src/ui/KeyHint.tsx)               // / Search, Esc Clear/Close, Up/Down Navigate
 ```
 
-`useHelp.ts` owns the query, the ordered section list, the current-focus-first rule, and the filtered row list.
+`useHelp.ts` owns the query, the ordered section list, the current-focus-first rule, the availability join, and the filtered row list. It consumes the unfiltered help rows from `keymap.describe.ts`; it never filters unavailable actions out.
 
 ## 5. Enforced files and folders
 
 - `src/features/help/HelpModal.tsx` - the modal: title, search field, scrollable body, footer hints, and key handling.
 - `src/features/help/HelpSection.tsx` - a titled section containing `HelpRow` children, including the Configuration section wrapper.
-- `src/features/help/HelpRow.tsx` - one row: action name, effective keys or "Unbound", and a one-line description.
-- `src/features/help/HelpConfiguration.tsx` - the Configuration section: resolved paths, load status, warnings, active theme, and the reload note.
-- `src/features/help/useHelp.ts` - query state, section ordering, current-focus-first, filtering, and Esc search-then-close handling.
+- `src/features/help/HelpRow.tsx` - one row: action name, effective keys or "Unbound", one-line description, and the availability reason when the action cannot run now.
+- `src/features/help/HelpConfiguration.tsx` - the Configuration section: resolved paths, load status, warnings, active theme, the reload note, and the input-mode notes.
+- `src/features/help/useHelp.ts` - query state, section ordering, current-focus-first, the availability join, filtering, and Esc search-then-close handling.
 - Colocated tests: `useHelp.test.ts`, `HelpRow.test.tsx`, `HelpConfiguration.test.tsx`, `HelpModal.test.tsx`.
 
 ## 6. State model
@@ -121,17 +124,19 @@ Provider state (single source of truth):
 - `ConfigProvider`: resolved config path, keybindings path, theme path, load status, and warnings.
 - `ThemeProvider`: the active theme name.
 - `KeymapProvider`: effective bindings after overrides, read through `keymap.describe.ts`.
+- `RepositoryProvider`: repository state and signals, read only through `commands.availability.ts` for the current reason; help never copies repository data.
 - `FocusProvider`: the derived current region id, used to order the current focus section first.
 - `OverlayProvider`: the help modal is a stack entry.
 
-Rule: help never copies configuration or keybindings. It reads them through the providers and the domain describe and path modules on each open.
+Rule: help never copies configuration or keybindings. It reads them through the providers and the domain describe, path, and availability modules on each open. Availability reasons are recomputed on open and whenever the repository state changes while help is visible, so a reason is never a stale snapshot from mount time.
 
 ## 7. Data flow
 
 ```text
-app.help -> useAction -> OverlayProvider.open("help") -> HelpModal
+app.help (? or F1) -> the single global useAction handler in AppShellHost -> OverlayProvider.open("help"), or close when help is already open -> HelpModal
 HelpModal -> useHelp
-  -> keymap.describe.ts          // rows: action, context, effective keys, description
+  -> keymap.describe.ts          // describeHelpRows: unfiltered rows with action, context, effective keys, description
+  -> commands.availability.ts    // current reason per action, joined into the row
   -> keymap.resolve.ts           // effective bindings after config and keybindings overrides
   -> config.paths.ts             // resolved config, keybindings, theme paths
   -> config.loader.ts            // load status
@@ -141,10 +146,15 @@ HelpModal -> useHelp
 help.search -> focus the search input -> useHelp filters rows case-insensitively
 ```
 
+Two describe outputs, one resolver: `keymap.describe.ts` exposes `describeFooterHints(focus, availability)` and `describeHelpRows()`. Footer hints drop actions that cannot run now; help rows keep every implemented action and attach the availability reason as data. The palette reads command metadata from the registry and effective keys from the same keymap resolver, not from either describe output. This keeps the footer, help, and palette agreeing on effective keys while differing only in filtering.
+
+Help also documents the three input modes from architecture section 8: `field` (printable keys, editing keys, native Enter submit for single-line, newline for multiline), `search` (editing keys plus arrows, paging, and Enter routed to the result list), and `form` (Tab between fields and footer actions, `Ctrl/Cmd+Enter` mapped to `form.submit`, and Tab indent inside a multiline field). The help content states that `form.submit` is the multiline submit action and that single-line forms keep native `Enter`.
+
 Named modules:
-- `src/domain/keymap/keymap.describe.ts` - the action, context, effective keys, and one-line description per row.
+- `src/domain/keymap/keymap.describe.ts` - the two row projections: availability-filtered footer hints and unfiltered help rows with action, context, effective keys, and one-line description.
 - `src/domain/keymap/keymap.resolve.ts` - the effective binding map after configuration overrides and context overrides.
 - `src/domain/keymap/keymap.types.ts` - key and action types.
+- `src/domain/commands/commands.availability.ts` - the current availability and reason per action, joined into help rows.
 - `src/domain/config/config.paths.ts` - resolved config, keybindings, and theme paths, and whether each is present.
 - `src/domain/config/config.loader.ts` - load status per file.
 - `src/domain/config/config.validate.ts` - warnings surfaced in the Configuration section.
@@ -156,7 +166,7 @@ Named modules:
 ## 8. Keyboard and focus
 
 Action IDs only; never raw key strings:
-- `app.help` (default `?`) - opens help; when help is open, closes it.
+- `app.help` (defaults `?` and `F1`) - opens help. When help is already open, the same action closes it; both default keys are alternative bindings for the one action.
 - `overlay.close` (default `Esc`) - clears the search if it is non-empty; on a second press, closes help.
 - `help.search` (default `/`) - focuses the search field.
 - `nav.up`, `nav.down` - move the row cursor (defaults also bind `j`/`k`).
@@ -164,9 +174,14 @@ Action IDs only; never raw key strings:
 - `nav.first`, `nav.last` - jump to the first and last row.
 - `focus.next`, `focus.previous` (`Tab`/`Shift+Tab`) - move between the search field and the row list.
 
+Ownership:
+- `app.help` is the help overlay's own toggle, registered once as a global action in `AppShellHost`. It is the only global action besides `overlay.close` and `app.quit` that resolves while help owns keys.
+- `app.console`, `app.palette`, `app.themePicker`, `app.reloadConfig`, `remote.*`, and every region action are unreachable while help is open.
+
 Focus:
 - On open, focus goes to the row list; `help.search` moves focus to the search field.
 - While help is open, `OverlayProvider` gives help full key ownership per key precedence rule 1; background regions are inactive through `ui/Overlay.tsx`.
+- The help search field uses the `search` input mode, so arrows, paging, and Enter still drive the row list while the query keeps focus.
 - The footer shows the help keys while it is open.
 - Help is a modal and is not a focus region; it never enters the shell Tab order.
 - `Esc` always works, so help never traps the user.
@@ -177,6 +192,7 @@ Focus:
 - Empty: when the search matches nothing, a single row shows the marker `[?]` and "No actions match" with the query echoed.
 - Error: configuration warnings render in the Configuration section with the marker `[!]` and never block the rest of help; a missing keybindings or theme file is shown as "not present" without a warning, since missing files are normal and silent.
 - Disabled or unbound: an action with an empty binding list renders the keys cell as "Unbound" and is still listed and searchable.
+- Unavailable action: the row stays visible with its effective keys, description, and the availability reason from `commands.availability.ts`, for example "detached HEAD", "no upstream", or "nothing to commit". It is never filtered out and never rendered as if it could run.
 - No blocking modal on error: help is read-only, so no confirmation or retry state exists.
 
 ## 10. Performance and bounds
@@ -196,15 +212,16 @@ Focus:
 
 ## 12. Acceptance mapping
 
-- "Every implemented keyboard action appears in help with its effective binding" -> `src/domain/keymap/keymap.describe.ts` enumerates all action IDs from section 6.1 and their effective keys.
+- "Every implemented keyboard action appears in help with its effective binding" -> `describeHelpRows()` in `src/domain/keymap/keymap.describe.ts` enumerates every implemented action ID from section 6.1 and their effective keys, without availability filtering.
+- "Every implemented keyboard action appears in help whether or not it is currently available, and an unavailable action stays listed with its reason" -> every help row is joined with `commands.availability.ts`; `HelpRow.tsx` renders the reason. Only footer hints from `describeFooterHints()` drop unavailable actions.
 - "The help reflects context overrides and configuration overrides, for example the configured Stashes key shows Pop stash" -> `src/domain/keymap/keymap.resolve.ts` applies context and configuration overrides, and `HelpRow.tsx` renders the resolved keys.
-- "A user can find any action by searching part of its name, key, or action ID" -> the filter in `useHelp.ts` matches action name, effective keys, description, and action ID.
+- "A user can find any action by searching part of its name, key, or action ID" -> the filter in `useHelp.ts` matches action name, effective keys, availability reason, description, and action ID.
 - "The Configuration section lists the resolved file paths and any warning without blocking the rest of help" -> `HelpConfiguration.tsx` with `config.paths.ts`, `config.loader.ts`, and `config.validate.ts`.
 - "Sections for Focus, Global, Top bar, Sidebar panels, Commit graph, Commit composer, Commit details, Diffs, Console, Modals, and Configuration" -> the ordered section list in `useHelp.ts`; `HelpSection.tsx` renders each. The Focus section lists `focus.next`, `focus.previous`, and every `focus.region.*` action with its effective key or "Unbound".
 - "The section for the current focus is shown first" -> `FocusProvider.activeRegion` (derived from native focus) reorders the section list in `useHelp.ts`.
-- "Each row shows the action, its effective keys after configuration overrides, and a one-line description" -> `HelpRow.tsx`.
+- "Each row shows the action, its effective keys after configuration overrides, and a one-line description" -> `HelpRow.tsx`; the Modals section also lists `form.submit`, and `HelpConfiguration.tsx` carries the input-mode notes.
 - "`Esc` clears the search, then closes help on a second press" -> `overlay.close` handling in `useHelp.ts`.
-- "`?` closes help" and "Help is scrollable and never traps the user" -> `app.help` toggle and the scrollbox body.
+- "`?` closes help" and "Help is scrollable and never traps the user" -> `app.help` toggle, including the `F1` alternative binding, plus the scrollbox body.
 - "Unbound actions are labeled Unbound" -> `HelpRow.tsx`.
 - "The Configuration section shows resolved config, keybindings, and theme paths, load status, active theme, and warnings" -> `HelpConfiguration.tsx`.
 - "A note that Reload configuration is available from the command palette" -> a `<markdown>` note in `HelpConfiguration.tsx` naming `app.reloadConfig`.
@@ -212,10 +229,11 @@ Focus:
 ## 13. Tests to add
 
 Colocated per architecture section 5:
-- `useHelp.test.ts`: search is case-insensitive and matches action name, effective keys, description, and action ID; the current focus section is first; the Focus section lists all ten `focus.region.*` rows with their effective keys and shows `focus.region.topBar` as "Unbound"; `overlay.close` clears the search then closes on a second call.
-- `HelpRow.test.tsx`: the effective keys cell reflects a configuration override; an unbound action renders "Unbound".
-- `HelpConfiguration.test.tsx`: resolved config, keybindings, and theme paths; "not present" for a missing keybindings or theme file; warnings render with the `[!]` marker; the active theme name; the reload note.
-- `HelpModal.test.tsx`: `help.search` focuses the search field; `app.help` closes help; the body scrolls; focus stays trapped inside the modal while it is open.
+- `useHelp.test.ts`: search is case-insensitive and matches action name, effective keys, availability reason, description, and action ID; the current focus section is first; the Focus section lists all ten `focus.region.*` rows with their effective keys and shows `focus.region.topBar` as "Unbound"; unavailable actions are present with their reason and are not filtered out; `overlay.close` clears the search then closes on a second call; `app.help` closes help while open and the `F1` alternative does the same.
+- `HelpRow.test.tsx`: the effective keys cell reflects a configuration override; an unbound action renders "Unbound"; an unavailable action renders its exact availability reason and keeps its keys.
+- `HelpConfiguration.test.tsx`: resolved config, keybindings, and theme paths; "not present" for a missing keybindings or theme file; warnings render with the `[!]` marker; the active theme name; the reload note; the input-mode notes including `form.submit` for multiline forms.
+- `HelpModal.test.tsx`: `help.search` focuses the search field; `app.help` closes help; no other global action resolves while help is open; the body scrolls; focus stays trapped inside the modal while it is open.
+- `keymap.describe.test.ts`: `describeHelpRows()` returns every implemented action regardless of availability, while `describeFooterHints()` drops unavailable actions and still agrees with help on effective keys.
 
 ## 14. Open questions
 
@@ -223,3 +241,5 @@ Colocated per architecture section 5:
 - Whether the Modals section is generated from the overlay keymap or hand-listed from the modal keymap table in the spec.
 - How `<markdown>` blocks and the row list coexist inside one scrollbox without layout jumps; may require the Configuration section to render markdown in a separate scrollbox.
 - Whether a flat "all actions" `<select>` view is worth adding alongside the sectioned scrollbox.
+- Whether the availability reason should refresh live while help is open or only on open. Proposal: refresh on open and on repository state change, so a stale reason never contradicts the palette.
+- Whether input-mode documentation belongs in the Modals section or a dedicated Input section. The current plan puts a short note in the Configuration section and a row for `form.submit` in Modals.

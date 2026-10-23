@@ -114,13 +114,13 @@ The visible layout has four regions:
 
 Keys resolve in this order:
 
-1. An open modal or overlay owns all keys except the app quit escape hatch.
-2. A text input owns printable keys, Backspace, Delete, arrow keys, and Enter for newlines. Modified shortcuts still work.
+1. An open modal or overlay owns all keys except the app quit escape hatch and the toggle that closes that same overlay (`Ctrl/Cmd+P` for the palette, `?` for help). The console drawer is not a modal; its toggle remains global while it is open.
+2. A text input owns printable keys, Backspace, Delete, arrow keys, Home, End, and Enter for newlines. A declared search input mode additionally routes Up, Down, PageUp, PageDown, Home, and End to its result list and Enter to the highlighted result, while printable keys keep editing the query. A declared form mode routes Tab and Shift+Tab between fields and actions and maps `Ctrl/Cmd+Enter` to form submit. Outside those declared modes, only app actions with a modified binding may fire while an input is focused.
 3. Focused region context keys.
 4. Global keys.
 5. Unhandled keys are ignored.
 
-This precedence resolves overlaps such as `p` meaning Pull in the top bar or commit graph, but Pop stash when the Stashes panel is focused. The footer shows the effective action, not every possible binding.
+This precedence resolves overlaps such as `p` meaning Pull in the top bar or commit graph, but Pop stash when the Stashes panel is focused. The footer shows the effective action, not every possible binding. The three input modes (`field`, `search`, `form`) are part of keymap resolution, so a search field can keep typing while Up and Down move results without weakening the general rule that a plain field owns its keys.
 
 ### Footer keyboard hints
 
@@ -265,9 +265,11 @@ Fetch is scoped to the Branches panel. It fetches only the upstream refs of loca
 - The Remotes panel updates only the fetched upstream refs. Unrelated remote branches keep their last known state until they are fetched by another means.
 - Fetch groups work by remote. A failure for one remote or one ref does not stop the other groups.
 - A missing upstream ref during a normal Fetch is non-fatal. The branch is marked `[?] upstream not found`, and the status names the affected branch.
-- Fetch --prune uses the same scope and removes stale refs only within the fetched upstream scope. A pruned upstream is marked `[?] remote branch deleted`.
+- Fetch --prune uses the same scope. It first confirms remote absence with `git ls-remote --heads <remote>` for each affected remote, then removes only the confirmed stale remote-tracking refs in that scope. It never prunes unrelated refs. A confirmed missing upstream is marked `[?] remote branch deleted`.
+- A failed or timed-out remote check is `unknown`, not "missing" or "deleted". A normal Fetch with a missing upstream marks the branch `[?] upstream not found`; only a successful prune confirmation marks it deleted.
 - Partial success is reported clearly. For example: "Fetched 4 upstreams; 1 upstream missing; 1 remote failed."
 - After Fetch --prune, re-evaluate local branch upstreams. Local branches whose upstream ref disappeared get the `[?] remote branch deleted` indicator.
+- A successful remote branch deletion from the Delete Branch flow also classifies that branch's upstream as deleted without requiring a second prune confirmation.
 - The success status may report the number of fetched upstream refs, pruned refs, missing refs, and affected local branches.
 
 #### Status and progress
@@ -353,7 +355,8 @@ New Branch modal:
 - Name field, required.
 - Start point, defaulting to the current HEAD. The start point is shown as read-only text in v1 unless the user opened the modal from a selected commit, in which case that commit is the start point.
 - "Check out after creating" checkbox, on by default.
-- Validation: git ref format, no duplicate local branch, no empty name.
+- Validation: git ref format, no duplicate local branch, no empty name, and at least one commit exists when the start point is HEAD.
+- Creating with checkout is one atomic operation (`git switch -c` / `git checkout -b`), so a failed checkout cannot leave an orphan branch behind. Creating without checkout uses `git branch`.
 - On success, the branch appears in the list and is selected. If checkout is requested, the current branch marker moves.
 
 Delete Branch modal:
@@ -380,9 +383,11 @@ Delete Branch modal:
 
 Delete order and partial failure:
 
-- For the local-and-remote scope, delete the remote branch first, then the local branch.
-- If remote deletion fails, keep the local branch and show the error. The user can retry or delete locally only.
-- If remote deletion succeeds but local deletion fails, report a partial failure. Keep the local branch visible with a `[?] remote branch deleted` indicator because its upstream is now gone.
+- Before deleting, the app verifies that the local branch can be deleted: it is not current and not checked out in another worktree. An unmerged branch requires the force acknowledgement, which selects `git branch -D`; a merged branch uses `git branch -d`.
+- For the local-and-remote scope, delete the local branch first, then the remote branch. This ordering guarantees that a local delete failure never removes the only remaining copy on the remote.
+- If local deletion fails, keep the branch and the remote branch, and show the error. Nothing is deleted.
+- If local deletion succeeds but remote deletion fails, report a partial failure and name the remaining remote branch. The local branch is gone; the remote branch can be deleted by another run of the same flow or outside the app.
+- A successful remote deletion also updates the stored upstream classification for any local branch that tracked it to `[?] remote branch deleted`, without requiring a second Fetch --prune.
 - Remote deletion targets the configured upstream remote and branch, or `origin/<local-branch-name>` when no upstream exists. It never scans or guesses another remote in v1.
 - Local-only deletion never touches the remote branch.
 
@@ -395,8 +400,10 @@ Acceptance:
 - The Delete Branch modal always shows local-only and local-and-remote choices, with unavailable choices explained.
 - Deleting local and remote deletes only the configured upstream branch, or `origin/<local-branch-name>` when no upstream exists.
 - A partial failure leaves an accurate local branch state and message.
-- Creating a branch can optionally check it out.
+- Creating a branch can optionally check it out, and create-with-checkout is atomic so a failed checkout leaves no orphan branch.
 - A failed checkout or delete reports the git error without changing visible state.
+- Local-and-remote deletion deletes the local branch first and reports a partial failure if only the remote deletion fails.
+- Branch creation and deletion are unavailable in an empty repository with the reason "no commits yet".
 
 ### F-04 Remotes panel
 
@@ -524,6 +531,8 @@ Create Stash modal:
 - "Include untracked files" checkbox, off by default. When checked, untracked files are included.
 - The modal is shown before the operation so the user can cancel.
 - If there are no changes to stash, the action is unavailable with the reason "nothing to stash".
+- If the only changes are untracked and "Include untracked files" is off, the action is unavailable with the reason "only untracked changes; include untracked files to stash", because `git stash push` otherwise exits successfully without creating a stash.
+- In an empty repository with no commits, stash creation is unavailable with the reason "no commits yet".
 - On success, the composer area returns to the pending changes view, the stash list refreshes, and the new stash is selected.
 
 Apply and Pop:
@@ -586,6 +595,7 @@ Delete Worktree confirmation:
 - Cannot delete the current worktree. Disabled with a reason.
 - A clean worktree requires one confirmation.
 - A dirty or locked worktree requires a stronger confirmation that names the risk and requires the force option.
+- Removing a dirty worktree uses one `--force`. Removing a locked worktree requires two force flags (`-f -f`); a single force exits 128. The app computes the exact flag set from the reported state.
 - Deleting a worktree does not delete its branch.
 - On success, the row disappears and selection moves to a neighbor.
 - If the directory cannot be removed, show the git or filesystem error and keep the row.
@@ -692,7 +702,7 @@ Commit search:
 
 Graph content:
 
-- The graph shows all commits reachable from local and remote branches, with ref badges.
+- The graph shows all commits reachable from local and remote branches plus `HEAD`, with ref badges. Including `HEAD` keeps a commit made while detached visible.
 - Orphan or unreachable commits are not shown.
 - The graph handles octopus merges, branch starts, and disconnected lanes without visual corruption.
 
@@ -723,6 +733,9 @@ Acceptance:
 - Enter exits search and selects the result in the graph, loading the containing page if needed.
 - Esc cancels search and restores the previous selection, scroll position, and Pending Changes or composer state.
 - No-results and search-error states are clear and recoverable.
+- Refreshing status preserves the loaded graph window and the selected commit instead of dropping pages 2..N.
+- A commit made while HEAD is detached remains visible in the graph.
+- Merge commits show real affected-file counts and a non-empty diff from their first parent.
 
 ### F-09 Commit composer
 
@@ -858,8 +871,9 @@ Untracked Files:
 Conflicts:
 
 - Conflict support stays inside the three-section model. Conflicted files appear in Working Directory with a `U` status and a conflict banner above the list.
-- The file diff shows the conflict markers as text.
-- The user resolves the file externally and then stages it. A staged conflict can be unstaged.
+- The file diff shows the conflict markers as text, rendered from a synthetic unified patch. It never passes git's combined `--cc` output to the diff renderer, which parses it as zero hunks and renders blank.
+- The user resolves the file externally and then stages it. A staged conflict can be unstaged only when no merge, rebase, or cherry-pick is in progress, because `git restore --staged` would destroy the merge stages.
+- Bulk Stage All and Unstage All are disabled while a merge, rebase, or cherry-pick is in progress, because they can stage conflict markers as resolved or destroy merge stages.
 - Ours/theirs resolution actions are deferred beyond v1.
 - If the repository is in a merge, rebase, or cherry-pick state, the app shows a persistent banner naming the operation until it finishes or aborts.
 
@@ -900,9 +914,11 @@ Actions:
 - Delete untracked removes the file from disk. Requires confirmation.
 - Discard All restores all working tree files and requires confirmation.
 - Delete All untracked removes all untracked files and requires confirmation.
-- Stage All and Unstage All do not require confirmation.
+- Stage All and Unstage All do not require confirmation. Each bulk action applies only to the paths in its own section, never to the whole working tree. An untracked Stage All stages only the untracked set.
+- Per-file and bulk commands treat paths as literal pathspecs and include both paths of a rename. A file named `a[1].txt` can never stage or discard `a1.txt`.
 - If an operation is running, all conflicting actions are disabled.
 - After an action, refresh the affected sections and keep the user's selection on the same path when possible.
+- The unified diff renders one line-number gutter. The two-gutter appearance in the UI reference is illustrative; v1 does not add a custom two-gutter renderer.
 
 Keyboard while the Diff panel is focused:
 
@@ -931,6 +947,9 @@ Acceptance:
 - Binary and oversized files show a clear notice and do not break the panel.
 - Expanding and collapsing preserves selection and does not refetch unnecessarily.
 - Staged and working diffs show the correct comparison, not the same diff twice.
+- Bulk actions apply only to the paths in their own section, and every path is treated literally, including renames and pathspec metacharacters.
+- Bulk staging and unstaging are disabled during a merge, rebase, or cherry-pick, and conflicted files render from a valid synthetic patch rather than blank combined output.
+- Collapsed and truncated diff segments remain valid unified patches with correct hunk headers.
 
 ### F-12 Command palette
 
@@ -1013,7 +1032,8 @@ The help modal contains:
 
 Acceptance:
 
-- Every implemented keyboard action appears in help with its effective binding.
+- Every implemented keyboard action appears in help with its effective binding, whether or not it is currently available.
+- An unavailable action stays listed with its availability reason, for example "detached HEAD", rather than disappearing. Help documents the action; the footer only hints actions that can run now.
 - The help reflects context overrides and configuration overrides, for example the configured Stashes key shows Pop stash.
 - A user can find any action by searching part of its name, key, or action ID.
 - The Configuration section lists the resolved file paths and any warning without blocking the rest of help.
@@ -1037,11 +1057,11 @@ Rules:
 - Destructive confirmations state the exact scope and consequence.
 - Text input modals validate inline and keep the modal open on error.
 - Enter submits single-line forms. Multiline fields use `Ctrl/Cmd+Enter` to submit.
-- While a modal is open, background regions are visibly inactive and cannot receive actions.
+- While a modal is open, background regions are visibly inactive and cannot receive actions. The only exceptions are `Esc`/`overlay.close`, the quit escape hatch, and the same overlay's toggle (the palette shortcut closes the palette, `?` closes help).
 - The footer shows the modal's keys.
 - Only one modal is open at a time. A successful action closes the modal and shows status.
 - If an operation started from a modal fails, the modal closes and a persistent error overlay opens with the details. The user's input is preserved when retry is meaningful.
-- Success messages are non-blocking and auto-dismiss after a short delay. Failures stay until dismissed.
+- Success and informational messages are non-blocking, appear only in the top bar status strip and the console, and auto-dismiss after a short delay. They never open a modal or overlay. Failures stay until dismissed.
 - The app does not stack error overlays. A new failure replaces the visible error details but remains in the console.
 
 ### F-16 Repository states
@@ -1052,14 +1072,14 @@ Rules:
 | Subdirectory launch | Resolve the repository root, show root-relative paths, run commands from the root. |
 | Not a git repository | Show a clear "Not a git repository" screen with the current directory and instructions. No git actions are available. |
 | Bare repository | Detect and show "Bare repositories are not supported". No repository actions. |
-| Empty repository | Show the unborn branch, no commits, Pending Changes row, and composer after staging. Push is unavailable until a commit exists. |
+| Empty repository | Show the unborn branch, no commits, Pending Changes row, and composer after staging. Push, branch creation from HEAD, branch deletion, tag creation, tag push, tag deletion, and stash creation are unavailable until a commit exists, each with the reason "no commits yet". |
 | Detached HEAD | Show the short hash instead of a branch. Pull and branch-dependent actions explain why they are unavailable. Commit is allowed with a visible detached warning. |
 | No upstream | Show "no upstream". Push creates `origin/<local-branch-name>` and sets the upstream. Pull explains that the branch must be pushed first. |
 | Upstream gone | Show `[?]` and "upstream gone" in the branch row and top bar. Pull is unavailable. Push recreates the configured upstream branch. |
 | No remote | Remote actions are disabled with "no remote". Tags show "local only". |
 | No origin remote but other remotes exist | Push without an upstream fails with a clear error listing the configured remotes. The app does not guess another remote. |
 | Merge or rebase in progress | Show a persistent repository-state banner. Conflicted files are visible. Unsupported operations are blocked with a reason. |
-| Conflicted files | Show conflicted files as `U` rows in Working Directory with a conflict banner, plus a conflict-marker diff. The file can be staged after the user resolves it externally. Ours/theirs actions are deferred. |
+| Conflicted files | Show conflicted files as `U` rows in Working Directory with a conflict banner, plus a conflict-marker preview rendered from a synthetic unified patch (never the combined `--cc` output). The file can be staged after the user resolves it externally. Bulk staging and unstaging are disabled during a merge, rebase, or cherry-pick until conflicts are resolved. Ours/theirs actions are deferred. |
 | Dirty working tree during checkout | No auto-stash. Run the checkout, show git's error, keep the current state. |
 | Operation in progress | Disable conflicting actions, show progress in the top bar status strip, allow the console. |
 | External git changes | Refresh the relevant state after operations and provide a manual refresh. Live watching is recommended for the git directory. |
@@ -1083,7 +1103,8 @@ Freshness:
 - Watching the working tree for file edits is optional. If not watched, show a hint or refresh on focus so users know that external edits may need `r`.
 - Ahead and behind counts reflect the last fetched remote refs. A fetch updates them.
 - After every fetch, re-evaluate configured upstreams. Mark missing refs with `[?]`, and classify a missing ref as a deleted remote branch only after a successful prune for that remote.
-- Preserve selection and expansion state across refreshes when the underlying item still exists.
+- Preserve selection, expansion state, and the loaded graph window across refreshes when the underlying item still exists. A status refresh never silently drops loaded pages or the selected commit.
+- Pagination is monotonic: loading an older page never reloads or duplicates a page that was already loaded, and trimming the oldest loaded page never changes the cursor used for the next page.
 
 Performance targets:
 
@@ -1109,7 +1130,8 @@ Safety:
 - Never discard, delete, drop, or force push without a confirmation that names the target.
 - Force push offers both `--force-with-lease` and literal `--force`. The safe option is primary. The literal option is never the default focus and requires a stronger confirmation that names the branch and remote.
 - No automatic stash, reset, checkout, clean, or prune.
-- No credentials are stored or requested by the app. Git prompts are disabled so missing credentials fail visibly instead of hanging.
+- No credentials are stored or requested by the app. Git prompts, editors, pagers, and interactive credential managers are disabled so missing credentials fail visibly instead of hanging.
+- Every git invocation has a timeout and can be cancelled. Ctrl+C and quit abort the running child, terminate it, and restore the terminal; a timed-out or cancelled command is reported as a warning, never as success.
 - Git commands are executed with argument arrays, not a shell string, so file names cannot be interpreted as shell syntax.
 - Sensitive values are redacted in the console and error overlays.
 - Commit messages and staged files survive failures.
@@ -1117,7 +1139,7 @@ Safety:
 - Deleting a branch, tag, stash, or worktree never deletes reachable commits as a side effect.
 - Deleting a remote branch requires explicitly choosing the local-and-remote scope. The remote option is never the default action.
 - Push with no upstream may create the `origin/<branch>` ref, but it never force-pushes and never overwrites a non-fast-forward remote branch.
-- Missing upstream indicators are derived from fetched refs. The app never claims a remote branch was deleted without a Fetch --prune, or a fetch with pruning enabled, that confirms the ref is absent.
+- Missing upstream indicators are derived from fetched refs. The app never claims a remote branch was deleted without a Fetch --prune that confirms the ref is absent, or a successful remote branch deletion from the app. A failed or timed-out remote check is "unknown", never "deleted" or "unpushed".
 - Configuration cannot disable destructive confirmations, force-push warnings, credential prompt protection, or hook execution by default.
 - `git.path` from configuration is executed directly without a shell. It is a local user setting, not a repository-controlled value.
 
@@ -1639,7 +1661,9 @@ These jumps are a spatial map in screen order, not a second copy of the Tab cycl
 | Key | Action |
 | --- | --- |
 | `Ctrl/Cmd+S` | Commit staged files |
-| `.` | Commit options menu |
+| `Alt+.` | Commit options menu while the message field is focused |
+| `.` | Commit options menu while the right-pane region frame is focused outside the message field |
+| `Ctrl/Cmd+Enter` | Submit the focused form (multiline forms) |
 | `Esc` | Leave the textarea |
 | `Enter` | New line |
 
@@ -1684,7 +1708,7 @@ These IDs are stable and are the only names accepted in `config.json` and `keybi
 
 | Context | Action IDs |
 | --- | --- |
-| Global | `app.quit`, `app.help`, `app.palette`, `app.console`, `app.refresh`, `app.reloadConfig`, `app.themePicker`, `remote.pull`, `remote.push`, `remote.fetch`, `remote.fetchPrune`, `remote.more`, `commit.focus`, `focus.next`, `focus.previous`, `overlay.close` |
+| Global | `app.quit`, `app.help`, `app.palette`, `app.console`, `app.refresh`, `app.reloadConfig`, `app.themePicker`, `remote.pull`, `remote.push`, `remote.pushForceSafe`, `remote.pushForceOverwrite`, `remote.pushNoVerify`, `remote.fetch`, `remote.fetchPrune`, `remote.more`, `commit.focus`, `focus.next`, `focus.previous`, `overlay.close` |
 | Direct focus | `focus.region.topBar`, `focus.region.branches`, `focus.region.remotes`, `focus.region.tags`, `focus.region.stashes`, `focus.region.worktrees`, `focus.region.graph`, `focus.region.rightPane`, `focus.region.diff`, `focus.region.console` |
 | Shared navigation | `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.first`, `nav.last`, `nav.activate` |
 | Commit graph | `graph.search` |
@@ -1695,11 +1719,11 @@ These IDs are stable and are the only names accepted in `config.json` and `keybi
 | Tags | `tag.create`, `tag.push`, `tag.delete` |
 | Stashes | `stash.create`, `stash.apply`, `stash.pop`, `stash.delete` |
 | Worktrees | `worktree.create`, `worktree.delete` |
-| Commit composer | `commit.submit`, `commit.options` |
-| Diffs | `nav.expand`, `nav.collapse`, `diff.toggle`, `diff.stage`, `diff.unstage`, `diff.discard`, `diff.stageAll`, `diff.unstageAll`, `diff.discardAll` |
+| Commit composer | `commit.submit`, `commit.submitNoVerify`, `commit.amend`, `commit.amendNoVerify`, `commit.options` |
+| Diffs | `nav.expand`, `nav.collapse`, `diff.toggle`, `diff.stage`, `diff.unstage`, `diff.discard`, `diff.deleteUntracked`, `diff.stageAll`, `diff.unstageAll`, `diff.discardAll`, `diff.deleteAllUntracked` |
 | Console | `console.clear` |
 | Help | `help.search` |
-| Modals, palette, and help | `nav.activate`, `overlay.close`, `focus.next`, `focus.previous` |
+| Modals, palette, and help | `form.submit`, `nav.activate`, `overlay.close`, `focus.next`, `focus.previous` |
 
 Notes:
 
@@ -1709,6 +1733,12 @@ Notes:
 - `focus.region.topBar` has no default key. The other direct focus actions default to `1`-`9` in screen order. A direct focus action never runs a region action, and it stays available while a git operation is running.
 - Context action IDs shadow global IDs with the same key. For example, `tag.push` overrides `remote.push` while Tags is focused.
 - Actions that are unbound still appear in the command palette and help.
+- `remote.pushForceSafe`, `remote.pushForceOverwrite`, and `remote.pushNoVerify` have no default key; they are reachable from the More menu and the command palette.
+- `commit.submitNoVerify`, `commit.amend`, and `commit.amendNoVerify` have no default key; they are reachable from the commit options menu and the command palette. `commit.submit` remains the default `Ctrl/Cmd+S` action.
+- `diff.deleteUntracked` and `diff.deleteAllUntracked` are the untracked-delete intents. `diff.discard` and `diff.discardAll` act only on tracked working-tree files. The Diff context binds `d` and `D` to the intent that matches the selected section.
+- `form.submit` defaults to `Ctrl/Cmd+Enter` and is the submit action for every multiline form. Single-line forms keep native Enter submission.
+- `app.help` defaults to `?` plus `F1`, and `app.palette` defaults to `Ctrl/Cmd+P` plus `F2`, so both remain reachable when a terminal reserves the primary binding. These are alternative keys for the same action ID, not separate actions.
+- Internal selection commands such as `graph.selectCommit`, `stash.select`, and `worktree.select` are command IDs used by the palette and other features. They have no action ID and no default key.
 
 ## 7. End-to-end flows
 
@@ -1752,9 +1782,9 @@ Notes:
 1. User focuses Branches and presses `d`.
 2. The modal shows "Delete local branch only" and "Delete local and remote branch", naming the configured upstream or the same-name origin branch.
 3. User selects a scope and confirms.
-4. For local and remote, the app deletes the upstream remote branch first and then the local branch.
+4. For local and remote, the app preflights the local delete, deletes the local branch first, then deletes the upstream remote branch.
 5. On success, the branch disappears from Branches and the Remotes panel refreshes.
-6. If the remote deletion fails, the local branch remains. If the local deletion fails after a successful remote deletion, the local branch remains with a `[?] remote branch deleted` indicator.
+6. If local deletion fails, both branches remain. If remote deletion fails after the local branch is gone, the app reports a partial failure and names the remaining remote branch.
 
 ### Discover a deleted remote branch
 
@@ -1838,7 +1868,7 @@ Notes:
 | --- | --- | --- |
 | D1 | v1 scope | All listed features are v1, sequenced by risk. |
 | D2 | Key precedence | Focused context wins. Global keys apply when the focused region does not define a conflict. |
-| D3 | Commit graph scope | All local and remote branches, with ref badges. |
+| D3 | Commit graph scope | All local and remote branches plus `HEAD`, with ref badges, so detached commits stay visible. |
 | D4 | Force push behavior | Offer both `--force-with-lease` and literal `--force`. Safe force is primary; literal force has a stronger confirmation. |
 | D5 | Conflict support | Show conflicted files and conflict-marker diffs. The user resolves externally and stages. No ours/theirs actions in v1. |
 | D6 | Pushing tags | Provide a Push tag action and an optional create-and-push checkbox. |
@@ -1848,7 +1878,7 @@ Notes:
 | D10 | Live refresh | Watch the git directory, refresh on focus, and keep manual `r` refresh. Do not watch the whole worktree. |
 | D11 | Configuration | Settings and keybindings load from `config.json`, with an optional `keybindings.json` override and a Reload configuration command. Invalid files never block launch. |
 | D12 | Theme | Catppuccin Mocha is the built-in default. v1 includes Mocha, Macchiato, Frappe, and Latte. `theme.json` layers partial color overrides. Non-Catppuccin themes are later. |
-| D13 | Branch deletion | The modal always offers local only and local plus remote. Remote targets the configured upstream, or `origin/<local-branch-name>` when no upstream exists. Missing upstream refs show a `[?]` indicator, confirmed as deleted after prune. |
+| D13 | Branch deletion | The modal always offers local only and local plus remote. Remote targets the configured upstream, or `origin/<local-branch-name>` when no upstream exists. Missing upstream refs show a `[?]` indicator, confirmed as deleted after prune or after the app deletes the remote branch. |
 | D14 | Push without upstream | Push automatically creates `origin/<local-branch-name>`, pushes, and sets the upstream without an extra modal. |
 | D15 | Fetch scope | Fetch updates only the upstream refs of local branches, grouped by remote and deduplicated. It does not fetch every remote branch. The default setting is `remote.fetchScope: "local"`. |
 | D16 | Commit history loading | The graph lazy-loads bounded pages, starting at 500 commits by default, and loads older commits near the bottom. It never loads full history up front. |

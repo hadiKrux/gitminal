@@ -3,7 +3,7 @@
 ## 1. Header
 
 - Status: Draft for review
-- Spec reference: `docs/product-spec.md` F-20 (lines 1278-1440), decisions D12 and D18, theme token table at lines 1383-1413.
+- Spec reference: `docs/product-spec.md` F-20 (lines 1324-1487), decisions D12 and D18, theme token table at lines 1429-1457, and section 6 "Keyboard map" (lines 1539-1704).
 - Dependencies: `01-app-shell-and-focus.md` (tokens for borders and focus), `08-commit-graph.md` (graph lane colors), `11-diffs-and-file-actions.md` (diff token mapping), `13-console.md` (console tokens), `15-overlays-and-confirmations.md` (error and warning tokens), `17-freshness-and-performance.md` (progress tokens), `19-configuration-and-keybindings.md` (theme file path, reload, config writing).
 - Owned paths:
   - `src/domain/theme/theme.types.ts`
@@ -19,6 +19,15 @@
   - `src/features/theme-picker/useThemePicker.ts`
   - `src/ui/Swatch.tsx`
 
+Consumed paths (not owned):
+- `src/features/overlays/OverlayHost.tsx` (stack-aware overlay wrapper)
+- `src/app/providers/OverlayProvider.tsx` (modal stack)
+- `src/ui/ModalFrame.tsx`, `src/ui/ModalActions.tsx`, `src/ui/Overlay.tsx`
+- `src/app/hooks/useAction.ts`
+- `src/app/providers/KeymapProvider.tsx`
+- `src/domain/config/config.writer.ts` (theme field persistence)
+- `src/features/shell/Footer.tsx` (the `t Theme` hint)
+
 ## 2. Scope and non-goals
 
 In scope: the four Catppuccin flavors with Mocha default; the token table; `theme.json` location and precedence; the `theme.json` schema including per-token override and graph lane array; the theme picker opened with `t` and from the palette; picker rows with name, light or dark label, active marker, and swatch; live preview on highlight; Enter applies and persists by writing the `theme` field while preserving other fields; creating a minimal config when absent; session-only apply with a warning when malformed or unwritable; Esc restoring the previous theme; overrides layering over any base theme; capability detection (truecolor, 256-color, monochrome, NO_COLOR); text markers carrying all meaning; the token-to-OpenTUI-prop mapping; the single central icon file `src/theme/icons.ts`.
@@ -32,10 +41,10 @@ Non-goals: non-Catppuccin built-in themes; automatic light and dark switching; l
 | `<box>` | Theme picker modal and `Swatch` cells | Layout; `Swatch` is a `box` primitive with a background color. |
 | `<text>` | Theme names, light or dark labels, active marker, note below the list | Names and markers are text, so the picker works without color. |
 | `<span>` | Active `*` marker and label inline | Inline runs inside `<text>`. |
-| `<select>` | Not used for the theme list | The list needs custom rows with a swatch, so it is a `<scrollbox>` of `<box>` rows. |
-| `<scrollbox>` | Theme picker list | Four rows today but scrollable and consistent with other lists. |
+| `<select>` | Not used | The theme list needs custom rows with a swatch, a light or dark label, and an active marker, so it is a `<scrollbox>` of `<box>` rows. The select is reserved for uniform option lists such as the palette. |
+| `<scrollbox>` | Theme picker list | Holds the custom `ThemeRow` rows with `viewportCulling`; four rows today but consistent with other scrollable lists and ready for more flavors. |
 | `<diff>` | Diff panel | Diff colors are mapped from tokens: `addedBg`, `removedBg`, `addedSignColor`, and `removedSignColor` from `diffAddBackground`, `diffRemoveBackground`, `diffAdd`, and `diffRemove`. |
-| `useKeyboard` | Not used directly | Centralized in `useHotkeys`; the picker registers `app.themePicker` and `overlay.close` via `useAction`. |
+| `useKeyboard` | Not used directly | Centralized in `useHotkeys`. `app.themePicker` is a global action registered once by its designated owner in the app or shell, never by this feature; the picker registers only overlay-scoped actions through `useAction`. |
 | `useTimeline` | Not used here | Animation belongs to `Spinner` and `ProgressBar`. |
 
 Theme application: `ThemeProvider` holds resolved tokens; every component reads them through `useTokens()`. No component holds a hex literal (enforced by the boundary check; hex colors exist only in `theme.catppuccin.ts`).
@@ -51,13 +60,29 @@ ConfigProvider
   ThemeProvider                (resolved tokens + capability)
     KeymapProvider
       RepositoryProvider
-        AppShell
-          OverlayProvider
-            ThemePicker        (ModalFrame + scrollbox)
-              ThemeRow         (box + text + span + Swatch)
+        DraftProvider
+          FocusProvider
+            OverlayProvider    (src/app/providers/OverlayProvider.tsx, modal stack)
+              StatusProvider
+                ConsoleProvider
+                  AppShellHost
+                    AppShell
+                      OverlayHost  (src/features/overlays/OverlayHost.tsx, stack-aware wrapper)
+                        ModalFrame (src/ui/ModalFrame.tsx, presentational primitive + focus trap)
+                          Overlay   (src/ui/Overlay.tsx, full-size dim layer)
+                          box       (title row)
+                            text "Theme"
+                          scrollbox (custom rows, viewportCulling)
+                            ThemeRow  (src/features/theme-picker/ThemeRow.tsx)
+                              box + text + span + Swatch
+                          box       (theme.json note row, when present)
+                            text
+                          ModalActions (src/ui/ModalActions.tsx, Cancel and Apply with keys)
 ```
 
-`ThemePicker` uses the shared `ModalFrame` (via `src/ui/ModalFrame.tsx` and `ModalActions`) so Esc and focus trapping match other modals. `Swatch` is the `src/ui/Swatch.tsx` primitive.
+The component contract has two distinct roles. `src/features/overlays/OverlayHost.tsx` is the stack-aware wrapper: it reads the top of the `OverlayProvider` stack and renders the active entry, including the theme picker. `src/ui/ModalFrame.tsx` is the presentational primitive that supplies the dim overlay, the frame, and the focus trap; it does not know about the overlay stack or the theme picker. `ThemePicker.tsx` builds the entry content (title, the list of `ThemeRow` items, the `theme.json` note, and the footer actions) that `OverlayHost` renders inside `ModalFrame`; it never renders a second frame of its own.
+
+`ThemeRow.tsx` is a custom `<box>` row, not a `<select>` option. Each row renders the theme name, a light or dark label, the active `*` marker, and a `Swatch` cell from `src/ui/Swatch.tsx` when color is available. `Swatch.tsx` is the shared primitive; the picker does not inline a color cell.
 
 ## 5. Enforced files and folders
 
@@ -79,7 +104,9 @@ ConfigProvider
 - `ThemeProvider` (provider state): the active base theme name, the resolved token set for the current capability, and the override layer loaded from `theme.json`. It also exposes a preview override used during picker highlight.
 - `src/theme/useTokens.ts`: the read-only hook returning resolved tokens; the only way components read colors.
 - `ConfigProvider` (provider state): the `theme` field and the resolved `theme.json` path.
+- `KeymapProvider` (provider state): effective bindings for `app.themePicker` and the picker's overlay-scoped actions. The picker never parses a key or keeps a binding copy.
 - `useThemePicker` (view state): the highlighted index, the previously active theme (for Esc), the list of built-in flavors, and the preview-in-progress flag.
+- Handler registry (`useAction`): `app.themePicker` has exactly one global handler owned by the app or shell. The picker registers only overlay-scoped handlers while it is the open overlay; it never registers a global action. Exactly one handler exists per `(actionId, scope)`.
 - `RepositoryProvider`: untouched; the picker is read-only with respect to git refs and the index.
 
 ## 7. Data flow
@@ -133,13 +160,13 @@ The `<diff>` component is always rendered with `view="unified"`, `showLineNumber
 
 Action IDs only:
 
-- `app.themePicker`: opens the picker; default `t`, from anywhere outside a text input or another modal.
+- `app.themePicker`: opens the picker; default `t`, from anywhere outside a text input or another modal. It is a global action with exactly one handler in the app or shell; the theme picker feature never registers it.
 - `overlay.close`: `Esc` restores the previously active theme and closes.
 - `nav.up`, `nav.down`: move the highlight and preview live; `j` and `k` are the same action IDs.
 - `nav.activate`: `Enter` applies the highlighted theme, persists it, and closes.
-- `focus.next`, `focus.previous`: move between the list and the modal actions.
+- `focus.next`, `focus.previous`: move between the custom rows and the modal actions.
 
-While the picker is open it owns all keys except the quit escape hatch. The footer includes `t Theme` when space permits; help and the palette always expose it.
+The picker has no text field and no multiline field, so `form.submit` and the text-input allowlist do not apply. `nav.activate` is the only apply path from the keyboard. While the picker is open it owns all keys except the quit escape hatch. The footer includes `t Theme` when space permits; help and the palette always expose it.
 
 ## 9. Loading, empty, error, and disabled states
 
@@ -166,7 +193,8 @@ While the picker is open it owns all keys except the quit escape hatch. The foot
 ## 12. Acceptance mapping
 
 - "Fresh install shows Catppuccin Mocha without configuration." -> the theme default in `config.defaults.ts` plus `theme.catppuccin.ts` Mocha.
-- "`t` opens the picker with all four flavors and marks the active one." -> `app.themePicker`, `ThemePicker.tsx`, `ThemeRow.tsx`.
+- "`t` opens the picker with all four flavors and marks the active one." -> the single global `app.themePicker` handler in the app or shell, `ThemePicker.tsx`, and `ThemeRow.tsx`.
+- Theme picker component contract (custom list rows with swatches, per architecture section 6) -> `OverlayHost.tsx` plus `ModalFrame.tsx` for the overlay, a `<scrollbox>` of `ThemeRow` `<box>` rows, and `src/ui/Swatch.tsx` for the color cell.
 - "Highlight previews; Enter applies and saves; Esc restores." -> `useThemePicker.ts`, `ThemeProvider`, `config.writer.ts`.
 - "Selected theme persists across restart when writable." -> the `theme` field write in `config.writer.ts`.
 - "If saving fails, applies for the session with a warning." -> `useThemePicker.ts` plus the warning surface.
@@ -176,7 +204,7 @@ While the picker is open it owns all keys except the quit escape hatch. The foot
 - "`NO_COLOR` removes color, keeps markers, names, and the active marker." -> `theme.capability.ts`, `TextMarker.tsx`.
 - "Overrides cannot change layout or safety." -> token-only resolution.
 - "Reload applies a valid theme without restart." -> the reload flow with `theme.resolve.ts`.
-- The token table at spec lines 1383-1413 -> `theme.catppuccin.ts` and `theme.tokens.ts`.
+- The token table at spec lines 1429-1457 -> `theme.catppuccin.ts` and `theme.tokens.ts`.
 
 ## 13. Tests to add
 
@@ -185,7 +213,8 @@ While the picker is open it owns all keys except the quit escape hatch. The foot
 - `src/domain/theme/theme.catppuccin.test.ts`: all four flavors define every token; Mocha default values match the spec roles.
 - `src/domain/theme/theme.tokens.test.ts`: every token maps to the documented OpenTUI props.
 - `src/features/theme-picker/useThemePicker.test.ts`: highlight preview, Enter persist, Esc restore, same-theme Enter closes.
-- `src/features/theme-picker/ThemePicker.test.tsx`: active `*` marker, light or dark label, note below the list when `theme.json` is present.
+- `src/features/theme-picker/ThemePicker.test.tsx`: the list renders as a `<scrollbox>` of custom `ThemeRow` `<box>` rows with `Swatch` cells and no `<select>`; active `*` marker, light or dark label, note below the list when `theme.json` is present; `nav.up` and `nav.down` preview live; `nav.activate` applies and closes; `overlay.close` restores the previous theme.
+- Handler ownership test: the theme picker registers only overlay-scoped handlers; `app.themePicker` is registered exactly once by the app or shell, and a duplicate global registration is rejected.
 - `src/domain/config/config.writer.test.ts`: writes only the theme field, preserves others, creates a minimal config when absent, leaves the file untouched when unwritable.
 
 ## 14. Open questions

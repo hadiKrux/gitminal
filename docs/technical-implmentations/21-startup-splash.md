@@ -3,15 +3,15 @@
 ## 1. Header
 
 Status: Draft for review.
-Spec reference: `docs/product-spec.md` section 3 "Application shell" (Application lifecycle), section 5 F-21 "Startup splash and update check", and section 6 "Keyboard map" (Startup splash).
-Dependencies: none at runtime. This feature runs before the providers in `01-app-shell-and-focus.md` mount. `01-app-shell-and-focus.md` owns the shell that appears after dismissal.
+Spec reference: `docs/product-spec.md` section 3 "Application shell" (lines 67-162), section 5 F-21 "Startup splash and update check" (lines 1488-1538), section 6 "Keyboard map" startup splash (lines 1543-1549), decision D19 (line 1887), and the assumed defaults for the splash and npm check (lines 1890-1908).
+Dependencies: none at runtime. This feature runs before the providers in `01-app-shell-and-focus.md` mount. `01-app-shell-and-focus.md` owns the shell that appears after dismissal, including the `app.quit` path and the `exitOnCtrlC: false` renderer contract.
 Owned paths: `src/features/splash/SplashScreen.tsx`, `src/features/splash/useUpdateCheck.ts`, `src/app/App.tsx` (splash gate), `src/app/app.constants.ts`, `src/domain/update/update.check.ts`, `src/domain/update/update.types.ts`, `src/domain/update/update.constants.ts`, `src/lib/semver.ts`.
 
 This document follows the 14-section contract in `00-project-architecture.md` section 14 and conforms to the layer model in section 3, the OpenTUI catalog in section 6, and the state rules in section 9. Where this document and the architecture contract disagree, the architecture contract wins.
 
 ## 2. Scope and non-goals
 
-In scope: the full-screen startup splash; the `GITMINAL` wordmark in the tiny ASCII font; the running version line; the any-key dismissal; the `Ctrl+C` quit path; the small-terminal wordmark fallback; the one-shot npm registry update check; the semantic version comparison; and the update notice with the exact install command.
+In scope: the full-screen startup splash; the `GITMINAL` wordmark in the tiny ASCII font; the running version line from `package.json`; the any-key dismissal; the `Ctrl+C` quit path through the same app quit path used after the shell mounts; the small-terminal wordmark fallback; the one-shot npm registry update check; the semantic version comparison; and the update notice with the exact install command.
 
 Non-goals: auto-update, self-update, install execution, changelog display, release notes, download progress, update scheduling, cached or periodic checks, telemetry, usage reporting, splash configuration, a splash animation, and any repository read. The splash never touches the repository, the index, or configuration files.
 
@@ -31,14 +31,14 @@ OpenTUI hooks used:
 | --- | --- | --- |
 | `useKeyboard` | `SplashGate` in `src/app/App.tsx`, mounted only while the splash is visible. | The splash gate owns the only keyboard subscription during the splash. `useHotkeys` owns keys after the shell mounts. The two are never active at the same time. |
 | `useTerminalDimensions` | `SplashScreen` chooses between the ASCII wordmark and the plain-text fallback. | Single source for columns and rows. |
-| `useRenderer` | Not used by the splash. `Ctrl+C` is handled by the renderer's built-in exit path. | The shell owns terminal restore for `app.quit`. |
+| `useRenderer` | Not used by the splash directly. `src/index.tsx` creates the renderer with `exitOnCtrlC: false`, so `Ctrl+C` is delivered as a key and never exits the renderer by default. | The splash gate routes `Ctrl+C` through the app quit path, the same path as `app.quit` after the shell mounts; the shell owns terminal restore. |
 
 Icons: the splash uses no glyphs or markers. All splash text is words, so it does not read `src/theme/icons.ts`. Any future marker on the splash must be added to `src/theme/icons.ts` and given a text equivalent rather than inlined. See `00-project-architecture.md` section 6.1.
 
 ## 4. Component tree
 
 ```text
-src/index.tsx (bootstrap: createCliRenderer + createRoot)
+src/index.tsx (bootstrap: createCliRenderer({ exitOnCtrlC: false }) + createRoot)
 -> src/app/App.tsx                       (root: chooses splash or workspace)
    -> SplashGate                         (mounted only while the splash is visible)
       -> SplashScreen                    (src/features/splash/SplashScreen.tsx)
@@ -47,20 +47,22 @@ src/index.tsx (bootstrap: createCliRenderer + createRoot)
    -> (after dismissal) the app shell (see `01-app-shell-and-focus.md`)
 ```
 
-`SplashGate` calls `useUpdateCheck` and `useKeyboard`, then renders `SplashScreen`. It unmounts on dismissal, which removes the keyboard subscription before the shell mounts.
+`SplashGate` calls `useUpdateCheck` and `useKeyboard`, then renders `SplashScreen`. It unmounts on dismissal, which removes the keyboard subscription before the shell mounts. Because the renderer is created with `exitOnCtrlC: false`, `Ctrl+C` reaches the splash gate as a key event; the gate quits through the app quit path instead of relying on a renderer default exit.
 
 ## 5. Enforced files and folders
 
 | File | Responsibility |
 | --- | --- |
-| `src/app/App.tsx` | Root component and splash gate: holds the `splashDismissed` state, owns the any-key `useKeyboard` handler, runs the update check, and mounts the workspace after dismissal. |
-| `src/app/app.constants.ts` | Exports `APP_PACKAGE_NAME` and `APP_VERSION` read from `package.json`. Single source for the version shown on the splash and compared against the registry. |
+| `src/app/App.tsx` | Root component and splash gate: holds the `splashDismissed` state, owns the any-key `useKeyboard` handler, routes `Ctrl+C` through the app quit path, runs the update check, and mounts the workspace after dismissal. |
+| `src/app/app.constants.ts` | Exports `APP_PACKAGE_NAME` and `APP_VERSION` read from `package.json`. Single source for the version shown on the splash, the registry URL, the install command, and the version comparison. |
 | `src/features/splash/SplashScreen.tsx` | Presentational splash: wordmark, version, update notice, press-any-key hint, and the small-terminal fallback. It does not subscribe to keys and does not perform the check. |
 | `src/features/splash/useUpdateCheck.ts` | Feature hook: runs one `checkForUpdate` call on mount, ignores late results after unmount, and returns `checking` or the settled result. |
-| `src/domain/update/update.check.ts` | The only network module: builds the registry URL, fetches with a timeout, parses the payload, and compares versions. No React, no OpenTUI. |
+| `src/domain/update/update.check.ts` | The only network module: builds the registry URL, fetches bounded by `AbortSignal.timeout`, parses the payload, and compares versions. It never blocks the splash. No React, no OpenTUI. |
 | `src/domain/update/update.types.ts` | `UpdateCheckResult` union: `available`, `up-to-date`, and `unavailable`. |
 | `src/domain/update/update.constants.ts` | `NPM_REGISTRY_URL` and `UPDATE_CHECK_TIMEOUT_MS`. |
 | `src/lib/semver.ts` | `parseVersion`, `compareVersions`, and `isNewerVersion`. Pure, tested, and free of React, git, and network code. |
+
+Package baseline: `package.json` declares `name` `@im4all/gitminal` and `version` `0.1.0`, and its `engines.bun` floor is `>=1.3.14`. `tsconfig.json` enables `resolveJsonModule`, so `src/app/app.constants.ts` imports the manifest statically. `APP_PACKAGE_NAME` and `APP_VERSION` come from that manifest rather than duplicated literals; the splash version line, the registry request, the install command, and the comparison all read them.
 
 ## 6. State model
 
@@ -78,13 +80,14 @@ The update result is intentionally not lifted into a provider or persisted. It l
 ```text
 launch -> App renders SplashGate
 SplashGate -> useUpdateCheck -> checkForUpdate({ packageName, currentVersion })
-   -> fetch https://registry.npmjs.org/<encoded package>/latest  (timeout UPDATE_CHECK_TIMEOUT_MS)
+   -> fetch https://registry.npmjs.org/<encoded package>/latest  (AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS))
    -> read payload.version -> isNewerVersion(latest, current)
    -> UpdateCheckResult -> setState -> SplashScreen re-renders the notice
 any key -> useKeyboard -> onDismiss -> App.splashDismissed = true -> SplashGate unmounts -> workspace mounts
+Ctrl+C -> useKeyboard in SplashGate -> shared quit path used by app.quit -> renderer.destroy() -> terminal restored
 ```
 
-The check is fire-and-forget. The splash renders on the first frame and never awaits the request. `AbortSignal.timeout` bounds the request, and any thrown error becomes `unavailable`, which the splash renders as nothing.
+The check is fire-and-forget. `packageName` and `currentVersion` are `APP_PACKAGE_NAME` and `APP_VERSION` from `package.json`. The splash renders on the first frame and never awaits the request. `AbortSignal.timeout` bounds the request and aborts it after the timeout; any thrown error, including an abort, becomes `unavailable`, which the splash renders as nothing. The check never blocks rendering, dismissal, or quit.
 
 ## 8. Keyboard and focus
 
@@ -93,9 +96,9 @@ The splash is not a focus region. The shell providers, the keymap, and `useHotke
 | Key | Behavior |
 | --- | --- |
 | Any key | Dismiss the splash and mount the workspace. |
-| `Ctrl+C` | Quit through the renderer's built-in exit path. |
+| `Ctrl+C` | Quit through the app quit path. The renderer is created with `exitOnCtrlC: false`, so `Ctrl+C` arrives as a key event and never exits the renderer by default; the splash gate maps it to the shared quit path that `app.quit` also uses, then destroys the renderer and restores the terminal. |
 
-Splash keys are fixed. They are not configurable and do not appear as action IDs in `src/domain/keymap/keymap.defaults.ts`, because the splash runs before the keymap loads. No raw key comparison outside the splash gate is introduced. After dismissal, `useHotkeys` becomes the only keyboard subscriber. A digit pressed on the splash only dismisses it; the jump happens on the next digit press once the shell is mounted.
+Splash keys are fixed. They are not configurable and do not appear as action IDs in `src/domain/keymap/keymap.defaults.ts`, because the splash runs before the keymap loads. `Ctrl+C` is checked before the any-key dismissal, so it quits rather than dismissing. No raw key comparison outside the splash gate is introduced. After dismissal, `useHotkeys` becomes the only keyboard subscriber. A digit pressed on the splash only dismisses it; the jump happens on the next digit press once the shell is mounted.
 
 ## 9. Loading, empty, error, and disabled states
 
@@ -112,17 +115,17 @@ There is no disabled state: the splash has no controls. There is no error overla
 ## 10. Performance and bounds
 
 - The splash renders in the first frame and never blocks on the update check.
-- The check has a two second timeout through `AbortSignal.timeout` and is not retried.
+- The check has a two second timeout through `AbortSignal.timeout` and is not retried. The signal aborts the in-flight request; the splash does not wait for the abort to settle before rendering, dismissing, or quitting.
 - The check runs at most once per process launch and is not cached or persisted.
 - A late result after dismissal is ignored through the `active` flag in `useUpdateCheck`, so no state update happens after unmount.
 - The wordmark is fixed-width ASCII art and never wraps; below the fallback size the plain wordmark is used instead.
 - The update notice is bounded to two lines and never wraps the install command.
-- No timers, polling, or background work survive the splash.
+- No app-owned timers, polling, or scheduled work survive the splash. The only pending work is the bounded registry request, and its result is discarded on dismissal.
 
 ## 11. Safety and confirmations
 
 - The app never downloads, installs, or executes an update. It only prints the install command for the user to run.
-- The install command is built from the fixed `APP_PACKAGE_NAME` constant. A registry payload can never supply a package name, a URL, or a command.
+- The install command is built from `APP_PACKAGE_NAME`, which is read from `package.json` and runs no code from the registry. A registry payload can never supply a package name, a URL, or a command.
 - The check sends no credentials and reads no configuration, repository, or environment secrets.
 - Failures stay silent and never block launch or claim an update exists.
 - An unparseable local or registry version is treated as "no update", never as an update.
@@ -133,19 +136,20 @@ There is no disabled state: the splash has no controls. There is no error overla
 
 | Product spec acceptance bullet | Implementing module or component |
 | --- | --- |
-| "Launching the app shows the splash with the wordmark, the running version, and the press-any-key hint." (F-21) | `src/features/splash/SplashScreen.tsx` and `src/app/app.constants.ts`. |
-| "Pressing any key opens the workspace, and `Ctrl+C` quits." (F-21) | `SplashGate` in `src/app/App.tsx`. |
-| "A newer version shows the published version, the running version, and `npm i -g @im4all/gitminal`." (F-21) | `SplashUpdateNotice` in `src/features/splash/SplashScreen.tsx` with `src/domain/update/update.check.ts`. |
+| "Launching the app shows the splash with the wordmark, the running version, and the press-any-key hint." (F-21) | `src/features/splash/SplashScreen.tsx` and `src/app/app.constants.ts`; the version is `APP_VERSION` from `package.json` (`0.1.0` at baseline). |
+| "Pressing any key opens the workspace, and `Ctrl+C` quits." (F-21) | `SplashGate` in `src/app/App.tsx`: any key dismisses, while `Ctrl+C` takes the app quit path because `createCliRenderer` uses `exitOnCtrlC: false`. |
+| "A newer version shows the published version, the running version, and `npm i -g @im4all/gitminal`." (F-21) | `SplashUpdateNotice` in `src/features/splash/SplashScreen.tsx` with `src/domain/update/update.check.ts`; the install command derives from `APP_PACKAGE_NAME`. |
 | "A current or failed check shows no update notice and no warning." (F-21) | `UpdateCheckResult` handling in `SplashUpdateNotice`. |
-| "The splash appears and dismisses promptly and never waits on the check." (F-21) | `useUpdateCheck` fire-and-forget flow. |
+| "The splash appears and dismisses promptly and never waits on the check." (F-21) | `useUpdateCheck` fire-and-forget flow with `AbortSignal.timeout`; dismissal and quit do not await the request. |
 | "A running version newer than the registry version does not show a notice." (F-21) | `isNewerVersion` in `src/lib/semver.ts`. |
 
 ## 13. Tests to add
 
 - `src/lib/semver.test.ts`: parse release, `v` prefix, build metadata, and prerelease identifiers; compare release ordering, prerelease precedence, and invalid input; assert `isNewerVersion` is true only for a strictly newer candidate.
-- `src/domain/update/update.check.test.ts`: newer registry version returns `available`; equal or older returns `up-to-date`; scoped package name is URL-encoded; HTTP error, malformed payload, and thrown network error return `unavailable`.
-- `src/features/splash/SplashScreen.test.tsx`: renders the wordmark and version; renders the checking hint; renders the update lines and install command for `available`; renders nothing for `up-to-date` and `unavailable`; uses the plain wordmark below the fallback size.
-- `src/app/App.test.tsx`: first key press dismisses the splash and mounts the workspace; the splash gate unmounts so only one keyboard subscriber remains.
+- `src/app/app.constants.test.ts`: `APP_PACKAGE_NAME` is `@im4all/gitminal` and `APP_VERSION` equals the `version` in `package.json`, proving the manifest import works with `resolveJsonModule`.
+- `src/domain/update/update.check.test.ts`: newer registry version returns `available`; equal or older returns `up-to-date`; scoped package name is URL-encoded; HTTP error, malformed payload, thrown network error, and `AbortSignal.timeout` abort return `unavailable`; the function never throws; a pending request does not block the caller.
+- `src/features/splash/SplashScreen.test.tsx`: renders the wordmark and the version from `APP_VERSION`; renders the checking hint; renders the update lines and install command for `available`; renders nothing for `up-to-date` and `unavailable`; uses the plain wordmark below the fallback size.
+- `src/app/App.test.tsx`: first key press dismisses the splash and mounts the workspace; a `Ctrl+C` press quits through the app quit path and destroys the renderer instead of dismissing; the splash gate unmounts so only one keyboard subscriber remains; an in-flight update check does not delay the first frame, dismissal, or quit.
 
 ## 14. Open questions
 

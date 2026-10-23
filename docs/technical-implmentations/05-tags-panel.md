@@ -3,7 +3,7 @@
 ## 1. Header
 
 - Status: Draft for review
-- Spec reference: `docs/product-spec.md` F-05 (lines 421-474), decision D6 (line 1740), action IDs (lines 1583-1611)
+- Spec reference: `docs/product-spec.md` F-05 (lines 452-506), decision D6 (line 1874), action IDs (lines 1705-1742)
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`
 - Region id: `tags` (`src/features/shell/regions.ts`)
 - Dependencies: F-02 (the `P` context override of `remote.push`), F-08 (Enter selects the tagged commit in the graph), F-15 (modal structure and destructive confirmations), F-16 (repository states), F-17 (freshness and performance), F-18 (safety), F-19 (configuration).
@@ -18,7 +18,7 @@
 
 ## 2. Scope and non-goals
 
-Scope: one unified logical row per tag name across local and remote refs; scope indicators `local`, `remote`, `unpushed`, and `local only`; version-aware descending ordering; Enter selects the tagged commit in the graph; Create Tag modal with annotated versus lightweight rules and an optional create-and-push; Push Tag with confirmation; Delete Tag modal with local, local-and-remote, and remote-only scopes plus remote selection; partial failure reporting.
+Scope: one unified logical row per tag name across local and remote refs; scope indicators `local`, `remote`, `unpushed`, `local only`, and `unknown`; version-aware descending ordering; Enter selects the tagged commit in the graph; Create Tag modal with annotated versus lightweight rules and an optional create-and-push; Push Tag with confirmation; Delete Tag modal with local, local-and-remote, and remote-only scopes plus remote selection; partial failure reporting.
 
 Non-goals: signed or verified tags; tag rename; force overwriting an existing tag; editing a tag message; pushing all tags at once; fetching all tags; a separate tag details screen.
 
@@ -40,7 +40,7 @@ Hooks used:
 | Hook | Where used | Why |
 | --- | --- | --- |
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
-| `useAction` | `useTags.ts` registers `tag.create`, `tag.delete`, `tag.push`, `nav.activate`, `list.filter`, `app.refresh` | Features receive action IDs, never raw key strings |
+| `useAction` | `useTags.ts` registers the region-scoped handlers `tag.create`, `tag.delete`, `tag.push`, `nav.activate`, and `list.filter` with `scope: "tags"` | One handler per `(actionId, scope)`; global actions such as `app.refresh` and `focus.*` are owned by the app or shell and are never registered here |
 | `useListCursor` | `useTags.ts` navigation, `g`/`G`, and double click detection | Shared cursor and double click logic for custom rows |
 | `useFocusRegion` | `TagsPanel.tsx` refreshes tag knowledge when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `TagRow.tsx` computes the truncation budget for the commit summary | Budget-aware truncation via `@/lib/text.ts` |
@@ -98,7 +98,7 @@ Push Tag uses the shared `ConfirmModal` from `src/features/overlays/` (F-15) wit
 - `src/features/tags/DeleteTagModal.tsx` - scope selection, remote selection, and consequence text.
 - `src/features/tags/useTags.ts` - derives logical rows from selectors, owns filter and cursor state, dispatches commands.
 - `src/domain/git/git.tags.ts` - tag reads, remote tag reads, scope merge, ordering, and create, push, and delete command builders.
-- Tests colocated: `src/domain/git/git.tags.test.ts`, `src/features/tags/TagsPanel.test.tsx`, `src/features/tags/TagRow.test.tsx`, `src/features/tags/CreateTagModal.test.tsx`.
+- Tests colocated: `src/domain/git/git.tags.test.ts`, `src/features/tags/TagsPanel.test.tsx`, `src/features/tags/TagRow.test.tsx`, `src/features/tags/CreateTagModal.test.tsx`, plus the shared `src/domain/commands/commands.availability.test.ts` matrix.
 
 ## 6. State model
 
@@ -112,10 +112,10 @@ Local view state (owned by `useTags.ts` and the modals):
 
 Provider state (read, never recomputed here):
 
-- `RepositoryProvider` snapshot: local tags with name, object type (`tag` or `commit`), peeled target commit, and commit summary.
-- Remote tag knowledge: for each configured remote, the set of tag names returned by the read-only remote query, with a last-checked timestamp.
+- `RepositoryProvider` snapshot: local tags with name, object type (`tag` or `commit`), peeled target commit, and commit subject.
+- Remote tag knowledge: for each configured remote, the set of tag names returned by the last successful read-only `git ls-remote --tags <remote>` check, with the timestamp of that successful check, plus a per-remote status of `known`, `neverChecked`, or `failed`. Commit dates never determine remote tag knowledge, and a failed or never-completed check is `unknown`, never `unpushed`.
 - Merged logical rows with scope indicators, derived in `@/domain/repository/repository.selectors.ts` from `git.tags.ts` merge output.
-- `RepositoryProvider` selected commit: the default Create Tag target when the graph selection is a commit, otherwise HEAD.
+- `RepositoryProvider` selection: `selection.kind === "commit"` supplies the default Create Tag target; otherwise the target is HEAD.
 - `ConfigProvider`: `git.path`.
 - `StatusProvider`: operation progress and transient status.
 - `FocusProvider`: derived active region and cursor map.
@@ -135,9 +135,9 @@ key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(re
 
 | Action ID or refresh | Domain module | Git subcommand |
 | --- | --- | --- |
-| repository refresh (local tags) | `git.tags.ts` `listLocalTags()` | `git for-each-ref refs/tags --format=%(refname:short)%00%(objecttype)%00%(*objectname)%00%(objectname)%00%(subject)` |
-| remote tag knowledge (read-only) | `git.tags.ts` `listRemoteTags(remote)` | `git ls-remote --tags <remote>` |
-| scope merge | `git.tags.ts` `mergeTagScopes()` (pure) | none; produces the `local`, `remote`, `unpushed`, `local only` indicators |
+| repository refresh (local tags) | `git.tags.ts` `listLocalTags()` | `git for-each-ref refs/tags --format=%(refname:short)%00%(objecttype)%00%(*objectname)%00%(objectname)%00%(subject)%00%(*subject)` |
+| remote tag knowledge (read-only) | `git.tags.ts` `listRemoteTags(remote)` | `git ls-remote --tags <remote>`; only a successful result updates the known set and its timestamp |
+| scope merge | `git.tags.ts` `mergeTagScopes()` (pure) | none; produces the `local`, `remote`, `unpushed`, `local only`, and `unknown` states |
 | ordering | `git.tags.ts` `sortTagsVersionDesc()` (pure) | none |
 | `tag.create` (lightweight) | `git.tags.ts` `createLightweightTag()` | `git tag <name> <target>` |
 | `tag.create` (annotated) | `git.tags.ts` `createAnnotatedTag()` | `git tag -a <name> <target> -m <message>` |
@@ -145,16 +145,24 @@ key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(re
 | `tag.delete` (local only) | `git.tags.ts` `deleteLocalTag()` | `git tag -d <name>` |
 | `tag.delete` (local and remote) | `git.tags.ts` `deleteRemoteTag()` then `deleteLocalTag()` | `git push <remote> --delete refs/tags/<name>` then the local delete above |
 | `tag.delete` (remote only) | `git.tags.ts` `deleteRemoteTag()` | `git push <remote> --delete refs/tags/<name>` |
-| `nav.activate` (select tagged commit) | command `graph.selectCommit` -> `RepositoryProvider` selection | none; sets the graph selection, no git call |
+| `nav.activate` (select tagged commit) | internal command `graph.selectCommit` -> `RepositoryProvider` selection | none; sets `{ kind: "commit", oid }`, no git call |
+
+Command and handler model (architecture section 8.1):
+
+- `useTags.ts` registers `tag.create`, `tag.delete`, `tag.push`, `nav.activate`, and `list.filter` with `scope: "tags"`. Exactly one handler exists per `(actionId, scope)`. The feature never registers `app.refresh`, `focus.*`, `overlay.close`, or `remote.*`; those are owned by the app, shell, or top bar.
+- Targets are explicit. `tag.delete` and `tag.push` use `{ kind: "tag", name }` for the selected row. `tag.create` uses `{ kind: "commit", oid }` when `RepositoryProvider.selection.kind === "commit"` and `{ kind: "none" }` otherwise, so the modal defaults to the selected commit or HEAD.
+- `nav.activate` in the Tags region dispatches the internal command `graph.selectCommit` with the selected tag's peeled commit. `graph.selectCommit` is a command ID only: it has no action ID and no default key, and it sets `RepositoryProvider.selection`.
+- Availability is target-aware through `@/domain/commands/commands.availability.ts`. `tag.create`, `tag.delete`, and `tag.push` are unavailable in an empty repository with the reason "no commits yet". `tag.push` is available only for a local tag when the last successful check of the relevant remote says the tag is absent; when that knowledge is `unknown`, the reason is "remote tag state unknown; refresh to retry". `tag.delete` is available when the selected tag exists locally, remotely, or both.
 
 Scope indicators (from `git.tags.ts` `mergeTagScopes()`):
 
-- `local`: present locally and on at least one remote.
-- `remote`: present on at least one remote and not present locally.
-- `unpushed`: present locally and absent from the relevant remote.
+- `local`: present locally.
+- `remote`: present on at least one remote.
+- `unpushed`: present locally and absent from the relevant remote according to the last successful remote check.
 - `local only`: present locally and no remote is configured.
+- `unknown`: present locally, at least one remote is configured, and the last remote check for the relevant remote is missing or failed. The row keeps the name and commit subject but shows "remote unknown"; it never shows `unpushed` from missing knowledge.
 
-Annotated versus lightweight detection: `%(objecttype)` is `tag` for an annotated tag and `commit` for a lightweight tag. For an annotated tag, the tagged commit is the peeled `%(*objectname)`; for a lightweight tag it is `%(objectname)`.
+Annotated versus lightweight detection: `%(objecttype)` is `tag` for an annotated tag and `commit` for a lightweight tag. For an annotated tag, the tagged commit is the peeled `%(*objectname)`, and the commit subject is `%(*subject)`. For a lightweight tag, the tagged commit is `%(objectname)`, and the commit subject is `%(subject)`. `%(subject)` alone is never used as the annotated tag summary, because for an annotated tag it returns the tag message. `parse.refs.ts` selects the subject by object type and `TagRow.tsx` renders only the commit subject.
 
 Ordering rule (`sortTagsVersionDesc()`): split each name into numeric and non-numeric runs; compare run by run with numeric runs compared numerically and non-numeric runs compared as strings; sort descending; break exact ties by reverse name order. The result is deterministic and stable across refreshes.
 
@@ -167,16 +175,15 @@ Delete order and partial failure: for local and remote, delete the remote tag fi
 | `nav.up`, `nav.down` | Move the cursor one row |
 | `nav.first`, `nav.last` | Jump to the first or last tag |
 | `nav.pageUp`, `nav.pageDown` | Move by a screen |
-| `nav.activate` | Select the tagged commit in the commit graph and show its details |
+| `nav.activate` | Select the tagged commit in the commit graph and show its details through the internal command `graph.selectCommit` |
 | `tag.create` | Open the Create Tag modal |
-| `tag.delete` | Open the Delete Tag modal |
-| `tag.push` | Push the selected local tag that is not on the remote, after confirmation; this ID overrides `remote.push` while Tags is focused |
+| `tag.delete` | Open the Delete Tag modal for the selected tag |
+| `tag.push` | Push the selected local tag that is not known to be on the remote, after confirmation; this ID overrides `remote.push` while Tags is focused |
 | `list.filter` | Focus the tag filter field |
-| `app.refresh` | Manual refresh of repository state |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
 | `focus.region.tags` | Direct jump to this panel (default `3`), shell-owned |
 
-Notes: the footer shows only the actions available for the selected tag, for example `tag.push` only when the tag is local and not on the remote. Modals are overlays and own all keys while open, with `overlay.close` cancelling. Availability comes from `@/domain/commands/commands.availability.ts` so the footer, help, and palette agree.
+Notes: `app.refresh` is a global action owned by the app or shell; it is not registered by this feature. The footer shows only the actions available for the selected tag, for example `tag.push` only when the tag is local and the last successful remote check says it is absent. A tag known only remotely has no `tag.push`, and an `unknown` remote state disables it with "remote tag state unknown; refresh to retry". Modals are overlays and own all keys while open, with `overlay.close` cancelling. Availability comes from `@/domain/commands/commands.availability.ts` so the footer, help, and palette agree.
 
 ## 9. Loading, empty, error, and disabled states
 
@@ -184,17 +191,20 @@ Notes: the footer shows only the actions available for the selected tag, for exa
 - Empty, no tags: `EmptyState` with "No tags" and the hint "n New tag".
 - Empty, filter matches nothing: `EmptyState` with "No tags match <filter>".
 - Error: `ErrorState` with "Could not read tags" plus the git error text and a Retry button; the previous rows stay visible.
-- Disabled, `tag.push`: unavailable with the reason "already on <remote>" when the tag exists remotely, or "no remote" when no remote is configured.
-- Disabled, remote scope in the Delete Tag modal: unavailable with the reason "not on any remote" when the tag is absent from every remote.
+- Disabled, `tag.create`, `tag.delete`, and `tag.push` in an empty repository: unavailable with the reason "no commits yet" (F-16).
+- Disabled, `tag.push`: unavailable with the reason "already on <remote>" when the last successful check says the tag exists remotely, "no remote" when no remote is configured, or "remote tag state unknown; refresh to retry" when the remote has never been checked successfully or the latest check failed with no prior success.
+- Disabled, remote scope in the Delete Tag modal: unavailable with the reason "not on any remote" when the tag is absent from every remote according to the last successful check.
+- Unknown remote state: the row shows "remote unknown" and never shows "unpushed"; the tag stays local and deletable.
 - Blocked creation, duplicate: when the name exists only remotely, creation is blocked with the message "tag exists on <remote>". When the name exists locally, creation is blocked with "tag already exists".
 - `local only`: the row shows the text "local only" when no remote is configured.
-- `unpushed`: the row shows the text "unpushed" when the tag is local and absent from the relevant remote.
+- `unpushed`: the row shows the text "unpushed" only when the tag is local and the last successful check of the relevant remote reports it absent.
 - Operation in progress: the panel is read-only; a second mutation is blocked with the reason from the runner.
 
 ## 10. Performance and bounds
 
 - Tags are rendered inside a `<scrollbox>` with `viewportCulling`; a soft cap of 5000 rendered rows applies, beyond which a notice row reports the truncation.
-- Remote tag reads (`git ls-remote --tags`) are network reads. They run per configured remote with bounded concurrency, are cached with a last-checked timestamp, and are refreshed on region focus and manual refresh rather than on every render.
+- Remote tag reads (`git ls-remote --tags`) are network reads. They run per configured remote with bounded concurrency, are cached from the last successful check with its timestamp, and are refreshed on region focus and manual refresh rather than on every render. A failed check keeps the previous successful knowledge and marks the latest attempt failed; it never turns a tag into `unpushed`.
+- Remote tag knowledge is never derived from commit dates. A repository whose last fetch is old still shows the last successful `ls-remote` result, and an unreadable remote shows `unknown`.
 - Scope merge and ordering are pure and memoized per snapshot; ordering is O(n log n).
 - Row truncation uses `@/lib/text.ts` with a budget from `useTerminalDimensions`; the commit summary drops before the tag name and scope indicator.
 - Create, push, and delete are single writes serialized by `commands.runner.ts`; the panel does not optimistically mutate the list.
@@ -216,6 +226,9 @@ Notes: the footer shows only the actions available for the selected tag, for exa
 | --- | --- |
 | Local-only tags show an unpushed or local-only indicator | `git.tags.ts` `mergeTagScopes()`; `TagRow.tsx` |
 | Creating an annotated tag records the message; creating a lightweight tag does not | `CreateTagModal.tsx` message field; `git.tags.ts` `createAnnotatedTag()` versus `createLightweightTag()` |
+| The annotated tag row shows the peeled commit subject, not the tag message | `parse.refs.ts` selects `%(*subject)` for object type `tag` and `%(subject)` for `commit`; `TagRow.tsx` |
+| A failed remote check is unknown, never unpushed | `git.tags.ts` `mergeTagScopes()` with the last successful check state; `TagRow.tsx` |
+| Tag creation, deletion, and push are unavailable in an empty repository | `commands.availability.ts` and `repository.states.ts` gate with "no commits yet"; `TagsPanel.tsx` |
 | Deleting locally and remotely performs both operations and reports partial failure clearly | Delete order and partial-failure handling in section 7; `DeleteTagModal.tsx` |
 | A tag badge on the commit graph reflects the tag state | F-08 ref badges read the same tag snapshot; `repository.selectors.ts` |
 | Tags with the same name are shown as one logical row with scope indicators | `git.tags.ts` `mergeTagScopes()`; `TagRow.tsx` |
@@ -229,16 +242,17 @@ Notes: the footer shows only the actions available for the selected tag, for exa
 
 ## 13. Tests to add
 
-- `src/domain/git/git.tags.test.ts`: `mergeTagScopes` for all four indicators, including a tag present locally and on one of two remotes; annotated versus lightweight detection from `%(objecttype)`; and argument construction for create, push, local delete, and remote delete; no spawning in unit tests.
+- `src/domain/git/git.tags.test.ts`: `mergeTagScopes` for `local`, `remote`, `unpushed`, `local only`, and `unknown`, including a tag present locally and on one of two remotes, a failed remote check with no prior success, and a failed check that keeps the last successful set; annotated versus lightweight detection from `%(objecttype)`; and argument construction for create, push, local delete, and remote delete; no spawning in unit tests.
 - `src/domain/git/git.tags.test.ts`: `sortTagsVersionDesc` table covering `v1.2.10` above `v1.2.9`, mixed version and non-version names, and tie-breaking by reverse name order.
-- `src/domain/git/parsers/parse.refs.test.ts` (shared with F-03 and F-04): parse recorded `for-each-ref` tag fixtures and `ls-remote --tags` output, including peeled `^{}` lines.
-- `src/features/tags/TagRow.test.tsx`: rendered scope indicators for `local`, `remote`, `unpushed`, and `local only`, plus truncation behavior.
-- `src/features/tags/TagsPanel.test.tsx`: `tag.push` available only for an unpushed local tag, `tag.push` overriding `remote.push` while focused, and the duplicate-creation blocked message.
-- `src/features/tags/CreateTagModal.test.tsx`: empty message creates a lightweight tag, a non-empty message creates an annotated tag, and the push-after-create checkbox states the target remote.
+- `src/domain/git/parsers/parse.refs.test.ts` (shared with F-03 and F-04): parse recorded `for-each-ref` tag fixtures and `ls-remote --tags` output, including peeled `^{}` lines; assert an annotated tag's summary comes from `%(*subject)` and a lightweight tag's from `%(subject)`.
+- `src/domain/commands/commands.availability.test.ts` (shared): `tag.create`, `tag.delete`, and `tag.push` return "no commits yet" in an empty repository; `tag.push` returns "remote tag state unknown; refresh to retry" for `neverChecked` and failed-with-no-prior-success states.
+- `src/features/tags/TagRow.test.tsx`: rendered scope indicators for `local`, `remote`, `unpushed`, `local only`, and `unknown`, plus truncation behavior.
+- `src/features/tags/TagsPanel.test.tsx`: `tag.push` available only for an unpushed local tag with known remote state, `tag.push` overriding `remote.push` while focused, the duplicate-creation blocked message, and exactly one handler per `(actionId, tags)` registration with no `app.refresh` registration.
+- `src/features/tags/CreateTagModal.test.tsx`: empty message creates a lightweight tag, a non-empty message creates an annotated tag, the push-after-create checkbox states the target remote, and the tag target comes from `RepositoryProvider.selection` when it is a commit.
 
 ## 14. Open questions
 
-- Remote tag knowledge requires `git ls-remote --tags` per remote, which is a network read. Confirm the refresh policy: region focus plus manual refresh only, or also after a successful push. Confirm whether a failure to reach a remote should mark its tags as unknown rather than absent.
-- Confirm the `local only` rule when remotes exist but the tag is absent from all of them. This doc treats that case as `unpushed`, reserving `local only` for the no-remote case.
+- Confirm the remote tag refresh policy: region focus plus manual refresh, or also after a successful push and after a failed check retry. This doc stores the last successful result and never treats a failed check as absence.
 - Confirm the default remote for create-and-push and for Push Tag when multiple remotes are configured. This doc uses the configured upstream remote of the current branch when it exists, otherwise `origin`.
-- Confirm whether deleting a tag locally that is also on a remote should warn that the remote copy remains, beyond the `unpushed` indicator.
+- Confirm whether deleting a tag locally that is also on a remote should warn that the remote copy remains, beyond the absence of an `unpushed` indicator.
+- Confirm whether the `unknown` remote state should appear as a row badge or only in the selected-row detail and the disabled reason for `tag.push`.

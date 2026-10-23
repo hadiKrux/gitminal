@@ -3,7 +3,7 @@
 ## 1. Header
 
 - Status: Draft for review
-- Spec reference: `docs/product-spec.md` F-03 (lines 294-375), fetch scope rules (lines 245-260), decisions D13 and D15 (lines 1747-1749), action IDs (lines 1583-1611)
+- Spec reference: `docs/product-spec.md` F-03 (lines 320-407), F-02 fetch scope rules (lines 260-273), decisions D13 and D15 (lines 1865-1889), action IDs (lines 1705-1742)
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`
 - Region id: `branches` (`src/features/shell/regions.ts`)
 - Dependencies: F-01 (shell, focus, region order), F-02 (top bar sync state and Push/Pull), F-07 (worktree markers), F-08 (commit graph selection supplies an optional start point), F-15 (modal structure and destructive confirmations), F-16 (repository states), F-17 (freshness and refresh), F-18 (safety), F-19 (`remote.fetchScope`).
@@ -18,7 +18,7 @@
 
 ## 2. Scope and non-goals
 
-Scope: list every local branch with a current marker, ahead/behind relative to the configured upstream, "no upstream", the two missing-upstream indicators, and the worktree checked-out marker; deterministic ordering; checkout on Enter and double click; New Branch modal; Delete Branch modal with local-only and local-and-remote scopes, remote resolution order, force-delete acknowledgement, delete order, and partial failure reporting; refresh behavior.
+Scope: list every local branch with a current marker, ahead/behind relative to the configured upstream, "no upstream", the two missing-upstream indicators, and the worktree checked-out marker; deterministic ordering; checkout on Enter and double click; New Branch modal with atomic create-and-checkout; Delete Branch modal with local-only and local-and-remote scopes, remote resolution order, force-delete acknowledgement that selects `-d` or `-D`, local-first delete order, and partial failure reporting; upstream classification after a successful remote deletion without a second prune; empty-repository gating; refresh behavior.
 
 Non-goals: listing or checking out remote branches (F-04); adding, changing, or unsetting an upstream in v1; branch rename; branch filter behavior beyond registering `list.filter` (see Open questions); multi-select; auto-stash before checkout; merge, rebase, or cherry-pick; force push.
 
@@ -38,7 +38,7 @@ Hooks used:
 | Hook | Where used | Why |
 | --- | --- | --- |
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
-| `useAction` | `useBranches.ts` registers `branch.create`, `branch.delete`, `nav.activate`, `list.filter`, `app.refresh` | Features receive action IDs, never raw key strings |
+| `useAction` | `useBranches.ts` registers only the region-scoped handlers `branch.create`, `branch.delete`, `nav.activate`, and `list.filter` with `scope: "branches"`; it never registers `app.refresh` or another global action | Features receive action IDs, never raw key strings; exactly one handler exists per `(actionId, scope)` |
 | `useListCursor` | `useBranches.ts` navigation, `g`/`G`, and double click detection | Shared cursor and double click logic for custom rows |
 | `useFocusRegion` | `BranchesPanel.tsx` refreshes when `focused` flips true (D10) | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `BranchRow.tsx` and `BranchesPanel.tsx` compute the truncation budget | Budget-aware truncation via `@/lib/text.ts` |
@@ -80,7 +80,7 @@ DeleteBranchModal
     text (local branch name)
     SelectField (scope: "Delete local branch only" / "Delete local and remote branch")
     text (resolved remote and remote branch, or the disabled reason)
-    Checkbox (force-delete acknowledgement, shown only for an unmerged branch)
+    Checkbox (force-delete acknowledgement, shown only for an unmerged branch, selects git branch -D)
     text (stronger warning when the local branch is behind its remote)
     ModalActions (confirm label by scope, Cancel focused by default)
 ```
@@ -91,10 +91,10 @@ DeleteBranchModal
 - `src/features/branches/BranchRow.tsx` - one branch row with markers, counts, and detail text.
 - `src/features/branches/NewBranchModal.tsx` - create-branch form and validation.
 - `src/features/branches/DeleteBranchModal.tsx` - scope selection, remote resolution display, force acknowledgement.
-- `src/features/branches/useBranches.ts` - derives rows from repository selectors, owns cursor and modal drafts, dispatches commands.
-- `src/domain/git/git.branches.ts` - branch reads plus create, checkout, and delete command builders.
+- `src/features/branches/useBranches.ts` - derives rows from repository selectors, owns cursor and modal drafts, calls `getAvailability(commandId, context)` with the selected branch target, registers the four scoped handlers, and dispatches commands.
+- `src/domain/git/git.branches.ts` - branch reads plus atomic create-and-checkout, checkout, and local/remote delete command builders.
 - `src/domain/repository/repository.upstream.ts` - upstream classification (co-owned, see section 1).
-- Tests colocated: `src/domain/git/git.branches.test.ts`, `src/domain/repository/repository.upstream.test.ts`, `src/features/branches/BranchesPanel.test.tsx`, `src/features/branches/BranchRow.test.tsx`.
+- Tests colocated: `src/domain/git/git.branches.test.ts`, `src/domain/git/git.branches.integration.test.ts`, `src/domain/repository/repository.upstream.test.ts`, `src/features/branches/useBranches.test.ts`, `src/features/branches/BranchesPanel.test.tsx`, `src/features/branches/BranchRow.test.tsx`.
 
 ## 6. State model
 
@@ -110,12 +110,12 @@ Provider state (read, never recomputed here):
 
 - `RepositoryProvider` snapshot: for each local branch the name, HEAD flag, tip objectname, committer date, configured upstream ref, ahead/behind counts, worktree path when checked out elsewhere, and upstream classification.
 - `RepositoryProvider` selected commit: the New Branch start point when the modal is opened from a selected commit.
-- Fetched and pruned remote set: drives the two missing-upstream states.
+- Per-remote remote-check state: the last successful `ls-remote` or fetch timestamp and the confirmed absence set from the last successful prune or remote deletion. This drives `notFound` versus `deleted`.
 - `ConfigProvider`: `remote.fetchScope` and `git.path`.
 - `StatusProvider`: operation progress and transient status.
 - `FocusProvider`: derived active region and cursor map.
 
-Rules: this feature never recomputes ahead/behind, upstream state, or the worktree map. It reads them from `@/domain/repository/repository.selectors.ts` and `@/domain/repository/repository.upstream.ts` (architecture section 9).
+Rules: this feature never recomputes ahead/behind, upstream state, or the worktree map. It reads them from `@/domain/repository/repository.selectors.ts` and `@/domain/repository/repository.upstream.ts` (architecture section 9). Classification is based on the last successful remote check or fetch for that remote, never on a ref commit date. A failed, cancelled, timed-out, or never-run check yields `notFound` or `unknown` for display purposes and can never yield `deleted`.
 
 ## 7. Data flow
 
@@ -133,26 +133,41 @@ key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(re
 | repository refresh (list) | `git.branches.ts` `listLocalBranches()` | `git for-each-ref refs/heads --format=%(refname:short)%00%(objectname)%00%(HEAD)%00%(committerdate:iso-strict)%00%(upstream:short)` |
 | ahead/behind | `git.branches.ts` `readAheadBehind()` | `git rev-list --left-right --count <branch>...<upstream>` per tracked branch, batched |
 | worktree marker | `parsers/parse.worktrees.ts` via `git.worktrees.ts` | `git worktree list --porcelain` |
-| upstream classification | `repository.upstream.ts` `classifyUpstream()` | none; derives from local branch upstream plus the fetched/pruned remote-ref snapshot |
+| upstream classification | `repository.upstream.ts` `classifyUpstream()` | none; derives from the local branch upstream, the remote-tracking ref snapshot, the last successful remote-check or fetch timestamp, and confirmed deletion records |
 | `nav.activate` (checkout) | `git.branches.ts` `checkoutBranch()` | `git checkout <branch>` |
-| `branch.create` | `git.branches.ts` `createBranch()` | `git branch <name> <startPoint>` then `git checkout <name>` when checkout is requested |
-| `branch.delete` (local only) | `git.branches.ts` `deleteLocalBranch()` | `git branch -d <name>`, or `git branch -D <name>` after force acknowledgement |
-| `branch.delete` (local and remote) | `git.branches.ts` `deleteRemoteBranch()` then `deleteLocalBranch()` | `git push <remote> --delete <remoteBranch>` then the local delete above |
+| `branch.create` with checkout | `git.branches.ts` `createBranch()` | One atomic command: `git switch -c <name> <startPoint>`, or `git checkout -b <name> <startPoint>` when `switch` is unavailable. A failed checkout leaves no branch behind. |
+| `branch.create` without checkout | `git.branches.ts` `createBranch()` | `git branch <name> <startPoint>` |
+| `branch.delete` (local only) | `git.branches.ts` `deleteLocalBranch()` | `git branch -d <name>`, or `git branch -D <name>` when the force acknowledgement is set |
+| `branch.delete` (local and remote) | `git.branches.ts` `deleteLocalAndRemoteBranch()` | Preflight local deletability, then `git branch -d`/`-D <name>`, then `git push <remote> --delete <remoteBranch>` |
 
 Upstream classification (in `repository.upstream.ts`) returns exactly one of:
 
 - `none`: no configured upstream. The row shows "no upstream" and no `[?]`.
 - `tracked`: a configured upstream whose remote-tracking ref exists. The row shows ahead/behind.
-- `notFound`: a configured upstream whose remote-tracking ref is absent and no successful prune for that remote has confirmed the absence. The row shows `[?] upstream not found`; ahead/behind are hidden.
-- `deleted`: a configured upstream whose remote-tracking ref is absent after a successful Fetch --prune, or a fetch with pruning enabled, for that remote. The row shows `[?] remote branch deleted`; ahead/behind are hidden.
+- `notFound`: a configured upstream whose remote-tracking ref is absent, but no successful remote check or prune has confirmed the absence. The row shows `[?] upstream not found`; ahead/behind are hidden.
+- `unknown`: the remote check for this upstream failed, timed out, was cancelled, or has never run. The row keeps the last known indicator and explains that the state is unknown; it is never shown as `deleted` or as a deleted remote branch.
+- `deleted`: a configured upstream whose remote-tracking ref is absent after a successful Fetch --prune confirmation for that remote, or after a successful remote deletion through this panel. The row shows `[?] remote branch deleted`; ahead/behind are hidden.
 
-The classification clears automatically when a later successful fetch finds the ref again. A branch with no configured upstream shows "no upstream" even when `origin/<local-branch-name>` exists; that ref is not treated as an upstream until Push or an explicit upstream change (F-02, D14).
+Classification uses the last successful remote check or fetch timestamp for the remote, not the ref commit date. The classification clears automatically when a later successful fetch finds the ref again. A branch with no configured upstream shows "no upstream" even when `origin/<local-branch-name>` exists; that ref is not treated as an upstream until Push or an explicit upstream change (F-02, D14).
+
+A successful remote deletion through `branch.delete` removes the matching remote-tracking ref from the refreshed snapshot and records a confirmed deletion for the remote and branch in `repository.upstream.ts`, so any local branch that tracked it becomes `deleted` immediately without a second Fetch --prune. A failed or cancelled remote delete records nothing and does not change the classification.
 
 Remote scope resolution for delete (in `DeleteBranchModal.tsx`, using selector output, in this order):
 
 1. The configured upstream remote and branch.
 2. When no upstream exists, `origin/<local-branch-name>` when that remote branch exists.
 3. Otherwise the remote option is disabled with a reason. The app never guesses another remote in v1.
+
+Delete execution order and partial failure:
+
+1. Preflight the local branch before any mutation. It must not be the current branch and must not be checked out in another worktree. An unmerged branch requires the force acknowledgement; that acknowledgement selects `git branch -D`. A merged branch uses `git branch -d`.
+2. For the local-only scope, delete the local branch and stop.
+3. For the local-and-remote scope, delete the local branch first, then delete the resolved remote branch with `git push <remote> --delete <remoteBranch>`.
+4. If the local delete fails, no remote delete runs. The local branch, the remote branch, and the classification are unchanged, and the git error is shown.
+5. If the local delete succeeds but the remote delete fails, report a partial failure that names the remaining remote branch. The local branch is gone, the remote branch remains, and no success is claimed for the remote half.
+6. If the remote delete succeeds, record the confirmed deletion in `repository.upstream.ts` and classify any local branch that tracked it as `[?] remote branch deleted`. No second Fetch --prune is required.
+
+Both `branch.create` and `branch.delete` are gated in an empty repository with the reason "no commits yet". `branch.create` requires at least one commit when the start point is HEAD; a create from a selected commit is available because that commit exists. `branch.delete` has no deletable branch before the first commit. Each command calls `getAvailability(commandId, { state, signals, target: { kind: "branch", name: selectedBranch }, region: "branches", operation })`, so repository-wide gates from `gateRepository` and selected-branch gates such as "cannot delete the current branch" and "checked out in <worktree path>" come from one call.
 
 ## 8. Keyboard and focus
 
@@ -165,16 +180,16 @@ Remote scope resolution for delete (in `DeleteBranchModal.tsx`, using selector o
 | `branch.create` | Open New Branch modal |
 | `branch.delete` | Open Delete Branch modal |
 | `list.filter` | Registered for the region; reserved, see Open questions |
-| `app.refresh` | Manual refresh of repository state |
-| `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
+| `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`, not registered here) |
 | `focus.region.branches` | Direct jump to this panel (default `1`), shell-owned |
 
-Notes: double click on a row performs the same action as `nav.activate`. Modals are overlays and own all keys while open, with `overlay.close` cancelling. The footer, help, and palette read availability from `@/domain/commands/commands.availability.ts` so hints match the selected row.
+Notes: double click on a row performs the same action as `nav.activate`. Modals are overlays and own all keys while open, with `overlay.close` cancelling. `useBranches` registers only `branch.create`, `branch.delete`, `nav.activate`, and `list.filter`, all with `scope: "branches"`; `app.refresh`, `focus.*`, and every other global action stay with their designated owner. The footer, help, and palette read `getAvailability(commandId, context)` so hints and reasons match the selected branch, including its current-branch, worktree, unmerged, and empty-repository conditions.
 
 ## 9. Loading, empty, error, and disabled states
 
 - Loading: `LoadingRow` with the text marker `[..]` and "loading branches" while the first read is in flight. Navigation stays responsive on the previous snapshot.
-- Empty: `EmptyState` with "No local branches" and the hint "n New branch".
+- Empty: `EmptyState` with "No local branches" and the hint "n New branch". In a repository with no commits, the hint explains that the first commit is required and `branch.create` and `branch.delete` are unavailable with the reason "no commits yet".
+- Unknown upstream: the row keeps its last known indicator and the detail explains that the remote check did not complete. It never shows `[?] remote branch deleted` from a failed, cancelled, timed-out, or never-run check.
 - Error: `ErrorState` with "Could not read branches" plus the git error text and a Retry button; the previous rows stay visible.
 - Disabled, delete of the current branch: the action is unavailable with the reason "cannot delete the current branch". The confirm button stays visible with a `dim` token and the reason text.
 - Disabled, delete of a branch checked out in another worktree: unavailable with the reason "checked out in <worktree path>".
@@ -200,9 +215,12 @@ Notes: double click on a row performs the same action as `nav.activate`. Modals 
 - The modal always presents both scopes. The local-and-remote scope is never the default action.
 - Deleting a merged local branch requires no extra warning. Deleting an unmerged local branch requires a force-delete acknowledgement that names the commits at risk. The commit list comes from `git log --oneline <upstream-or-head>..<branch>`, capped at a small bound, and applies to both scopes because both delete the local branch.
 - When the local branch is behind its remote, the local-and-remote scope shows a stronger warning that the remote branch contains commits not present locally.
-- Delete order for local and remote: delete the remote branch first, then the local branch.
-  - If remote deletion fails: keep the local branch and show the error. The user can retry or delete locally only.
-  - If remote deletion succeeds but local deletion fails: report a partial failure and keep the local branch visible with `[?] remote branch deleted`, because its upstream ref is now gone.
+- Create with checkout is atomic. It uses `git switch -c <name> <startPoint>` or `git checkout -b <name> <startPoint>`, never `git branch` followed by `git checkout`, so a failed checkout cannot leave an orphan branch.
+- Delete order for local and remote: preflight the local branch, then delete the local branch first, then the remote branch.
+  - If preflight fails or local deletion fails: keep the local branch and the remote branch, show the error, and claim nothing as deleted.
+  - If local deletion succeeds but remote deletion fails: report a partial failure that names the remaining remote branch. The local branch is gone and the remote branch remains; the user can retry the remote half.
+- The force-delete acknowledgement selects `git branch -D` for an unmerged branch; a merged branch uses `git branch -d` without it. The same rule applies to both scopes because both delete the local branch.
+- A successful remote deletion records a confirmed deletion so local branches that tracked it are classified `[?] remote branch deleted` immediately, without waiting for another Fetch --prune.
 - Local-only deletion never touches a remote branch.
 - Deleting a branch never deletes reachable commits as a side effect (F-18).
 - Every command runs through `git.client.ts` with an argument array and no shell; credentials are redacted before any console or error rendering.
@@ -216,17 +234,23 @@ Notes: double click on a row performs the same action as `nav.activate`. Modals 
 | Branch whose remote was deleted is marked `[?]` after Fetch --prune with the correct explanation | `repository.upstream.ts` `classifyUpstream()` returning `deleted`; `BranchRow.tsx` |
 | A fetch that finds the ref again clears the indicator | `repository.upstream.ts` re-classification on refresh; F-17 fetch flow |
 | Delete modal always shows local-only and local-and-remote choices, unavailable choices explained | `DeleteBranchModal.tsx` `SelectField` plus disabled reason text |
-| Deleting local and remote deletes only the configured upstream, or `origin/<local-branch-name>` | Remote resolution order in section 7; `git.branches.ts` `deleteRemoteBranch()` |
-| A partial failure leaves an accurate local state and message | Delete order and partial-failure handling in section 11 |
-| Creating a branch can optionally check it out | `NewBranchModal.tsx` checkbox; `git.branches.ts` `createBranch()` |
-| A failed checkout or delete reports the git error without changing visible state | `useCommandRunner.ts` result handling; no optimistic mutation in `useBranches.ts` |
-| `[?] upstream not found` versus `[?] remote branch deleted` | `repository.upstream.ts` classification plus the fetched/pruned remote set |
+| Deleting local and remote deletes only the configured upstream, or `origin/<local-branch-name>` | Remote resolution order in section 7; `git.branches.ts` `deleteLocalAndRemoteBranch()` |
+| A partial failure leaves an accurate local state and message | Local-first delete order and partial-failure handling in sections 7 and 11 |
+| Creating a branch can optionally check it out | `NewBranchModal.tsx` checkbox; atomic `git switch -c` / `git checkout -b` in `git.branches.ts` `createBranch()` |
+| A failed checkout or delete reports the git error without changing visible state | `useCommandRunner.ts` result handling; no optimistic mutation in `useBranches.ts`; local-first delete order |
+| A successful remote deletion marks tracked local branches `[?] remote branch deleted` without another prune | `repository.upstream.ts` confirmed-deletion record written by `deleteLocalAndRemoteBranch()` |
+| Empty repository gates branch creation and deletion with "no commits yet" | `getAvailability` plus `gateRepository`; `NewBranchModal.tsx` and `useBranches.ts` |
+| Only `branch.create`, `branch.delete`, `nav.activate`, and `list.filter` are owned by this feature | `useBranches.ts` scoped `useAction` registrations; globals stay with `AppShellHost` or the top bar |
+| `[?] upstream not found` versus `[?] remote branch deleted` | `repository.upstream.ts` classification plus the last successful remote-check timestamp and confirmed deletion records; unknown checks are never `deleted` |
 | Worktree checked-out marker with the path available | `BranchRow.tsx` `+` marker and selected-row detail; `parse.worktrees.ts` |
 
 ## 13. Tests to add
 
-- `src/domain/repository/repository.upstream.test.ts`: table-driven cases for `none`, `tracked`, `notFound`, `deleted`, and the transition back to `tracked` after a fetch finds the ref; assert ahead/behind are hidden for `notFound` and `deleted`.
-- `src/domain/git/git.branches.test.ts`: argument construction for checkout, create with and without checkout, `-d` versus `-D`, and remote delete; no spawning in unit tests.
+- `src/domain/repository/repository.upstream.test.ts`: table-driven cases for `none`, `tracked`, `notFound`, `unknown`, `deleted`, and the transition back to `tracked` after a fetch finds the ref; assert ahead/behind are hidden for `notFound` and `deleted`; a failed, cancelled, timed-out, or never-run remote check is `unknown` or `notFound` and never `deleted`; a confirmed remote-delete event produces `deleted` without a prune timestamp; ref commit dates never affect classification.
+- `src/domain/git/git.branches.test.ts`: argument construction for checkout; atomic `git switch -c` / `git checkout -b` when checkout is requested and plain `git branch` when it is not; `-d` versus `-D` from the force acknowledgement; local-first delete order; no spawning in unit tests.
+- `src/domain/git/git.branches.integration.test.ts`: a create with checkout whose checkout fails leaves no branch; a local delete failure performs no remote delete and leaves both branches; a local success plus remote failure reports a partial failure and leaves the remote branch; a successful remote delete classifies the tracked upstream as `deleted` without a second prune.
+- `src/domain/repository/repository.states.test.ts` (shared): `gateRepository` returns "no commits yet" for `branch.create` and `branch.delete` in an empty repository, and `getAvailability` combines it with the selected branch target.
+- `src/features/branches/useBranches.test.ts`: registers only the four `branches`-scoped handlers, rejects a duplicate `(actionId, scope)`, never registers `app.refresh`, and computes availability for the selected branch including current-branch and worktree reasons.
 - `src/domain/git/parsers/parse.refs.test.ts` (shared with F-04 and F-05): parse recorded `for-each-ref` fixtures including branches with no upstream and with a missing remote-tracking ref.
 - `src/features/branches/BranchRow.test.tsx`: rendered markers for current, worktree, `[?]` states, "no upstream", and truncation behavior.
 - `src/features/branches/BranchesPanel.test.tsx`: ordering (current first, then most recent commit, then name), cursor persistence across focus changes, delete disabled reasons, and the delete partial-failure message.
