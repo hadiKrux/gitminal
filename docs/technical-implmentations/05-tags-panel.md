@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-- Status: Draft for review
+- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-05 (lines 452-506), decision D6 (line 1874), action IDs (lines 1705-1742)
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`
 - Region id: `tags` (`src/features/shell/regions.ts`)

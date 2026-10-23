@@ -1,6 +1,6 @@
 # Gitminal Project Architecture
 
-Status: Draft for review
+Status: Ready for dev
 Last updated: 2026-10-22
 Scope: Enforced file, folder, layering, and OpenTUI component rules for the Gitminal v1 implementation.
 Product spec: `docs/product-spec.md`

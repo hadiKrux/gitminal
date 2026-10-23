@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-Status: Draft for review
+Status: Ready for dev
 Spec reference: `docs/product-spec.md` F-12 Command palette (lines 954-979); keyboard map (lines 1539-1704); action IDs section 6.1 (lines 1705-1742); key precedence section 3 (lines 109-119)
 Dependencies: F-01 app shell and focus, F-15 overlays and confirmations, F-19 configuration and keybindings, F-16 repository states, F-13 console (dispatch logging)
 Owned paths:

@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-Status: Draft for review
+Status: Ready for dev
 Spec reference: `docs/product-spec.md` F-14 Help (lines 1016-1040); F-19 help and discovery (lines 1300-1323); keyboard map (lines 1539-1704); action IDs section 6.1 (lines 1705-1742); key precedence section 3 (lines 109-119)
 Dependencies: F-19 configuration and keybindings, F-20 theme and colors, F-01 app shell and focus, F-15 overlays and confirmations (modal frame and focus trap)
 Owned paths:

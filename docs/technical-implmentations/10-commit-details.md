@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-- Status: Draft for review.
+- Status: Ready for dev.
 - Spec reference: `docs/product-spec.md` F-10 (lines 805-837), F-11 (lines 838-953), F-16 (lines 1067-1095), decision D3 (section 9, refs on commits), the keyboard map (lines 1539-1704), action IDs (lines 1705-1742).
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`.
 - Region id: `right-pane` (`src/features/shell/regions.ts`), owned by `MainArea.tsx`. Commit details is the right-pane mode when `RepositoryProvider.selection.kind === "commit"`. The full mode map is pending -> composer, commit -> commit details, stash -> stash details, worktree -> worktree details; there is no separate sub-mode flag.

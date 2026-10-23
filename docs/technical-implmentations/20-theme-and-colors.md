@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-- Status: Draft for review
+- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-20 (lines 1324-1487), decisions D12 and D18, theme token table at lines 1429-1457, and section 6 "Keyboard map" (lines 1539-1704).
 - Dependencies: `01-app-shell-and-focus.md` (tokens for borders and focus), `08-commit-graph.md` (graph lane colors), `11-diffs-and-file-actions.md` (diff token mapping), `13-console.md` (console tokens), `15-overlays-and-confirmations.md` (error and warning tokens), `17-freshness-and-performance.md` (progress tokens), `19-configuration-and-keybindings.md` (theme file path, reload, config writing).
 - Owned paths:

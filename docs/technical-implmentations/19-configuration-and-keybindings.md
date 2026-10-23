@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-- Status: Draft for review
+- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-19 (lines 1154-1323), decisions D11 and D2, section 6 "Keyboard map" (lines 1539-1704), and section 6.1 "Action IDs" (lines 1705-1742).
 - Dependencies: `01-app-shell-and-focus.md` (footer and help read effective bindings), `14-help.md` (Configuration section), `12-command-palette.md` (Reload configuration), `16-repository-states.md` (scope-dependent availability), `17-freshness-and-performance.md` (graph reload on scope change), `18-safety-and-platform-behavior.md` (non-configurability), `20-theme-and-colors.md` (theme path and reload).
 - Owned paths:

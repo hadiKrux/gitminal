@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-- Status: Draft for review
+- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-17 (lines 1096-1125), F-08 lazy loading and commit search (lines 659-702), F-11 file expansion and oversize notices (lines 897-908), F-02 fetch and prune rules (lines 256-273), decisions D10 (line 1878), D16 (line 1884), D17 (line 1885), the assumed defaults (lines 1890-1908), F-18 execution rules (lines 1126-1153), and the action IDs in section 6.1 (lines 1705-1742).
 - Dependencies: `01-app-shell-and-focus.md` (regions, refresh key), `02-top-bar.md` (fetch, fetch --prune, and pull results), `08-commit-graph.md` (paging and virtualization), `10-commit-details.md` (selection to details), `11-diffs-and-file-actions.md` (lazy diff and diff caps), `13-console.md` (bounded log), `15-overlays-and-confirmations.md` (error history), `16-repository-states.md` (upstream states), `18-safety-and-platform-behavior.md` (serialized writes, git execution contract, watch opt-in).
 - Owned paths (cross-cutting; F-17 has no `src/features/<name>/` folder in architecture section 4):

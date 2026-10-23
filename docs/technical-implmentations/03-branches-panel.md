@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-- Status: Draft for review
+- Status: Ready for dev
 - Spec reference: `docs/product-spec.md` F-03 (lines 320-407), F-02 fetch scope rules (lines 260-273), decisions D13 and D15 (lines 1865-1889), action IDs (lines 1705-1742)
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`
 - Region id: `branches` (`src/features/shell/regions.ts`)
