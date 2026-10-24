@@ -551,6 +551,7 @@ Required `ICONS` groups and their default values:
 Consumers, all of which read from `ICONS`:
 
 - `src/ui/TextMarker.tsx` renders focus, selection, and status markers.
+- `src/ui/Panel.tsx` renders the focus marker inside a region frame's border title.
 - `src/ui/Badge.tsx` and `src/ui/StatusBadge.tsx` render tag, branch, and sync badges.
 - `src/ui/Spinner.tsx` renders `spinnerFrames` through `useTimeline`.
 - `src/ui/ProgressBar.tsx` draws a FrameBuffer bar; it uses theme colors and no glyphs.
@@ -568,7 +569,7 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 
 | Primitive | OpenTUI composition | Purpose |
 | --- | --- | --- |
-| `Panel` | `<box>` with border, optional `focusable`, stable `id`, `focusedBorderColor`, title | Bordered region with native focus-aware border. Region frames pass `focusable` and the region id. |
+| `Panel` | `<box>` with border, optional `focusable`, stable `id`, `focusedBorderColor`, border title | Bordered region with a native focus-aware border and a title embedded in the top border (`┌─ Title ────────┐`). The title gains a leading focus marker and the `text` token while the region owns focus, and stays `muted` otherwise. Region frames pass `focusable` and the region id. |
 | `PanelHeader` | `<box>` + `<text>` + `<span>` | Section header with title, count, bulk actions. |
 | `ListView` | `<scrollbox>` + `<ListRow>` children | Virtualized custom-row list. |
 | `ListRow` | `<box>` + `<text>` + `<span>` | Row with marker, columns, actions. Marker from `ICONS` in `@/theme/icons`. |

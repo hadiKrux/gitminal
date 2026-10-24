@@ -188,7 +188,12 @@ describe("AppShell", () => {
       await setup.renderOnce();
     });
 
+    const branchesFrame = setup.renderer.root.findDescendantById("region-branches") as
+      | BoxRenderable
+      | undefined;
+
     expect(setup.captureCharFrame()).toMatch(/>\s+Gitminal branch main/);
+    expect(branchesFrame?.title).toBe(" Branches ");
 
     await pressTab(setup);
 
@@ -196,6 +201,7 @@ describe("AppShell", () => {
 
     expect(tabbedFrame).toContain("> Branches");
     expect(tabbedFrame).not.toContain("> Gitminal branch main");
+    expect(branchesFrame?.title).toBe(" > Branches ");
 
     await pressKey(setup, "6");
 
@@ -206,6 +212,7 @@ describe("AppShell", () => {
     const tokens = resolveTheme(DEFAULT_THEME_NAME).tokens;
 
     expect(frame).toContain("> Commits");
+    expect(graphFrame?.title).toBe(" > Commits ");
     expect(graphFrame?.focused).toBe(true);
     expect(graphFrame?.borderColor.equals(RGBA.fromHex(tokens.focus))).toBe(true);
 
