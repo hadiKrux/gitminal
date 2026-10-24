@@ -8,7 +8,7 @@ Owned paths:
 - `src/features/overlays/ConfirmModal.tsx`
 - `src/features/overlays/ErrorOverlay.tsx`
 - `src/features/overlays/OverlayHost.tsx`
-- `src/app/providers/OverlayProvider.tsx` (the overlay stack)
+- `src/app/providers/OverlayProvider.tsx` (the single-entry overlay provider)
 
 Consumed paths (not owned):
 - `src/app/hooks/useOverlay.ts`
@@ -71,10 +71,10 @@ All icons and markers used by this feature come from `src/theme/icons.ts`; see a
 
 ```text
 App (src/app/App.tsx)
-  OverlayProvider (src/app/providers/OverlayProvider.tsx)     // the modal stack and the current error detail
-    (top of stack, rendered once)
-    OverlayHost (src/features/overlays/OverlayHost.tsx)       // stack-aware host
-      Overlay (src/ui/Overlay.tsx)                             // full-size dim layer, background deactivation
+  OverlayProvider (src/app/providers/OverlayProvider.tsx)     // the single open entry and captured focus
+    (the open entry, rendered once)
+    OverlayHost (src/features/overlays/OverlayHost.tsx)       // entry-aware host
+      Overlay (src/ui/Overlay.tsx)                             // dim layer over the shell except the footer row, background deactivation
       ui/ModalFrame (src/ui/ModalFrame.tsx)                    // presentational structure and focus trap
         box                                                    // title + description
           text
@@ -90,20 +90,20 @@ App (src/app/App.tsx)
         ModalActions                                           // Dismiss, Open console entry, Retry when meaningful
 ```
 
-Note on the two frame modules: `src/ui/ModalFrame.tsx` is the reusable presentational primitive from architecture section 7 (box overlay plus Panel plus title plus `ModalActions`, with the focus trap). `src/features/overlays/OverlayHost.tsx` is the overlay-stack-aware wrapper that reads the top of the `OverlayProvider` stack and feeds the primitive the right title, description, fields, and actions. The wrapper is named `OverlayHost` so it cannot be confused with the presentational `ModalFrame`. There is no `NoticeOverlay`: success and informational messages are not overlays and render only in the top bar status strip and the console.
+Note on the two frame modules: `src/ui/ModalFrame.tsx` is the reusable presentational primitive from architecture section 7 (box overlay plus Panel plus title plus `ModalActions`, with the focus trap). `src/features/overlays/OverlayHost.tsx` is the overlay-entry-aware wrapper that reads the current `OverlayProvider` entry and feeds the primitive the right title, description, fields, and actions. The wrapper is named `OverlayHost` so it cannot be confused with the presentational `ModalFrame`. There is no `NoticeOverlay`: success and informational messages are not overlays and render only in the top bar status strip and the console.
 
 ## 5. Enforced files and folders
 
 - `src/features/overlays/ConfirmModal.tsx` - destructive and non-destructive confirmation content, exact labels, scope text, and Cancel-first focus.
 - `src/features/overlays/ErrorOverlay.tsx` - the persistent error overlay with redacted details, Dismiss, Open console entry, and optional Retry.
-- `src/features/overlays/OverlayHost.tsx` - the overlay-stack-aware host that renders the top modal and error through `src/ui/ModalFrame.tsx`.
-- `src/app/providers/OverlayProvider.tsx` - the overlay stack, destructive flag, current error detail, and preserved input on failure.
-- Colocated tests: `OverlayHost.test.tsx`, `ConfirmModal.test.tsx`, `ErrorOverlay.test.tsx`, plus `src/app/providers/OverlayProvider.test.tsx`.
+- `src/features/overlays/OverlayHost.tsx` - the overlay-entry-aware host that renders the open entry through `src/ui/ModalFrame.tsx`; the M6 error overlay is not built yet.
+- `src/app/providers/OverlayProvider.tsx` - the single-entry overlay provider, destructive flag, current error detail, and preserved input on failure.
+- Colocated tests: `OverlayHost.test.tsx`, plus `src/app/providers/OverlayProvider.test.tsx`. `ErrorOverlay.test.tsx` lands with the M6 error overlay.
 
 ## 6. State model
 
 Provider state (owned by `OverlayProvider.tsx`, the single source of truth):
-- `stack: OverlayEntry[]` - the overlay stack. It holds at most one modal at a time; opening a second modal closes or replaces the first.
+- `entry: OverlayEntry | null` - the single open overlay entry. Opening a second entry replaces the first, so only one modal is open at a time and there is nothing to stack. M5 implements two entry kinds: a `modal` entry whose owning feature supplies the content renderer and optional toggle and initial-focus ids, and a `confirm` entry for destructive and non-destructive confirmations with an exact confirm label. The captured background focus is kept across a replacement, because the user's background context never changed.
 - `destructive: boolean` and `destructiveLabel: string` - drive default focus and the confirm button label.
 - `errorDetail: ErrorDetail | null` - the current error shown by `ErrorOverlay`; a new failure replaces it rather than stacking.
 - `preservedInput: unknown` - draft values kept from the failed modal when retry is meaningful.
@@ -117,7 +117,7 @@ Provider state read by overlays:
 - `ConsoleProvider`: the entry id that `ErrorOverlay`'s "Open console entry" action selects.
 - `RepositoryProvider`: not read directly; availability comes through `commands.availability.ts`.
 
-Rule: while an overlay is open it owns all keys, except `overlay.close`, `app.quit`, and the same overlay's toggle. No background feature keeps a parallel "modal is open" flag; the stack in `OverlayProvider` is the only authority.
+Rule: while an overlay is open it owns all keys, except `overlay.close`, `app.quit`, and the same overlay's toggle. No background feature keeps a parallel "modal is open" flag; the single entry in `OverlayProvider` is the only authority.
 
 ## 7. Data flow
 
@@ -136,7 +136,7 @@ action ID -> useAction -> OverlayProvider.open({ kind, title, description, field
 ```
 
 Named modules:
-- `src/app/providers/OverlayProvider.tsx` - the stack, open, close, showError, and preserved input.
+- `src/app/providers/OverlayProvider.tsx` - the single entry, open, close, showError, and preserved input.
 - `src/app/hooks/useOverlay.ts` - the hook features use to open and close overlays.
 - `src/domain/commands/commands.runner.ts` - the pure executor: availability, serialization, execution, and a `CommandResult`. It never closes an overlay, sets a status, or refreshes the repository.
 - `src/app/hooks/useCommandRunner.ts` - the app-layer orchestrator that applies the result: closes the overlay on success, refreshes the repository, appends the console entry, sets status, and routes failures to `showError`.
@@ -154,12 +154,13 @@ Action IDs only; never raw key strings:
 - `form.submit` (default `Ctrl/Cmd+Enter`) - the submit action for every multiline form. It fires from a focused `<textarea>` and is the documented multiline submit path; it never applies to a single-line field, which keeps native `Enter`.
 - `nav.up`, `nav.down` - move within an option list or field list.
 - `nav.left`, `nav.right` - move within the footer `ButtonRow` (defaults also bind `h`/`l`).
-- `focus.next`, `focus.previous` (`Tab`/`Shift+Tab`) - cycle fields and footer actions when focus is not in a multiline textarea. A multiline textarea owns Tab for indentation and Shift+Tab for outdent per F-01; the focus trap keeps focus inside the modal in all cases.
+- `focus.next`, `focus.previous` (`Tab`/`Shift+Tab`) - cycle fields and footer actions when focus is not in a multiline textarea. A multiline textarea owns Tab for indentation and Shift+Tab for outdent per F-01; the focus trap keeps focus inside the modal in all cases. The footer's modal hint set does not advertise `focus.next`, because overlay precedence blocks it while a modal is open; it advertises `nav.activate`, `nav.up`, `nav.down`, and `overlay.close` instead.
 
 How `OverlayProvider` plus `useHotkeys` gives overlays full key ownership:
-- `useHotkeys` reads the top of the `OverlayProvider` stack on every key event. If the stack is non-empty, it resolves only overlay-scope actions from the keymap and returns. Background region handlers and global handlers are never reached, so a background action cannot fire while a modal is open. Keys the overlay context does not handle are delegated to the focused modal text input or native list widget.
+- `useHotkeys` reads the current `OverlayProvider` entry on every key event. If an entry is open, it resolves only overlay-scope actions from the keymap and returns. Background region handlers and global handlers are never reached, so a background action cannot fire while a modal is open. Keys the overlay context does not handle are delegated to the focused modal text input or native list widget.
+- `OverlayHost` sets the footer hint mode to `modal` while an entry exists and back to `context` after it closes, and focuses the entry's initial renderable, retrying once on the next tick because a select or field can mount after the effect. A confirm entry's `ConfirmModal` owns the focused footer action and registers `nav.left`, `nav.right`, and `nav.activate` in the overlay scope; a modal entry's content registers its own overlay actions, so switching entries cannot create a duplicate `(actionId, scope)` registration.
 - Exactly three global actions resolve while an overlay is open: `overlay.close`, `app.quit`, and the same overlay's toggle. The overlay's own scoped actions (`nav.*`, `form.submit`, and its feature commands) continue to resolve inside the modal. No other global action does. `app.console` is global in the shell, but it does not resolve while an overlay owns keys because the console drawer is not the open overlay; the same applies to `remote.*`, `app.themePicker`, `app.refresh`, and `app.reloadConfig`.
-- The background is deactivated visually and functionally by rendering `src/ui/Overlay.tsx`, a full-size dim `<box>`, beneath the modal. On open, `OverlayProvider` captures the currently focused renderable, blurs it, and focuses the modal's first focusable field or action after mount. Because native focus moves into the modal, region borders lose the focus ring and no background renderable receives keys. On close, `OverlayProvider` restores the captured renderable if it is still mounted, otherwise it focuses its region frame.
+- The background is deactivated visually and functionally by rendering `src/ui/Overlay.tsx`, a full-width layer that paints the app background and leaves the footer row visible, beneath the modal. On open, `OverlayProvider` captures the currently focused renderable, and native focus moves to the modal's first focusable field or action after mount. Because native focus moves into the modal, region borders lose the focus ring and no background renderable receives keys. On close, `OverlayProvider` restores the captured renderable if it is still mounted, otherwise it focuses its region frame.
 
 Focus behavior:
 - Destructive confirmations default focus to Cancel.
@@ -179,11 +180,11 @@ Focus behavior:
 
 ## 10. Performance and bounds
 
-- Only one overlay is rendered at a time; the stack never renders more than one modal, so there is no stacking cost.
+- Only one overlay is rendered at a time; the provider holds one entry and never renders more than one modal, so there is no stacking cost.
 - Error details are capped with the first and last portion preserved and an omitted-lines marker, mirroring the console cap.
 - The error detail container is a `<scrollbox>`, so large git output does not force a full render.
 - Redaction runs once before an error detail is stored, not on each render.
-- Status messages use a single timer in `StatusProvider`; because they are not overlays, they allocate no stack entry and no focus state.
+- Status messages use a single timer in `StatusProvider`; because they are not overlays, they allocate no overlay entry and no focus state.
 
 ## 11. Safety and confirmations
 
@@ -214,7 +215,7 @@ Focus behavior:
 ## 13. Tests to add
 
 Colocated per architecture section 5:
-- `src/app/providers/OverlayProvider.test.tsx`: only one modal at a time; a second error replaces the first instead of stacking; close on success; input preserved on failure when retry is meaningful; opening captures and blurs the focused renderable, and closing restores that renderable if it is still mounted, otherwise its region frame; success and informational results add no stack entry.
+- `src/app/providers/OverlayProvider.test.tsx`: only one modal at a time; a second error replaces the first instead of stacking; close on success; input preserved on failure when retry is meaningful; opening captures and blurs the focused renderable, and closing restores that renderable if it is still mounted, otherwise its region frame; success and informational results add no overlay entry.
 - `OverlayHost.test.tsx`: `overlay.close` cancels; the focus trap keeps `focus.next` inside the modal; destructive default focus is Cancel; the footer shows the modal keys; `form.submit` fires from a multiline field; `Enter` still activates a focused footer button.
 - Keyboard ownership test: while an overlay is open, `app.quit` and that overlay's own toggle resolve, and every other global action, including `app.console`, `app.palette` in a non-palette modal, `remote.pull`, `app.themePicker`, and `app.reloadConfig`, does not resolve.
 - `ConfirmModal.test.tsx`: each of the eight labels renders for its action; no "OK" or "Yes" appears for destructive actions; scope text is present.
@@ -224,8 +225,8 @@ Colocated per architecture section 5:
 
 ## 14. Open questions
 
-- Whether the error overlay is a modal stack entry or a separate `errorDetail` field on `OverlayProvider`; the current plan uses a separate field so a new error cannot stack.
+- Whether the error overlay is a modal entry or a separate `errorDetail` field on `OverlayProvider`; the current plan uses a separate field so a new error cannot replace an open modal.
 - Where "Open console entry" navigation lives: `OverlayProvider` coordinating with `ConsoleProvider`, or a command dispatched by `ErrorOverlay`.
 - Whether Retry reopens the original modal with preserved input or re-runs the command directly; the plan reopens the modal when input exists.
 - Which overlays other than the palette and help declare their own toggle. Proposal: none in v1, so only `overlay.close` and `app.quit` are universal.
-- Whether `app.quit` from inside a confirmation should close the confirmation first or quit directly. Proposal: quit directly after its own confirmation, so the overlay stack is cleared once.
+- Whether `app.quit` from inside a confirmation should close the confirmation first or quit directly. Proposal: quit directly after its own confirmation, so the overlay entry is cleared once.

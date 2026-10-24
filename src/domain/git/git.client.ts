@@ -565,13 +565,17 @@ async function spawnAndCollect(
 
       settled = true;
       cleanup();
+      const capturedStdout = stdout.read();
+      const capturedStderr = stderr.read();
       resolve({
         argv,
         cwd: options.cwd,
         exitCode: code,
         terminationSignal,
-        stdout: stdout.read(),
-        stderr: stderr.read(),
+        stdout: capturedStdout,
+        stderr: capturedStderr,
+        stdoutTruncated: stdout.truncated() || undefined,
+        stderrTruncated: stderr.truncated() || undefined,
         durationMs: Math.max(0, settings.now() - startedAt),
         cancelled,
         timedOut,
@@ -738,14 +742,16 @@ function readSpawnFailure(error: unknown): GitSpawnFailure {
  * Creates a bounded text collector that keeps the head and the tail of a stream.
  *
  * Head and tail are both preserved because the first line usually names the failing command while
- * the last lines carry the decisive git error.
+ * the last lines carry the decisive git error. The collector reports whether it had to drop the
+ * middle, so a caller that infers absence from output can treat a truncated parse as unknown.
  *
  * @param limitCharacters - Maximum characters kept, split between head and tail.
- * @returns A collector with `push` and `read`.
+ * @returns A collector with `push`, `read`, and `truncated`.
  */
 function createOutputCollector(limitCharacters: number): {
   push(text: string): void;
   read(): string;
+  truncated(): boolean;
 } {
   const halfLimit = Math.max(1, Math.floor(limitCharacters / 2));
   let head = "";
@@ -780,6 +786,10 @@ function createOutputCollector(limitCharacters: number): {
 
     read(): string {
       return truncated ? `${head}${OUTPUT_TRUNCATION_MARKER}${tail}` : head;
+    },
+
+    truncated(): boolean {
+      return truncated;
     },
   };
 }

@@ -5,12 +5,18 @@ import {
   classifyUpstream,
   confirmRemoteBranch,
   EMPTY_UPSTREAM_EVIDENCE,
+  formatUpstreamRef,
+  parseUpstreamAtoms,
   parseUpstreamRef,
   readUpstreamStatus,
   withAppDeletion,
   withPruneConfirmation,
   withUnknownCheck,
 } from "@/domain/repository/repository.upstream";
+
+/** Arguments that read the upstream atoms of one branch. */
+const CURRENT_UPSTREAM_ARGS =
+  "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main";
 
 /**
  * Builds an invocation result.
@@ -65,12 +71,53 @@ function evidence(overrides: Partial<UpstreamEvidence> = {}): UpstreamEvidence {
   return { ...EMPTY_UPSTREAM_EVIDENCE, ...overrides };
 }
 
+describe("formatUpstreamRef", () => {
+  it("joins the exact remote and branch into the display ref", () => {
+    expect(formatUpstreamRef("origin", "main")).toBe("origin/main");
+    expect(formatUpstreamRef("a/b", "main")).toBe("a/b/main");
+  });
+});
+
+describe("parseUpstreamAtoms", () => {
+  it("reads the explicit remote name and branch ref", () => {
+    expect(parseUpstreamAtoms("origin\trefs/heads/main")).toEqual({
+      ref: "origin/main",
+      remote: "origin",
+      branch: "main",
+    });
+  });
+
+  it("keeps a slash-named remote intact", () => {
+    expect(parseUpstreamAtoms("a/b\trefs/heads/main")).toEqual({
+      ref: "a/b/main",
+      remote: "a/b",
+      branch: "main",
+    });
+  });
+
+  it("rejects a missing half or a non-branch ref", () => {
+    expect(parseUpstreamAtoms("origin\t")).toBeNull();
+    expect(parseUpstreamAtoms("\trefs/heads/main")).toBeNull();
+    expect(parseUpstreamAtoms("origin\trefs/tags/v1.0.0")).toBeNull();
+    expect(parseUpstreamAtoms("origin")).toBeNull();
+    expect(parseUpstreamAtoms("")).toBeNull();
+  });
+});
+
 describe("parseUpstreamRef", () => {
-  it("splits a short upstream ref", () => {
+  it("splits a short upstream ref for display only", () => {
     expect(parseUpstreamRef("origin/main")).toEqual({
       ref: "origin/main",
       remote: "origin",
       branch: "main",
+    });
+  });
+
+  it("is documented as ambiguous for a slash-named remote", () => {
+    expect(parseUpstreamRef("a/b/main")).toEqual({
+      ref: "a/b/main",
+      remote: "a",
+      branch: "b/main",
     });
   });
 
@@ -177,8 +224,8 @@ describe("readUpstreamStatus", () => {
 
   it("reads the configured ref from branch configuration", async () => {
     const client = createClient({
-      "for-each-ref --format=%(upstream:short) refs/heads/main": result("origin/main\n"),
-      "rev-parse --verify --quiet origin/main": result("abc123\n"),
+      [CURRENT_UPSTREAM_ARGS]: result("origin\trefs/heads/main\n"),
+      "rev-parse --verify --quiet refs/remotes/origin/main": result("abc123\n"),
     });
 
     const upstream = await readUpstreamStatus(client, {
@@ -195,9 +242,28 @@ describe("readUpstreamStatus", () => {
     });
   });
 
+  it("keeps a slash-named upstream remote intact and checks the full tracking ref", async () => {
+    const client = createClient({
+      "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/foo":
+        result("a/b\trefs/heads/main\n"),
+      "rev-parse --verify --quiet refs/remotes/a/b/main": result("abc123\n"),
+    });
+
+    const upstream = await readUpstreamStatus(client, {
+      cwd: "/repo",
+      signal,
+      branch: "foo",
+      evidence: evidence(),
+    });
+
+    expect(upstream.upstream).toBe("a/b/main");
+    expect(upstream.descriptor).toEqual({ ref: "a/b/main", remote: "a/b", branch: "main" });
+    expect(upstream.status).toBe("healthy");
+  });
+
   it("reports none when the branch has no configured upstream", async () => {
     const client = createClient({
-      "for-each-ref --format=%(upstream:short) refs/heads/main": result("\n"),
+      [CURRENT_UPSTREAM_ARGS]: result("\t\n"),
     });
 
     const upstream = await readUpstreamStatus(client, {
@@ -208,6 +274,21 @@ describe("readUpstreamStatus", () => {
     });
 
     expect(upstream.status).toBe("none");
+  });
+
+  it("reports unknown when either upstream half is missing", async () => {
+    const client = createClient({
+      [CURRENT_UPSTREAM_ARGS]: result("origin\t\n"),
+    });
+
+    const upstream = await readUpstreamStatus(client, {
+      cwd: "/repo",
+      signal,
+      branch: "main",
+      evidence: evidence(),
+    });
+
+    expect(upstream).toEqual({ status: "unknown", upstream: null, descriptor: null });
   });
 
   it("reports unknown when branch configuration cannot be read", async () => {
@@ -234,8 +315,8 @@ describe("readUpstreamStatus", () => {
 
   it("reports gone when the configured tracking ref is missing", async () => {
     const client = createClient({
-      "for-each-ref --format=%(upstream:short) refs/heads/main": result("origin/main\n"),
-      "rev-parse --verify --quiet origin/main": result("", false),
+      [CURRENT_UPSTREAM_ARGS]: result("origin\trefs/heads/main\n"),
+      "rev-parse --verify --quiet refs/remotes/origin/main": result("", false),
     });
 
     const upstream = await readUpstreamStatus(client, {

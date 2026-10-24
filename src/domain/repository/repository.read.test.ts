@@ -39,7 +39,7 @@ describe("readRepositorySnapshot", () => {
     const fake = createFakeGitClient();
     const client = overrideCommand(
       fake.client,
-      "for-each-ref --format=%(upstream:short) refs/heads/main",
+      "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main",
       fakeGitResult("", false, "fatal: unable to read refs"),
     );
 
@@ -50,6 +50,31 @@ describe("readRepositorySnapshot", () => {
     expect(result.signals.upstream).toBe("origin/main");
     expect(result.upstreamStatus).toBe("unknown");
     expect(result.signals.upstreamCheck).toBe("unknown");
+  });
+
+  it("keeps a slash-named upstream remote whole in the snapshot", async () => {
+    const fake = createFakeGitClient();
+    const onFoo = overrideCommand(
+      fake.client,
+      "symbolic-ref -q --short HEAD",
+      fakeGitResult("foo\n"),
+    );
+    const withAtoms = overrideCommand(
+      onFoo,
+      "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/foo",
+      fakeGitResult("a/b\trefs/heads/main\n"),
+    );
+    const client = overrideCommand(
+      withAtoms,
+      "rev-parse --verify --quiet refs/remotes/a/b/main",
+      fakeGitResult("abc123\n"),
+    );
+
+    const result = await readRepositorySnapshot(client, readOptions());
+
+    expect(result.snapshot?.upstream).toBe("a/b/main");
+    expect(result.upstreamStatus).toBe("healthy");
+    expect(result.signals.upstream).toBe("a/b/main");
   });
 
   it("resolves whether any local branch has an upstream", async () => {
@@ -80,6 +105,21 @@ describe("readRepositorySnapshot", () => {
     );
 
     expect(unknown.signals.hasUpstreamBranches).toBeTrue();
+  });
+
+  it("fails the read when git remote -v output is truncated", async () => {
+    const fake = createFakeGitClient();
+    const client = overrideCommand(fake.client, "remote -v", {
+      ...fakeGitResult("origin\tgit@example.com:repo.git (fetch)\n"),
+      stdoutTruncated: true,
+    });
+
+    const result = await readRepositorySnapshot(client, readOptions());
+
+    expect(result.ok).toBeFalse();
+    expect(result.snapshot).toBeNull();
+    expect(result.error).toBe("git remote -v output was truncated");
+    expect(result.signals.loaded).toBeFalse();
   });
 
   it("keeps a genuine not-a-repository classification", async () => {

@@ -3,6 +3,22 @@ import { executeRemoteFetch } from "@/domain/commands/commands.fetch";
 import type { CommandHandlerContext, CommandProgress } from "@/domain/commands/commands.types";
 import type { GitClient, GitInvocationResult, GitInvokeOptions } from "@/domain/git/git.types";
 
+/** Arguments that list every local branch upstream. */
+const GROUPS_ARGS =
+  "for-each-ref --format=%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref) refs/heads";
+
+/**
+ * Builds one tab-separated upstream row.
+ *
+ * @param local - Local branch name.
+ * @param remote - Upstream remote name.
+ * @param branch - Branch inside that remote.
+ * @returns The captured row.
+ */
+function upstreamRow(local: string, remote: string, branch: string): string {
+  return `${local}\t${remote}\trefs/heads/${branch}`;
+}
+
 /**
  * Builds an invocation result.
  *
@@ -72,14 +88,17 @@ describe("executeRemoteFetch", () => {
     const calls: GitInvokeOptions[] = [];
     const context = createContext(
       {
-        "for-each-ref --format=%(refname:short) %(upstream:short) refs/heads": () =>
-          result("main origin/main\nfeature origin/feature\n"),
-        "fetch --progress origin +refs/heads/main:refs/remotes/origin/main": (options) => {
+        [GROUPS_ARGS]: () =>
+          result(
+            `${upstreamRow("main", "origin", "main")}\n${upstreamRow("feature", "origin", "feature")}\n`,
+          ),
+        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": (options) => {
           options.onStderr?.("Receiving objects: 42%\r\n");
 
           return result("");
         },
-        "fetch --progress origin +refs/heads/feature:refs/remotes/origin/feature": () => result(""),
+        "fetch --progress -- origin +refs/heads/feature:refs/remotes/origin/feature": () =>
+          result(""),
       },
       progress,
       calls,
@@ -92,14 +111,40 @@ describe("executeRemoteFetch", () => {
       "git",
       "fetch",
       "--progress",
+      "--",
       "origin",
       "+refs/heads/feature:refs/remotes/origin/feature",
     ]);
-    expect(outcome.steps[0]?.argv[4]?.startsWith("+refs/heads/feature:")).toBeTrue();
+    expect(outcome.steps[0]?.argv[5]?.startsWith("+refs/heads/feature:")).toBeTrue();
     expect(calls[1]?.operationClass).toBe("network");
     expect(calls[2]?.operationClass).toBe("network");
     expect(outcome.remoteResults).toEqual([{ remote: "origin", succeeded: true }]);
     expect(progress).toEqual([{ phase: "Receiving objects", percent: 42 }]);
+  });
+
+  it("fetches a slash-named remote under its full name", async () => {
+    const progress: CommandProgress[] = [];
+    const calls: GitInvokeOptions[] = [];
+    const context = createContext(
+      {
+        [GROUPS_ARGS]: () => result(`${upstreamRow("main", "a/b", "main")}\n`),
+        "fetch --progress -- a/b +refs/heads/main:refs/remotes/a/b/main": () => result(""),
+      },
+      progress,
+      calls,
+    );
+
+    const outcome = await executeRemoteFetch(context);
+
+    expect(outcome.steps[0]?.argv).toEqual([
+      "git",
+      "fetch",
+      "--progress",
+      "--",
+      "a/b",
+      "+refs/heads/main:refs/remotes/a/b/main",
+    ]);
+    expect(outcome.remoteResults).toEqual([{ remote: "a/b", succeeded: true }]);
   });
 
   it("continues after one remote group fails", async () => {
@@ -107,11 +152,14 @@ describe("executeRemoteFetch", () => {
     const calls: GitInvokeOptions[] = [];
     const context = createContext(
       {
-        "for-each-ref --format=%(refname:short) %(upstream:short) refs/heads": () =>
-          result("main origin/main\nupstream/main upstream/main\n"),
-        "fetch --progress origin +refs/heads/main:refs/remotes/origin/main": () =>
+        [GROUPS_ARGS]: () =>
+          result(
+            `${upstreamRow("main", "origin", "main")}\n${upstreamRow("upstream/main", "upstream", "main")}\n`,
+          ),
+        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () =>
           result("", false, "fatal: could not resolve host"),
-        "fetch --progress upstream +refs/heads/main:refs/remotes/upstream/main": () => result(""),
+        "fetch --progress -- upstream +refs/heads/main:refs/remotes/upstream/main": () =>
+          result(""),
       },
       progress,
       calls,
@@ -129,12 +177,35 @@ describe("executeRemoteFetch", () => {
     ]);
   });
 
+  it("treats a truncated upstream-scope read as a failed command", async () => {
+    const progress: CommandProgress[] = [];
+    const calls: GitInvokeOptions[] = [];
+    const context = createContext(
+      {
+        [GROUPS_ARGS]: () => ({
+          ...result(`${upstreamRow("main", "origin", "main")}\n`),
+          stdoutTruncated: true,
+        }),
+      },
+      progress,
+      calls,
+    );
+
+    const outcome = await executeRemoteFetch(context);
+
+    expect(outcome.steps).toHaveLength(1);
+    expect(outcome.steps[0]?.stdoutTruncated).toBeTrue();
+    expect(outcome.failed).toBeTrue();
+    expect(outcome.remoteResults).toBeUndefined();
+    expect(calls.filter((call) => call.args[0] === "fetch")).toHaveLength(0);
+  });
+
   it("returns a blocked outcome when no local branch has an upstream", async () => {
     const progress: CommandProgress[] = [];
     const calls: GitInvokeOptions[] = [];
     const context = createContext(
       {
-        "for-each-ref --format=%(refname:short) %(upstream:short) refs/heads": () => result(""),
+        [GROUPS_ARGS]: () => result(""),
       },
       progress,
       calls,
@@ -152,11 +223,13 @@ describe("executeRemoteFetch", () => {
     const calls: GitInvokeOptions[] = [];
     const context = createContext(
       {
-        "for-each-ref --format=%(refname:short) %(upstream:short) refs/heads": () =>
-          result("main origin/main\nfeature origin/feature\n"),
-        "fetch --progress origin +refs/heads/feature:refs/remotes/origin/feature": () =>
+        [GROUPS_ARGS]: () =>
+          result(
+            `${upstreamRow("main", "origin", "main")}\n${upstreamRow("feature", "origin", "feature")}\n`,
+          ),
+        "fetch --progress -- origin +refs/heads/feature:refs/remotes/origin/feature": () =>
           result("", false, "fatal: couldn't find remote ref refs/heads/feature"),
-        "fetch --progress origin +refs/heads/main:refs/remotes/origin/main": () => result(""),
+        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () => result(""),
       },
       progress,
       calls,
@@ -165,7 +238,7 @@ describe("executeRemoteFetch", () => {
     const outcome = await executeRemoteFetch(context);
 
     expect(outcome.steps).toHaveLength(2);
-    expect(outcome.warnings).toEqual(["upstream not found for feature"]);
+    expect(outcome.warnings).toEqual(["upstream not found for origin/feature"]);
     expect(outcome.steps[0]?.argv).toContain("+refs/heads/feature:refs/remotes/origin/feature");
     expect(outcome.steps[0]?.nonFatal).toBeTrue();
     expect(outcome.steps[1]?.nonFatal).toBeUndefined();

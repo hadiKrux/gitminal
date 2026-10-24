@@ -1,6 +1,7 @@
 import { createGitClient } from "@/domain/git/git.client";
 import type { GitClient } from "@/domain/git/git.types";
-import { getAvailability, getCommandDescriptor } from "./commands.availability";
+import { getAvailability } from "./commands.availability";
+import { getCommandDescriptor } from "./commands.registry";
 import type {
   CommandExecutionOutcome,
   CommandHandlerRegistration,
@@ -242,8 +243,9 @@ function createExecutedResult(
 
   const cancelled = isOutcomeCancelled(outcome);
   const timedOut = isOutcomeTimedOut(outcome);
-  const failed = outcome.steps.some(isFailedStep);
+  const failed = outcome.failed === true || outcome.steps.some(isFailedStep);
   const warnings = outcome.warnings ?? [];
+  const timedOutAfterMs = readTimedOutAfterMs(outcome);
 
   return {
     commandId,
@@ -255,7 +257,24 @@ function createExecutedResult(
     warnings: warnings.length > 0 ? warnings : undefined,
     cancelled: cancelled || undefined,
     timedOut: timedOut || undefined,
+    timedOutAfterMs,
   };
+}
+
+/**
+ * Reads the timeout duration that expired for an outcome.
+ *
+ * @param outcome - Handler outcome.
+ * @returns The first reported timeout duration, or null when none is known.
+ */
+function readTimedOutAfterMs(outcome: CommandExecutionOutcome): number | null {
+  for (const step of outcome.steps) {
+    if (step.timedOutAfterMs !== undefined && step.timedOutAfterMs !== null) {
+      return step.timedOutAfterMs;
+    }
+  }
+
+  return null;
 }
 
 /**

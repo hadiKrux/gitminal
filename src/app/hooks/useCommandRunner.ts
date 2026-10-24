@@ -1,4 +1,10 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
+import {
+  abortActiveCommand,
+  clearCommandExecution,
+  isCommandOrchestrationActive,
+  recordCommandExecution,
+} from "@/app/hooks/commandRunner.state";
 import type {
   CommandFailureReport,
   CommandRunnerHook,
@@ -10,7 +16,8 @@ import { useFocusState } from "@/app/hooks/useFocusState";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import type { RepositoryContextValue } from "@/app/providers/RepositoryProvider.types";
-import { getCommandDescriptor } from "@/domain/commands/commands.availability";
+import { describeCommandReason } from "@/domain/commands/commands.reasons";
+import { getCommandDescriptor } from "@/domain/commands/commands.registry";
 import { runCommand as runDomainCommand } from "@/domain/commands/commands.runner";
 import type {
   CommandAvailabilityReason,
@@ -20,35 +27,6 @@ import type {
 } from "@/domain/commands/commands.types";
 import { createConsoleEntryId, formatCommandResult } from "@/domain/console/console.format";
 import { redactCommandResult } from "@/domain/git/git.redact";
-
-/** Readable text for a blocked availability reason. */
-const REASON_TEXT: Readonly<Partial<Record<CommandAvailabilityReason, string>>> = Object.freeze({
-  "missing-target": "Select an item first",
-  "invalid-target": "The selected target is no longer valid",
-  "unknown-remote": "The selected remote is not configured",
-  "cannot-delete-current-branch": "Cannot delete the current branch",
-  "resolve-conflicts-first": "Resolve conflicts first",
-  "merge-state": "Another operation is in progress",
-  "command-not-found": "Command not found",
-  "not-a-mutation": "This command does not change the repository",
-  "operation-in-progress": "Another operation is running",
-  "command-not-implemented": "This command is not implemented yet",
-  "not-a-repository": "Not a git repository",
-  "bare-repository": "Bare repositories are not supported",
-  "git-missing": "Git not found",
-  "permission-error": "Permission denied",
-  "no-commits-yet": "No commits yet",
-  "detached-head": "Detached HEAD",
-  "no-remote": "No remote configured",
-  "no-upstream": "The branch has no upstream",
-  "no-local-upstreams": "No local branches with upstreams",
-  "upstream-gone": "The upstream is gone",
-  "merge-in-progress": "Merge in progress",
-  "rebase-in-progress": "Rebase in progress",
-  "cherry-pick-in-progress": "Cherry-pick in progress",
-  "missing-git-identity": "Set user.name and user.email first",
-  loading: "The repository is still loading",
-});
 
 /**
  * Runs commands through the single domain executor and applies every result effect.
@@ -60,8 +38,9 @@ const REASON_TEXT: Readonly<Partial<Record<CommandAvailabilityReason, string>>> 
  * transient reason. A cancelled or timed-out command is a warning, never success, and never opens
  * the error surface. Drafts and selection are never touched, so they survive every failure.
  *
- * The hook owns one abort controller for the current invocation and exposes `abort()` so quit can
- * cancel the child before the renderer is destroyed.
+ * Only one orchestration exists at a time. A second request while the first command still applies
+ * its post-result effects returns a blocked result before `beginOperation`, so the active operation
+ * progress is never replaced and the abort slot always points at the child that is actually running.
  *
  * @param options - Optional error surface; defaults to an error status.
  * @returns The command entry point and abort handle.
@@ -71,8 +50,6 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
   const { setStatus, beginOperation, updateOperation, endOperation } = useStatus();
   const { append } = useConsoleLog();
   const { state: focusState } = useFocusState();
-  const controllerRef = useRef<AbortController | null>(null);
-  const inFlightRef = useRef<Promise<CommandResult> | null>(null);
 
   /** Routes a failure through the injected sink or the default error status. */
   const defaultErrorSink = useCallback(
@@ -91,88 +68,41 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
     return activeRegion ?? "top-bar";
   }, [focusState.activeRegion]);
 
-  /**
-   * Runs one command and applies its effects.
-   *
-   * @param request - Command id, explicit target, and optional form values.
-   * @returns The redacted result.
-   */
   const runCommand = useCallback(
     (request: CommandRequest): Promise<CommandResult> => {
-      const execute = async (): Promise<CommandResult> => {
-        const region = readRegion();
-        const operationLabel = readOperationLabel(request.commandId);
-        const blocked = readBlockedResult({
-          request,
-          region,
-          repository,
-          operationLabel,
-          setStatus,
-        });
+      const operationLabel = readOperationLabel(request.commandId);
 
-        if (blocked !== null) {
-          return blocked;
-        }
-
-        beginOperation(operationLabel);
-
-        const controller = new AbortController();
-        controllerRef.current = controller;
-
-        try {
-          const result = await runDomainCommand(request, {
-            state: repository.state,
-            signals: repository.signals,
-            target: request.target,
-            region,
-            signal: controller.signal,
-            onProgress: (progress) => updateOperation(progress),
-            client: repository.gitClient,
-          });
-
-          if (result.status === "blocked") {
-            endOperation();
-
-            return surfaceRunnerBlocked(result, {
-              request,
-              operationLabel,
-              cwd: repository.signals.cwd,
-              setStatus,
-            });
-          }
-
-          return await applyResult(result, {
-            append,
-            endOperation,
-            errorSink,
+      if (isCommandOrchestrationActive()) {
+        return Promise.resolve(
+          surfaceBlocked({
+            request,
             operationLabel,
-            refresh: repository.refresh,
-            repositoryRoot: repository.snapshot?.root ?? null,
+            cwd: repository.signals.cwd,
+            reason: "operation-in-progress",
             setStatus,
-          });
-        } catch (error) {
-          endOperation();
+          }),
+        );
+      }
 
-          const message = error instanceof Error ? error.message : String(error);
+      const controller = new AbortController();
+      const execution = executeRequest({
+        request,
+        region: readRegion(),
+        repository,
+        operationLabel,
+        controller,
+        append,
+        beginOperation,
+        updateOperation,
+        endOperation,
+        errorSink,
+        setStatus,
+      });
 
-          setStatus({ kind: "error", message });
-
-          throw error;
-        } finally {
-          if (controllerRef.current === controller) {
-            controllerRef.current = null;
-          }
-        }
-      };
-
-      const execution = execute();
-
-      inFlightRef.current = execution;
+      recordCommandExecution(controller, execution);
 
       return execution.finally(() => {
-        if (inFlightRef.current === execution) {
-          inFlightRef.current = null;
-        }
+        clearCommandExecution(execution);
       });
     },
     [
@@ -188,28 +118,91 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
   );
 
   /**
-   * Aborts the current invocation and waits for it to settle.
+   * Aborts the current invocation and waits for every post-result effect to settle.
    *
    * Quit calls this before destroying the renderer so the client's `SIGTERM`-then-`SIGKILL` sequence
-   * completes and the child has stopped writing to the terminal.
+   * completes and the child has stopped writing to the terminal. The active invocation is shared
+   * across hook instances, so any surface's quit waits for the command it started.
    */
-  const abort = useCallback(async (): Promise<void> => {
-    controllerRef.current?.abort();
-
-    const inFlight = inFlightRef.current;
-
-    if (inFlight === null) {
-      return;
-    }
-
-    try {
-      await inFlight;
-    } catch {
-      // The command already reported its own failure; quit only needs the settlement.
-    }
-  }, []);
+  const abort = useCallback((): Promise<void> => abortActiveCommand(), []);
 
   return useMemo(() => ({ runCommand, abort }), [runCommand, abort]);
+}
+
+/**
+ * Executes one command and applies every effect in the documented order.
+ *
+ * @param input - Request, captured context, collaborators, and the owned abort controller.
+ * @returns The redacted result.
+ */
+async function executeRequest(input: {
+  readonly request: CommandRequest;
+  readonly region: CommandRegion;
+  readonly repository: RepositoryContextValue;
+  readonly operationLabel: string;
+  readonly controller: AbortController;
+  readonly append: (entry: ReturnType<typeof formatCommandResult>) => void;
+  readonly beginOperation: (label: string) => void;
+  readonly updateOperation: (progress: { phase?: string; percent?: number | null }) => void;
+  readonly endOperation: () => void;
+  readonly errorSink: CommandStatusWriters["errorSink"];
+  readonly setStatus: CommandStatusWriters["setStatus"];
+}): Promise<CommandResult> {
+  const { request, region, repository, operationLabel, controller, setStatus } = input;
+  const blocked = readBlockedResult({
+    request,
+    region,
+    repository,
+    operationLabel,
+    setStatus,
+  });
+
+  if (blocked !== null) {
+    return blocked;
+  }
+
+  input.beginOperation(operationLabel);
+
+  try {
+    const result = await runDomainCommand(request, {
+      state: repository.state,
+      signals: repository.signals,
+      target: request.target,
+      region,
+      signal: controller.signal,
+      onProgress: (progress) => input.updateOperation(progress),
+      client: repository.gitClient,
+    });
+
+    if (result.status === "blocked") {
+      input.endOperation();
+
+      return surfaceRunnerBlocked(result, {
+        request,
+        operationLabel,
+        cwd: repository.signals.cwd,
+        setStatus,
+      });
+    }
+
+    return await applyResult(result, {
+      append: input.append,
+      endOperation: input.endOperation,
+      errorSink: input.errorSink,
+      operationLabel,
+      refresh: repository.refresh,
+      repositoryRoot: repository.snapshot?.root ?? null,
+      setStatus,
+    });
+  } catch (error) {
+    input.endOperation();
+
+    const message = error instanceof Error ? error.message : String(error);
+
+    setStatus({ kind: "error", message });
+
+    throw error;
+  }
 }
 
 /**
@@ -294,7 +287,7 @@ function surfaceBlocked(input: {
   readonly reason: CommandAvailabilityReason;
   readonly setStatus: CommandStatusWriters["setStatus"];
 }): CommandResult {
-  input.setStatus({ kind: "warning", message: describeReason(input.reason) });
+  input.setStatus({ kind: "warning", message: describeCommandReason(input.reason) });
 
   return createBlockedResult(
     input.request.commandId,
@@ -366,7 +359,7 @@ function applyOutcome(
   }
 
   if (result.timedOut === true) {
-    status.setStatus({ kind: "warning", message: "timed out" });
+    status.setStatus({ kind: "warning", message: readTimeoutMessage(result.timedOutAfterMs) });
 
     return;
   }
@@ -394,6 +387,23 @@ function applyOutcome(
 }
 
 /**
+ * Builds the warning text for a timed-out command.
+ *
+ * The timeout duration is part of the execution contract, so it is rendered when the client reported
+ * one and falls back to the short form only when the duration is unknown.
+ *
+ * @param timedOutAfterMs - Timeout that expired, or null when unknown.
+ * @returns The warning message.
+ */
+function readTimeoutMessage(timedOutAfterMs: number | null | undefined): string {
+  if (timedOutAfterMs === null || timedOutAfterMs === undefined) {
+    return "timed out";
+  }
+
+  return `timed out after ${Math.round(timedOutAfterMs / 1000)} seconds`;
+}
+
+/**
  * Builds a blocked result without invoking the runner.
  *
  * @param commandId - Requested command id.
@@ -417,14 +427,4 @@ function createBlockedResult(
     progress: [],
     blockedReason: reason,
   };
-}
-
-/**
- * Reads readable text for an availability reason.
- *
- * @param reason - Machine-readable reason.
- * @returns Display text.
- */
-function describeReason(reason: CommandAvailabilityReason): string {
-  return REASON_TEXT[reason] ?? reason.replace(/-/g, " ");
 }

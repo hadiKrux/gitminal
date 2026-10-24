@@ -106,7 +106,7 @@ Why now: the top bar and every panel read the repository snapshot. The git clien
 
 ## M5 - Top bar
 
-Status: Ready for dev
+Status: Done
 
 Tickets: [`02-top-bar.md`](02-top-bar.md)
 

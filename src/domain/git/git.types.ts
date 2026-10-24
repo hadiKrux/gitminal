@@ -133,6 +133,15 @@ export interface GitInvocationResult {
   readonly stdout: string;
   /** Captured standard error, bounded by the client output limit. */
   readonly stderr: string;
+  /**
+   * True when stdout exceeded the client output limit and lost its middle.
+   *
+   * A truncated parse is incomplete evidence, so callers that infer absence from output must
+   * treat it as unknown instead of a confirmed result.
+   */
+  readonly stdoutTruncated?: boolean;
+  /** True when stderr exceeded the client output limit and lost its middle. */
+  readonly stderrTruncated?: boolean;
   /** Wall-clock duration in milliseconds. */
   readonly durationMs: number;
   /** True when the invocation was cancelled through its `AbortSignal`. */

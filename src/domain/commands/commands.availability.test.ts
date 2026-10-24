@@ -10,6 +10,9 @@ import type { RepositorySignals } from "@/domain/repository/repository.types";
 /** No explicit target. */
 const NO_TARGET: CommandTarget = { kind: "none" };
 
+/** The current branch as an explicit target. */
+const CURRENT_BRANCH: CommandTarget = { kind: "branch", name: "main" };
+
 /**
  * Builds a loaded, normal-repository signal set with overrides.
  *
@@ -98,7 +101,9 @@ describe("getAvailability", () => {
   it("returns the repository-wide gate reason first", () => {
     const signals = createSignals({ branch: null, detached: true });
 
-    expect(getAvailability("remote.pull", createContext({ signals }))).toEqual({
+    expect(
+      getAvailability("remote.pull", createContext({ signals, target: CURRENT_BRANCH })),
+    ).toEqual({
       available: false,
       reason: "detached-head",
     });
@@ -107,7 +112,9 @@ describe("getAvailability", () => {
   it("blocks pull without an upstream", () => {
     const signals = createSignals({ upstream: null, upstreamCheck: "none" });
 
-    expect(getAvailability("remote.pull", createContext({ signals }))).toEqual({
+    expect(
+      getAvailability("remote.pull", createContext({ signals, target: CURRENT_BRANCH })),
+    ).toEqual({
       available: false,
       reason: "no-upstream",
     });
@@ -116,10 +123,60 @@ describe("getAvailability", () => {
   it("blocks pull when the upstream is gone", () => {
     const signals = createSignals({ upstreamExists: false });
 
-    expect(getAvailability("remote.pull", createContext({ signals }))).toEqual({
+    expect(
+      getAvailability("remote.pull", createContext({ signals, target: CURRENT_BRANCH })),
+    ).toEqual({
       available: false,
       reason: "upstream-gone",
     });
+  });
+
+  it("requires a branch target for pull and push", () => {
+    expect(getAvailability("remote.pull", createContext())).toEqual({
+      available: false,
+      reason: "missing-target",
+    });
+
+    expect(getAvailability("remote.push", createContext())).toEqual({
+      available: false,
+      reason: "missing-target",
+    });
+  });
+
+  it("allows pull and every push variant on the current branch", () => {
+    for (const commandId of [
+      "remote.pull",
+      "remote.push",
+      "remote.pushForceSafe",
+      "remote.pushForceOverwrite",
+      "remote.pushNoVerify",
+    ]) {
+      expect(getAvailability(commandId, createContext({ target: CURRENT_BRANCH }))).toEqual({
+        available: true,
+      });
+    }
+  });
+
+  it("rejects a stale branch target for a remote command", () => {
+    expect(
+      getAvailability(
+        "remote.push",
+        createContext({ target: { kind: "branch", name: "feature" } }),
+      ),
+    ).toEqual({ available: false, reason: "invalid-target" });
+
+    expect(
+      getAvailability(
+        "remote.pushNoVerify",
+        createContext({ target: { kind: "branch", name: "feature" } }),
+      ),
+    ).toEqual({ available: false, reason: "invalid-target" });
+  });
+
+  it("rejects an empty branch name", () => {
+    expect(
+      getAvailability("branch.delete", createContext({ target: { kind: "branch", name: "" } })),
+    ).toEqual({ available: false, reason: "invalid-target" });
   });
 
   it("blocks remote commands without a remote", () => {

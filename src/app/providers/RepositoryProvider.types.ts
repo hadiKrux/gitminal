@@ -97,7 +97,11 @@ export interface RepositoryContextValue {
    */
   recordRemoteCheck(remote: string, kind: RemoteCheckKind, succeeded: boolean): void;
   /**
-   * Records a confirmed absent upstream ref and re-reads the repository.
+   * Records a confirmed absent upstream and re-reads the repository once.
+   *
+   * Reserved for the future F-04 remote-branch-deletion entry point. It must not be reintroduced
+   * into the prune path, which uses `recordUpstreamEvidence` so a multi-ref prune performs one write
+   * and one refresh instead of one per ref.
    *
    * @param ref - Upstream ref confirmed absent.
    * @param basis - Successful prune or successful app-initiated remote deletion.
@@ -108,12 +112,26 @@ export interface RepositoryContextValue {
     basis: "prune" | "app-deletion",
   ): Promise<RepositoryRefreshResult>;
   /**
-   * Records a failed or timed-out upstream check and re-reads the repository.
+   * Records a failed or timed-out upstream check and re-reads the repository once.
+   *
+   * Reserved for the future F-04 remote-branch-deletion entry point. It must not be reintroduced
+   * into the prune path, which uses `recordUpstreamEvidence` for its batched write and refresh.
    *
    * @param ref - Upstream ref whose check failed.
    * @returns The refresh result.
    */
   markUpstreamUnknown(ref: string): Promise<RepositoryRefreshResult>;
+  /**
+   * Records confirmed absent refs and failed checks in one batch and re-reads the repository once.
+   *
+   * @param prunedRefs - Upstream refs a successful prune confirmed absent.
+   * @param unknownRefs - Upstream refs whose remote check failed.
+   * @returns The single refresh result, or null when both lists are empty.
+   */
+  recordUpstreamEvidence(
+    prunedRefs: readonly string[],
+    unknownRefs: readonly string[],
+  ): Promise<RepositoryRefreshResult | null>;
   /**
    * Reads target-aware availability from the current provider state.
    *

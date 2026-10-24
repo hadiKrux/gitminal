@@ -5,6 +5,7 @@ import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
+import { OverlayProvider } from "@/app/providers/OverlayProvider";
 import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
@@ -56,12 +57,14 @@ export function App(
               enableWatcher={props.enableWatcher}
             >
               <FocusProvider>
-                <StatusProvider>
-                  <ConsoleProvider>
-                    <AppShellHost />
-                    {props.probe}
-                  </ConsoleProvider>
-                </StatusProvider>
+                <OverlayProvider>
+                  <StatusProvider>
+                    <ConsoleProvider>
+                      <AppShellHost />
+                      {props.probe}
+                    </ConsoleProvider>
+                  </StatusProvider>
+                </OverlayProvider>
               </FocusProvider>
             </RepositoryProvider>
           </KeymapProvider>

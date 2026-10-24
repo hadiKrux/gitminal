@@ -75,8 +75,9 @@ function createFakeGit(): FakeGit {
       result("origin\tgit@example.com:repo.git (fetch)\norigin\tgit@example.com:repo.git (push)\n"),
     "config user.name": () => result("Test User\n"),
     "config user.email": () => result("test@example.com\n"),
-    "for-each-ref --format=%(upstream:short) refs/heads/main": () => result("origin/main\n"),
-    "rev-parse --verify --quiet origin/main": () => result("abc123\n"),
+    "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main": () =>
+      result("origin\trefs/heads/main\n"),
+    "rev-parse --verify --quiet refs/remotes/origin/main": () => result("abc123\n"),
   };
 
   return {
@@ -397,7 +398,7 @@ describe("RepositoryProvider", () => {
     const client: GitClient = {
       gitPath: "git",
       invoke: async (options) => {
-        if (options.args.join(" ") === "rev-parse --verify --quiet origin/main") {
+        if (options.args.join(" ") === "rev-parse --verify --quiet refs/remotes/origin/main") {
           return result("", false);
         }
 

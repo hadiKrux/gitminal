@@ -21,6 +21,8 @@ This document is the contract. Feature documents describe behavior; this documen
 | Git access | System git CLI, argument arrays, no shell | Product spec F-18 |
 | Tests | `bun test` | This document |
 
+Supported git minimum: **Git >= 2.30.0**. The fixture floor and the integration skip threshold are both 2.30, and every command the app runs is available there. The narrowest requirements are `git branch --show-current` (2.22) and the unambiguous upstream atoms `%(upstream:remotename)` and `%(upstream:remoteref)` (2.28), so 2.30 is the safe floor rather than a version the app happens to be tested on.
+
 No other runtime dependency is added without updating this document. No UI toolkit, state library, router, or HTTP client is introduced. The startup update check uses the runtime's global `fetch` and adds no dependency.
 
 ## 2. Architectural principles
@@ -136,6 +138,7 @@ gitminal/
         KeymapProvider.tsx
         KeymapProvider.types.ts
         OverlayProvider.tsx
+        OverlayProvider.types.ts
         StatusProvider.tsx
         StatusProvider.types.ts
         ConsoleProvider.tsx
@@ -147,6 +150,7 @@ gitminal/
         useAction.types.ts
         useCommandRunner.ts
         useCommandRunner.types.ts
+        commandRunner.state.ts
         useFocusRegion.ts
         useFocusState.ts
         useListCursor.ts
@@ -167,12 +171,14 @@ gitminal/
         useRepositoryAvailability.ts
         useRepositoryAvailability.types.ts
         useRepositoryInitialRead.ts
+        useOptionalRepository.ts
         useRepositoryInitialRead.types.ts
         useRepositoryStoreWatcher.ts
         useRepositoryStoreWatcher.types.ts
         useInFlightTask.ts
         useInFlightTask.types.ts
-        useRemoteFetchCommand.ts
+        useRemoteCommands.ts
+        useRemoteCommands.types.ts
         useRepositoryEvidence.ts
         useRepositoryEvidence.types.ts
         useRepositoryWatcher.ts
@@ -202,11 +208,24 @@ gitminal/
         useFocusModel.ts
       top-bar/
         TopBar.tsx
+        TopBar.constants.ts
         TopBarStatus.tsx
+        TopBarStatus.constants.ts
         SyncStateBadge.tsx
+        SyncStateBadge.constants.ts
         TopBarActions.tsx
         MoreMenu.tsx
+        MoreMenuLive.tsx
+        MoreMenu.constants.ts
+        topBar.budgets.ts
+        topBar.budgets.types.ts
+        topBar.controls.ts
+        topBar.status.ts
         useTopBar.ts
+        useTopBar.types.ts
+        useTopBarAvailability.ts
+        useTopBarCommands.ts
+        useTopBarMenu.ts
       branches/
         BranchesPanel.tsx
         BranchRow.tsx
@@ -283,6 +302,7 @@ gitminal/
         useHelp.ts
       overlays/
         ConfirmModal.tsx
+        ConfirmModal.constants.ts
         ErrorOverlay.tsx
         OverlayHost.tsx
       theme-picker/
@@ -296,6 +316,7 @@ gitminal/
       ListRow.tsx
       ScrollableList.tsx
       Button.tsx
+      Button.types.ts
       ButtonRow.tsx
       Badge.tsx
       StatusBadge.tsx
@@ -305,7 +326,9 @@ gitminal/
       HintBar.tsx
       HintBar.types.ts
       Spinner.tsx
+      Spinner.constants.ts
       ProgressBar.tsx
+      ProgressBar.constants.ts
       EmptyState.tsx
       ErrorState.tsx
       LoadingRow.tsx
@@ -315,8 +338,10 @@ gitminal/
       Checkbox.tsx
       SelectField.tsx
       ModalFrame.tsx
+      ModalFrame.constants.ts
       ModalActions.tsx
       Overlay.tsx
+      Overlay.constants.ts
       Swatch.tsx
       SectionHeader.tsx
     domain/
@@ -332,6 +357,7 @@ gitminal/
         git.log.ts
         git.branches.ts
         git.remotes.ts
+        git.remotes.types.ts
         git.tags.ts
         git.stashes.ts
         git.worktrees.ts
@@ -357,8 +383,12 @@ gitminal/
         commands.types.ts
         commands.runner.ts
         commands.availability.ts
+        commands.reasons.ts
+        commands.steps.ts
         commands.fetch.ts
         commands.fetch.types.ts
+        commands.remote.ts
+        commands.remote.types.ts
       graph/
         graph.types.ts
         graph.paginate.ts
@@ -416,6 +446,7 @@ gitminal/
       git.fake.ts
       react.guard.tsx
       shell.harness.tsx
+      app.harness.tsx
 ```
 
 Rules for this tree:
@@ -427,7 +458,7 @@ Rules for this tree:
 - `src/test/` holds test-only harness code. `git.fixture.ts` creates, seeds, and removes temporary repositories for integration tests; no production module imports it, and the boundary check rejects a `src/test/**` import outside a colocated test file or another `src/test/**` module.
 - `scripts/` holds the section 12 developer checks only. It is tooling, not a feature folder, so the feature naming rule does not apply.
 - `AppShellHost.tsx` is the composition root. Feature components never import one another; they receive cross-feature data through providers, commands, or selectors.
-- The M4 temporary surfaces are `features/top-bar/TopBar.tsx`, `features/console/ConsoleDrawer.tsx`, and `features/shell/PlaceholderSurface.tsx`. M5 replaces the top bar and M6 replaces the console drawer; `AppShellHost` only swaps the surfaces it supplies, and each placeholder is documented as temporary in its own file.
+- The M4 temporary surfaces are `features/console/ConsoleDrawer.tsx` and `features/shell/PlaceholderSurface.tsx`. M6 replaces the console drawer; `AppShellHost` only swaps the surfaces it supplies, and each placeholder is documented as temporary in its own file. M5 replaced the temporary top bar with the real one.
 
 ## 5. File naming rules
 
@@ -501,7 +532,7 @@ Hooks available from `@opentui/react` 0.6.6:
 | `useFocus(handler)` / `useBlur(handler)` | Terminal-window focus and blur only: refresh on terminal focus, pause work on blur. Never region focus. |
 | `usePaste(handler)` | Commit message and field paste handling. |
 | `useSelectionHandler(handler)` | Console log text selection and copy. |
-| `useTimeline(options)` | `Spinner` animation and throttled progress-bar redraws in the top bar status strip. |
+| `useTimeline(options)` | `Spinner` animation. `ProgressBar` throttles redraws with a 100 ms timer instead and redraws only when the rounded cells, width, or color change; this deliberate deviation keeps the frame-buffer draw loop independent of the animation timeline. |
 
 Component rules:
 
@@ -514,7 +545,7 @@ Component rules:
 7. The console drawer is app-owned UI (not the renderer's built-in console). It is a `<box>` docked above the footer containing a `<scrollbox>` of entry `<box>` rows, so it can show command, status, duration, and expandable output in the app style. The renderer console is used only for development logging.
 8. Disabled controls are rendered with a `dim` token and a text reason, and remain visible. The command palette uses `<select>` options whose `description` carries the disabled reason.
 9. Truncation uses `@/lib/text.ts` helpers with explicit budgets from `useTerminalDimensions`; it never hides the current branch, the selection marker, or the primary action.
-10. Progress bars use `<frame-buffer>` through the `ProgressBar` primitive only. The bar is one row high, `0` to `100` percent clamped, drawn as colored cells with no glyphs, and always paired with a text phase and percentage. Redraw only when the filled cell count, width, or theme color changes, and redraw after a resize because a resize clears the buffer.
+10. Progress bars use `<frame-buffer>` through the `ProgressBar` primitive only. The bar is one row high, `0` to `100` percent clamped, drawn as colored cells with no glyphs, and always paired with a text phase and percentage. Redraw only when the filled cell count, width, a terminal resize, or the theme color changes, and redraw after a height-only resize because the resize clears the buffer. When no percentage is known the bar is not rendered at all; the status strip shows the spinner instead.
 11. The startup splash is the only place `<ascii-font>` is used besides the empty-repository, non-repository, and terminal-too-small states. It renders the `GITMINAL` wordmark with `font="tiny"` above 40 columns and 10 rows and falls back to plain bold text below that, so the splash never wraps. See `21-startup-splash.md`.
 
 ### 6.1 Icon catalog and rules
@@ -540,6 +571,7 @@ Required `ICONS` groups and their default values:
 | File status | `modified`, `added`, `deleted`, `renamed`, `copied`, `conflicted`, `untracked` | `M`, `A`, `D`, `R`, `C`, `U`, `?` |
 | Diff | `diffAdd`, `diffRemove`, `diffContext`, `diffNoNewline` | `+`, `-`, ` `, `\ No newline at end of file` |
 | Tag scope | `tagLocal`, `tagRemote`, `tagUnpushed`, `tagLocalOnly` | `local`, `remote`, `unpushed`, `local only` |
+| Remote actions | `push`, `pull` | `^`, `v` |
 | Operation status | `success`, `warning`, `error`, `info`, `pending`, `running`, `done` | `v`, `!`, `x`, `i`, `[ ]`, `[..]`, `[v]` |
 | Spinner | `spinnerFrames` | `["|", "/", "-", "\\"]` |
 | Toggle | `checkboxOn`, `checkboxOff` | `[x]`, `[ ]` |
@@ -574,8 +606,8 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | `ListView` | `<scrollbox>` + `<ListRow>` children | Virtualized custom-row list. |
 | `ListRow` | `<box>` + `<text>` + `<span>` | Row with marker, columns, actions. Marker from `ICONS` in `@/theme/icons`. |
 | `ScrollableList` | `<scrollbox>` | Plain scroll container. |
-| `Button` | `<box focusable>` + `<text>` | Text button with focused style and mouse activation. |
-| `ButtonRow` | `<box>` + `Button` children | Horizontal action group with Left/Right. |
+| `Button` | `<box>` + `<text>` | Text button with focused style and mouse activation. Not natively focusable: the owning feature keeps the focused control index. |
+| `ButtonRow` | `<box>` + `Button` children | Horizontal action group with a small gap; presentational only. |
 | `Badge` | `<span>` | Ref, status, and tag badges. Label from `ICONS`. |
 | `StatusBadge` | `<span>` + `<text>` | Sync and operation status. Marker from `ICONS`. |
 | `TextMarker` | `<text>` | Focus, selection, and state markers read from `ICONS` in `@/theme/icons`. |
@@ -592,9 +624,9 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | `FormField` | `<box>` + `<text>` + `<input>`/`<textarea>` + error text | Labeled field with inline validation. |
 | `Checkbox` | `<box>` + `<text>` marker | Toggle rendered from `ICONS.checkboxOn`/`ICONS.checkboxOff`, keyboard and mouse. |
 | `SelectField` | `<select>` | Field that picks from options. |
-| `ModalFrame` | `<box>` overlay + `<Panel>` + title + `<ModalActions>` | Standard modal structure and focus trap. |
-| `ModalActions` | `<ButtonRow>` | Footer actions with keys; destructive default focus is Cancel. |
-| `Overlay` | `<box>` full-size dim layer | Background deactivation behind modals. |
+| `ModalFrame` | `<box>` centered overlay wrapper + focusable frame with border and title + `<ModalActions>` | Standard modal structure and native focus trap. |
+| `ModalActions` | `<ButtonRow>` | Footer actions in caller order; destructive default focus is Cancel. |
+| `Overlay` | `<box>` full-width layer that leaves the footer row visible | Background deactivation behind modals. |
 | `Swatch` | `<box>` colored cell | Theme picker color preview. |
 | `SectionHeader` | `<box>` + `<text>` + marker | Expand/collapse header using `ICONS.expanded`/`ICONS.collapsed`. |
 
@@ -692,10 +724,10 @@ Providers, outermost to innermost:
 2. `ThemeProvider`: resolved tokens and color capability. Source: `@/domain/theme`. Exposes tokens through `@/theme/useTokens.ts` and the full resolved theme through `app/hooks/useTheme.ts`.
 3. `KeymapProvider`: resolved action to keys map. Source: `@/domain/keymap`.
 4. `RepositoryProvider`: repository snapshot, the right-pane selection union (`pending`, `commit`, `stash`, `worktree`, or `diffFile`), and the refresh cycle. Source: `@/domain/repository` and `@/domain/git`. It does not own row expansion.
-5. `DraftProvider`: the composer draft string and `hasUnsavedDraft`. The shell's quit handler and the composer both read this provider; the composer does not duplicate it, and no feature imports another feature to answer the unsaved-work question.
+5. `DraftProvider`: the composer draft string and `hasUnsavedDraft`. The shell's quit handler and the composer both read this provider; the composer does not duplicate it, and no feature imports another feature to answer the unsaved-work question. The footer reads the repository through `useOptionalRepository`, which returns null outside a provider so shell-only tests do not need the repository stack.
 6. `FocusProvider`: a projection of OpenTUI native focus, `previousRegion`, and the per-region cursor map. It is not a second focus authority.
-7. `OverlayProvider`: modal stack, destructive confirmations, and the persistent error overlay. Success and informational messages are not overlays.
-8. `StatusProvider`: transient status, footer hint mode, operation progress. It is the only surface for success and informational messages.
+7. `OverlayProvider`: one open overlay entry at a time (a feature modal or a destructive/non-destructive confirmation) plus the focus captured when it opened. Opening a second entry replaces the first instead of stacking. The persistent error detail and the error overlay remain M6. Success and informational messages are not overlays.
+8. `StatusProvider`: transient status, footer hint mode, operation progress. It is the only surface for success and informational messages. Success and informational messages auto-dismiss after a short timeout; warning and error messages stay until another status replaces them or `clearStatus` removes them.
 9. `ConsoleProvider`: drawer visibility, bounded command log, follow mode, new-entry count, and expanded entry ids.
 
 Data flow for a mutation:
@@ -719,7 +751,7 @@ Read refresh (manual `app.refresh`, watcher, and terminal focus) does not pass t
 Rules:
 
 - Command execution is split. `src/domain/commands/commands.runner.ts` is a pure executor: it owns availability, write serialization, execution, and progress reporting through a callback, and it returns a `CommandResult`. It never imports React, a hook, a provider, or `src/app/**`. `src/app/hooks/useCommandRunner.ts` is the app-layer orchestrator and the only caller of the runner; it owns `RepositoryProvider.refresh()`, `StatusProvider` progress and status, `ConsoleProvider` append, and `OverlayProvider` errors. Features call the orchestrator, never the runner. `commands.registry.ts` marks every entry with `kind: "mutation" | "read"`; only mutations reach the runner, while reads such as `app.refresh` call `RepositoryProvider.refresh()` directly.
-- State has exactly one owner: snapshot, selection union, and refresh generation in `RepositoryProvider`; composer draft in `DraftProvider`; cursors and previous region in `FocusProvider`; overlay stack and error in `OverlayProvider`; transient status and progress in `StatusProvider`; console entries, follow mode, and expanded entries in `ConsoleProvider`; config, keymap, and theme in their providers. Row expansion, focused control index, filter text, and modal form drafts are feature view state, owned by exactly one feature. `RepositoryProvider` never owns expansion, and a feature never keeps a second copy of the selection.
+- State has exactly one owner: snapshot, selection union, and refresh generation in `RepositoryProvider`; composer draft in `DraftProvider`; cursors and previous region in `FocusProvider`; the single overlay entry and its captured focus in `OverlayProvider`; transient status and progress in `StatusProvider`; console entries, follow mode, and expanded entries in `ConsoleProvider`; config, keymap, and theme in their providers. Row expansion, focused control index, filter text, and modal form drafts are feature view state, owned by exactly one feature. `RepositoryProvider` never owns expansion, and a feature never keeps a second copy of the selection.
 - The right-pane sub-mode is derived, not stored: `selection.kind === "pending"` renders the composer, `"commit"` renders commit details, `"stash"` renders stash details, `"worktree"` renders worktree details, and a diff-file selection leaves the current right-pane mode intact while the diff panel highlights the file. There is no separate sub-mode flag in a provider or a feature.
 - Repository reads are derived in `@/domain/repository/repository.selectors.ts`. Features never recompute ahead/behind, upstream state, or pending counts themselves.
 - Every command declares availability in `@/domain/commands/commands.availability.ts` with a machine-readable reason string and a target-aware context. The palette, footer, help, buttons, and confirmations all read the same reason.
@@ -731,11 +763,11 @@ Rules:
 - Credential and editor prompts are disabled through an explicit environment matrix. The client sets `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ASKPASS=""`, `SSH_ASKPASS=""`, `SSH_ASKPASS_REQUIRE=never`, `GIT_EDITOR=true`, `GIT_SEQUENCE_EDITOR=true`, `GIT_PAGER=cat`, `PAGER=cat`, `GIT_MERGE_AUTOEDIT=no`, and `LC_ALL=C`. It sets `GIT_SSH_COMMAND=ssh -o BatchMode=yes` only when the user has not configured `GIT_SSH_COMMAND` or `core.sshCommand`; a user-configured SSH command wins. The `core.sshCommand` probe caches only a conclusive answer, and a cancelled, timed-out, spawn-failed, or generic git failure is retried instead of overriding a configured command. A missing credential or network failure fails visibly and is logged; the app never hangs on a prompt.
 - Every invocation has a timeout and a cancellation signal. Defaults are 10 seconds for local reads, 30 seconds for local writes, and 120 seconds for network operations. `git.client.ts` accepts an `AbortSignal`; on abort it sends `SIGTERM`, waits two seconds, then sends `SIGKILL`, and returns a cancelled result. Timeouts use the same path and are reported as "timed out after N seconds". A terminated child settles on its `exit` event; a normal exit waits for `close` only during a bounded 100 ms flush grace, so a backgrounded descendant that inherits the output pipes cannot defeat the timeout or delay quit. Once a normal exit is recorded the invocation timeout is cleared, so a late timeout or abort cannot rewrite a completed command as timed out or cancelled. Quit aborts the in-flight command through the orchestrator, waits for it to settle, and destroys the renderer only after the child has exited or been killed. M4 deviation: draft-based quit confirmation is deferred to M6 with the overlay stack, so `app.quit` always aborts immediately; the abort-before-destroy order is implemented.
 - Writes are serialized inside `commands.runner.ts`. Index-touching reads (`status`, `diff`, `log --raw`) are serialized against writes by `git.client.ts`, so a status read never observes a half-applied mutation. A second write while one is running returns a blocked result with a reason. The runner holds no provider state; the blocked reason and the running flag are projected to the UI through the orchestrator and `StatusProvider`.
-- `commands.runner.ts` executes only. It returns a `CommandResult` with the operation label, the ordered `steps` (each with argv, exit status, duration, stdout, and stderr), cwd, progress phases, and the cancelled or timed-out flag. A composite operation such as create-with-checkout, delete-local-and-remote, or a grouped prune records one step per git invocation so the console can show each command. A step marked `nonFatal` does not make the result a failure: the documented case is a scoped Fetch whose configured upstream no longer exists on the remote, where the step stays in the console, the result stays a success, and `warnings` names the affected branch so the orchestrator shows a warning status instead of the error surface. A handler that refuses its scope before working returns `blockedReason`, which the runner turns into a blocked result with no steps. A handler that contacts remotes may also return `remoteResults`, a per-remote success list; `useRemoteFetchCommand` records `RepositoryProvider.recordRemoteCheck(remote, "fetch", succeeded)` for each entry, so a completed fetch advances that remote's last successful fetch timestamp and a failed remote leaves it untouched. The runner never refreshes the repository, appends a console entry, sets a status, or opens an overlay. `src/app/hooks/useCommandRunner.ts` applies those effects after the result.
-- The scoped Fetch runs one invocation per upstream ref with `git fetch --progress <remote> +refs/heads/<branch>:refs/remotes/<remote>/<branch>`. The forced-update prefix keeps the remote-tracking ref a mirror of the remote after an amend, rebase, or force-push, and the destination is never a local branch. A missing remote ref is classified per step as `nonFatal`; a scope with no upstream refs is blocked.
-- Network operations pass `--progress` (`git fetch --progress`, `git pull --progress --no-edit`, `git push --progress`) and stream stderr through `git.progress.ts`; the runner forwards progress events to the orchestrator, which updates `StatusProvider`. Commands without a meaningful percentage emit phase-only events.
+- `commands.runner.ts` executes only. It returns a `CommandResult` with the operation label, the ordered `steps` (each with argv, exit status, duration, stdout, and stderr), cwd, progress phases, and the cancelled or timed-out flag. A composite operation such as create-with-checkout, delete-local-and-remote, or a grouped prune records one step per git invocation so the console can show each command. A step marked `nonFatal` does not make the result a failure: the documented case is a scoped Fetch whose configured upstream no longer exists on the remote, where the step stays in the console, the result stays a success, and `warnings` names the affected branch so the orchestrator shows a warning status instead of the error surface. A handler that refuses its scope before working returns `blockedReason`, which the runner turns into a blocked result with no steps. A handler that contacts remotes may also return `remoteResults`, a per-remote success list; `useRemoteCommands` records `RepositoryProvider.recordRemoteCheck(remote, "fetch", succeeded)` for each entry, so a completed fetch advances that remote's last successful fetch timestamp and a failed remote leaves it untouched. A Fetch --prune handler also returns `prunedUpstreamRefs` and `unknownUpstreamRefs`; the wrapper folds both lists into repository evidence and performs one refresh before returning, so the orchestrator's own refresh sees the new upstream classification without one full read per ref. A run whose every remote group failed and that fetched or pruned nothing sets `failed: true`, so a total failure reaches the error surface while a partial failure stays a success with warnings. The runner never refreshes the repository, appends a console entry, sets a status, or opens an overlay. `src/app/hooks/useCommandRunner.ts` applies those effects after the result.
+- The scoped Fetch runs one invocation per upstream ref with `git fetch --progress -- <remote> +refs/heads/<branch>:refs/remotes/<remote>/<branch>`. The forced-update prefix keeps the remote-tracking ref a mirror of the remote after an amend, rebase, or force-push, and the destination is never a local branch. A missing remote ref is classified per step as `nonFatal`; a scope with no upstream refs is blocked. The scope is read from the tab-separated `%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref)` atoms and grouped by the exact remote name, so a remote whose name contains `/` is never split at the first slash.
+- Network operations pass `--progress` (`git fetch --progress`, `git pull --progress --no-edit`, `git push --progress`) and stream stderr through `git.progress.ts`; the runner forwards progress events to the orchestrator, which updates `StatusProvider`. Commands without a meaningful percentage emit phase-only events, and a phase-only event for a new phase clears the previous percentage. Remote and ref arguments are validated as single safe argv values and passed after `--` where git supports it; `git update-ref` places `--` after `-d`. Push plans always name the configured upstream remote and an explicit `refs/heads/<branch>:refs/heads/<upstream.branch>` refspec after reading `git branch --show-current`, and the no-upstream path uses `--set-upstream origin refs/heads/<branch>:refs/heads/<branch>`, so `push.default=matching` cannot widen the scope and a stale snapshot cannot push the wrong branch. The configured upstream itself is read with `%(upstream:remotename)` and `%(upstream:remoteref)`, never by splitting `%(upstream:short)`, because a legal remote name may contain a slash; Fetch and Fetch --prune use the same atoms.
 - `git.redact.ts` redacts credentials in URLs, authorization headers, and environment values before any console or error rendering. The orchestrator applies redaction to the `CommandResult` before it stores or renders output.
-- `git.watcher.ts` watches the git directory and triggers refresh. Recursive watching is requested first; when the platform refuses it, the git directory and its ref directories are watched non-recursively and the limitation is published through the watcher status. Worktree watching is opt-in and off by default, filters a documented ignore set, and reports its own limitation. Because the default git-dir mode leaves the working tree unwatched, the top bar publishes a text hint whenever the mode is not `worktree`. `.git/index.lock` churn never triggers a refresh, and a watch error closes the watch and publishes an inactive status. Manual `r` refresh is always available.
+- `git.watcher.ts` watches the git directory and triggers refresh. Recursive watching is requested first; when the platform refuses it, the git directory and its ref directories are watched non-recursively and the limitation is published through the watcher status. Worktree watching is opt-in and off by default, filters a documented ignore set, and reports its own limitation. Because the default git-dir mode leaves the working tree unwatched, F-17 assigns a text hint to the footer or sidebar surface. The M5 top-bar status strip is reserved for branch information, operation progress, and transient status, and no component renders the hint yet; the deferral is recorded in `17-freshness-and-performance.md` so this contract does not claim a surface that does not exist. `.git/index.lock` churn never triggers a refresh, and a watch error closes the watch and publishes an inactive status. Manual `r` refresh is always available.
 - Parsers under `src/domain/git/parsers/` are pure and unit tested against recorded git output fixtures. Process-spawning integration tests live in `*.integration.test.ts` files and use `src/test/git.fixture.ts` to create and remove temporary repositories.
 
 The executor contract lives in `src/domain/commands/commands.types.ts`:
@@ -756,6 +788,9 @@ type CommandStepResult = {
   stderr: string
   cancelled?: boolean
   timedOut?: boolean
+  timedOutAfterMs?: number | null
+  stdoutTruncated?: boolean
+  stderrTruncated?: boolean
   nonFatal?: boolean
 }
 
@@ -770,6 +805,7 @@ type CommandResult = {
   warnings?: readonly string[]
   cancelled?: boolean
   timedOut?: boolean
+  timedOutAfterMs?: number | null
 }
 
 type CommandRunOptions = {
@@ -793,7 +829,7 @@ type CommandRunOptions = {
 5. `git.redact.ts` on every step's stdout, stderr, and argv, plus cwd.
 6. `console.format.ts` then `useConsoleLog` to append exactly one entry.
 7. `RepositoryProvider.refresh()` after success and failure. A cancelled or timed-out result refreshes so the UI reflects any partial local change.
-8. `StatusProvider.endOperation` plus a success or warning status, or `OverlayProvider.showError` on failure. A cancelled result sets a warning status "cancelled" and does not open the error overlay.
+8. `StatusProvider.endOperation` plus a success or warning status, or `OverlayProvider.showError` on failure. A cancelled result sets a warning status "cancelled"; a timed-out result sets "timed out after N seconds" when the client reported the duration. Neither opens the error overlay. A requested mutation returns `operation-in-progress` before `beginOperation` while an orchestration still owns the post-result refresh, console, and status effects.
 
 A read path (`app.refresh`, watcher, focus refresh) never enters this flow. It calls `RepositoryProvider.refresh()` directly.
 
@@ -801,7 +837,7 @@ M4 deviations, recorded here per the last rule in this document:
 
 - The error overlay is not built until M6. `useCommandRunner` routes failures through an injectable error sink whose default sets an error status, so the effect order and redaction are implemented while the overlay surface waits.
 - Draft-based quit confirmation is not built until M6. `app.quit` aborts the in-flight command and waits for it to settle before `renderer.destroy()`; it does not yet ask about `DraftProvider.hasUnsavedDraft`.
-- M4 wires exactly one real mutation through the orchestrator: `remote.fetch` executes upstream-scoped `git fetch --progress` on the network class, and the temporary global `remote.fetch` action in `AppShellHost` dispatches it. The M5 top bar replaces the trigger, not the orchestrator path. Fetch is blocked with `no-local-upstreams` when the repository read resolves no local upstream, and a configured upstream whose remote ref is gone is a non-fatal warning that names the branch rather than a command failure.
+- M4 wired the first real mutation through the orchestrator: `remote.fetch` executes upstream-scoped `git fetch --progress` on the network class. M5 adds `remote.pull`, `remote.push`, `remote.pushForceSafe`, `remote.pushForceOverwrite`, `remote.pushNoVerify`, and `remote.fetchPrune` through the same registry, runner, and orchestrator path; the M5 top bar replaces the temporary trigger, not the path. Fetch and Fetch --prune are blocked with `no-local-upstreams` when the repository read resolves no local upstream, and a configured upstream whose remote ref is gone is a non-fatal warning that names the branch rather than a command failure. Pull requires a configured upstream, plain push and push --no-verify auto-create `origin/<branch>` when none exists, and the force variants require an existing upstream. Fetch --prune confirms remote absence with `git ls-remote --heads -- <remote>` before any `git update-ref -d`, and a failed, timed-out, or truncated check leaves its refs unknown instead of deleted. Push and its variants read the current branch from git, fail on a mismatch with the captured target, and use an explicit configured-upstream remote and `refs/heads/<branch>:refs/heads/<upstream.branch>` refspec. The configured upstream remote and branch come from `%(upstream:remotename)` and `%(upstream:remoteref)`, and Fetch and Fetch --prune group the same atoms by the exact remote name, so a slash-named remote is never split. `commands.remote.ts` stays above the file-review threshold as documented M5 debt; the extraction target is `commands.prune.ts` for the prune orchestration and, if useful, `commands.remote.push.ts` for the push and upstream readers, when a fourth composite remote command lands or before the v1 freeze.
 - Repository reads expose an explicit `failureKind`. Cancelled, timed-out, auth-network, and unknown failures keep the previous snapshot and record a redacted `lastRefreshError`; only a genuine not-a-repository classification produces `not-a-repository`, and only a genuine missing-git or permission failure produces those environment states.
 
 ## 11. Configuration and theme architecture
@@ -860,7 +896,7 @@ Rules:
 ## 13. Testing strategy
 
 - Domain: pure unit tests with recorded git fixtures. No spawning in unit tests.
-- Integration: `*.integration.test.ts` uses `src/test/git.fixture.ts` to create a temporary repository, configure a local identity, seed commits, run the real git commands through `git.client.ts`, and remove the directory. Colocated test files may import `@/test/git.fixture`; production modules must not, and external package rules still apply inside tests. Fixtures cover prompting hooks, merge and rebase conflicts, empty and bare repositories, index lock files, and fixture-owned cleanup. They are skipped when `git --version` is below the documented minimum.
+- Integration: `*.integration.test.ts` uses `src/test/git.fixture.ts` to create a temporary repository, configure a local identity, seed commits, run the real git commands through `git.client.ts`, and remove the directory. Colocated test files may import `@/test/git.fixture`; production modules must not, and external package rules still apply inside tests. Fixtures cover prompting hooks, merge and rebase conflicts, empty and bare repositories, index lock files, and fixture-owned cleanup. They are skipped when `git --version` is below the supported minimum, Git >= 2.30.0, which is also the fixture floor.
 - Keymap and config: table-driven tests for precedence, conflicts, `null` reset, `[]` unbind, and per-field fallback.
 - Commands: availability matrix tests covering detached HEAD, no upstream, no remote, empty repository, operation in progress, missing target, and stale target. `commands.runner.test.ts` asserts pure execution, write serialization, the blocked result, progress events, and cancellation. `useCommandRunner.test.tsx` asserts exactly one repository refresh, one console append, and one status transition per result, plus error routing and draft preservation on failure.
 - UI: component tests with `@opentui/react` test-utils and `test-utils.ts` to assert rendered text markers, footer hints, and focus transitions.
@@ -908,7 +944,7 @@ Ticket index: [`index.md`](index.md). Recommended build order: [`index.md`](inde
 | `14-help.md` | F-14 Help | `features/help` |
 | `15-overlays-and-confirmations.md` | F-15 Overlays and confirmations | `features/overlays`, `app/providers/OverlayProvider.tsx` |
 | `16-repository-states.md` | F-16 Repository states | `domain/repository/repository.states.ts` |
-| `17-freshness-and-performance.md` | F-17 Freshness and performance | `app/providers/RepositoryProvider.tsx`, `app/hooks/useRepositoryRefresh.ts`, `app/hooks/useRepositoryRuntime.ts`, `app/hooks/useRepositoryStore.ts`, `app/hooks/useRepositoryAvailability.ts`, `app/hooks/useRepositoryInitialRead.ts`, `app/hooks/useRepositoryStoreWatcher.ts`, `app/hooks/useInFlightTask.ts`, `app/hooks/useRemoteFetchCommand.ts`, `domain/git/git.client.ts`, `domain/git/git.watcher.ts`, `domain/git/git.progress.ts`, `domain/graph/graph.paginate.ts`, `domain/graph/graph.search.ts`, `domain/diff/diff.limits.ts`, `domain/repository/repository.read.ts`, `domain/commands/commands.runner.ts`, `domain/commands/commands.fetch.ts` |
+| `17-freshness-and-performance.md` | F-17 Freshness and performance | `app/providers/RepositoryProvider.tsx`, `app/hooks/useRepositoryRefresh.ts`, `app/hooks/useRepositoryRuntime.ts`, `app/hooks/useRepositoryStore.ts`, `app/hooks/useRepositoryAvailability.ts`, `app/hooks/useRepositoryInitialRead.ts`, `app/hooks/useRepositoryStoreWatcher.ts`, `app/hooks/useInFlightTask.ts`, `app/hooks/useRemoteCommands.ts`, `app/hooks/useRemoteCommands.types.ts`, `domain/git/git.client.ts`, `domain/git/git.watcher.ts`, `domain/git/git.progress.ts`, `domain/git/git.remotes.ts`, `domain/git/git.remotes.types.ts`, `domain/graph/graph.paginate.ts`, `domain/graph/graph.search.ts`, `domain/diff/diff.limits.ts`, `domain/repository/repository.read.ts`, `domain/commands/commands.runner.ts`, `domain/commands/commands.reasons.ts`, `domain/commands/commands.steps.ts`, `domain/commands/commands.fetch.ts`, `domain/commands/commands.remote.ts`, `domain/commands/commands.remote.types.ts` |
 | `18-safety-and-platform-behavior.md` | F-18 Safety and platform behavior | `domain/git/git.errors.ts`, `domain/git/git.redact.ts`, `app/hooks/useCommandRunner.ts` |
 | `19-configuration-and-keybindings.md` | F-19 Configuration and keybindings | `domain/config`, `domain/keymap`, `app/providers/ConfigProvider.tsx`, `app/providers/ConfigProvider.types.ts`, `app/providers/KeymapProvider.tsx`, `app/providers/KeymapProvider.types.ts` |
 | `20-theme-and-colors.md` | F-20 Theme and colors | `features/theme-picker`, `domain/theme`, `theme`, `app/providers/ThemeProvider.tsx`, `app/providers/ThemeProvider.types.ts`, `app/hooks/useTheme.ts` |

@@ -146,7 +146,7 @@ export const ACTION_CATALOGUE = [
     defaults: [],
     label: "Push without hooks",
     category: "remote",
-    description: "Push while skipping pre-push hooks after confirmation.",
+    description: "Push while skipping pre-push hooks.",
   },
   {
     id: "remote.fetch",

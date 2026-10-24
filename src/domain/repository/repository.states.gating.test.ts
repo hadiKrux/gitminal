@@ -137,15 +137,24 @@ describe("gateRepository", () => {
     const signals = createSignals({ branch: null, detached: true });
     const state = detectRepositoryState(signals);
 
-    expect(gateRepository("remote.pull", state, signals)).toEqual({
-      available: false,
-      reason: "detached-head",
-    });
+    for (const commandId of [
+      "remote.pull",
+      "remote.push",
+      "remote.pushForceSafe",
+      "remote.pushForceOverwrite",
+      "remote.pushNoVerify",
+    ]) {
+      expect(gateRepository(commandId, state, signals)).toEqual({
+        available: false,
+        reason: "detached-head",
+      });
+    }
+
     expect(gateRepository("branch.create", state, signals)).toEqual({ available: true });
     expect(gateRepository("commit.submit", state, signals)).toEqual({ available: true });
   });
 
-  it("blocks remote actions when no remote is configured", () => {
+  it("blocks remote actions when no remote is configured but keeps the More menu available", () => {
     const signals = createSignals({ remotes: [], upstream: null, upstreamCheck: "none" });
     const state = detectRepositoryState(signals);
 
@@ -157,33 +166,44 @@ describe("gateRepository", () => {
       "remote.pushNoVerify",
       "remote.fetch",
       "remote.fetchPrune",
-      "remote.more",
     ]) {
       expect(gateRepository(commandId, state, signals)).toEqual({
         available: false,
         reason: "no-remote",
       });
     }
+
+    expect(gateRepository("remote.more", state, signals)).toEqual({ available: true });
   });
 
-  it("blocks pull when the branch has no upstream but keeps push available", () => {
+  it("blocks pull and the force variants when the branch has no upstream but keeps push available", () => {
     const signals = createSignals({ upstream: null, upstreamCheck: "none" });
     const state = detectRepositoryState(signals);
 
-    expect(gateRepository("remote.pull", state, signals)).toEqual({
-      available: false,
-      reason: "no-upstream",
-    });
+    for (const commandId of ["remote.pull", "remote.pushForceSafe", "remote.pushForceOverwrite"]) {
+      expect(gateRepository(commandId, state, signals)).toEqual({
+        available: false,
+        reason: "no-upstream",
+      });
+    }
+
     expect(gateRepository("remote.push", state, signals)).toEqual({ available: true });
+    expect(gateRepository("remote.pushNoVerify", state, signals)).toEqual({ available: true });
   });
 
-  it("blocks pull when the upstream is confirmed gone", () => {
+  it("blocks pull and the force variants when the upstream is confirmed gone", () => {
     const signals = createSignals({ upstreamExists: false, upstreamCheck: "checked" });
+    const state = detectRepositoryState(signals);
 
-    expect(gateRepository("remote.pull", detectRepositoryState(signals), signals)).toEqual({
-      available: false,
-      reason: "upstream-gone",
-    });
+    for (const commandId of ["remote.pull", "remote.pushForceSafe", "remote.pushForceOverwrite"]) {
+      expect(gateRepository(commandId, state, signals)).toEqual({
+        available: false,
+        reason: "upstream-gone",
+      });
+    }
+
+    expect(gateRepository("remote.push", state, signals)).toEqual({ available: true });
+    expect(gateRepository("remote.pushNoVerify", state, signals)).toEqual({ available: true });
   });
 
   it("does not guess a remote when origin is absent", () => {

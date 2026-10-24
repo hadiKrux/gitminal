@@ -5,8 +5,11 @@ import { resetActionRegistry, useAction } from "@/app/hooks/useAction";
 import type { ActionRegistrationOptions } from "@/app/hooks/useAction.types";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useStatus } from "@/app/hooks/useStatus";
+import type { GitClient } from "@/domain/git/git.types";
 import { Footer } from "@/features/shell/Footer";
 import type { RegionId } from "@/features/shell/focus.types";
+import { AppTestProviders } from "@/test/app.harness";
+import { fakeGitResult } from "@/test/git.fake";
 import { ShellTestProviders } from "@/test/shell.harness";
 
 /**
@@ -32,6 +35,24 @@ function ModalModeProbe(): ReactNode {
   useEffect(() => {
     setHintMode("modal");
   }, [setHintMode]);
+
+  return <text> </text>;
+}
+
+/** Starts an operation from a test. */
+let startOperation: () => void = () => {};
+
+/**
+ * Captures the status operation starter.
+ *
+ * @returns The marker element.
+ */
+function OperationModeProbe(): ReactNode {
+  const { beginOperation } = useStatus();
+
+  startOperation = (): void => {
+    beginOperation("Fetch");
+  };
 
   return <text> </text>;
 }
@@ -106,6 +127,107 @@ async function focusOutside(setup: Awaited<ReturnType<typeof testRender>>): Prom
   await act(async () => {
     await setup.renderOnce();
   });
+}
+
+/**
+ * Builds a fake client for one repository state.
+ *
+ * @param state - Detached or no-remote fixture.
+ * @returns The client and a status read counter.
+ */
+function createStateClient(state: "normal" | "detached" | "no-remote"): {
+  client: GitClient;
+  statusReads: () => number;
+} {
+  let statusReads = 0;
+  const answers: Readonly<Record<string, () => ReturnType<typeof fakeGitResult>>> = {
+    "rev-parse --is-inside-work-tree": () => fakeGitResult("true\n"),
+    "rev-parse --is-bare-repository --absolute-git-dir": () => fakeGitResult("false\n/repo/.git\n"),
+    "rev-parse --show-toplevel": () => fakeGitResult("/repo\n"),
+    "rev-parse --verify HEAD": () => fakeGitResult("abc123\n"),
+    "symbolic-ref -q --short HEAD": () =>
+      state === "detached"
+        ? fakeGitResult("", false, "fatal: ref HEAD is not a symbolic ref")
+        : fakeGitResult("main\n"),
+    "rev-parse --short HEAD": () => fakeGitResult("abc1234\n"),
+    "rev-parse --verify --quiet MERGE_HEAD": () => fakeGitResult("", false),
+    "rev-parse --verify --quiet REBASE_HEAD": () => fakeGitResult("", false),
+    "rev-parse --verify --quiet CHERRY_PICK_HEAD": () => fakeGitResult("", false),
+    "remote -v": () =>
+      state === "no-remote"
+        ? fakeGitResult("")
+        : fakeGitResult("origin\tgit@example.com:repo.git (fetch)\n"),
+    "config user.name": () => fakeGitResult("Test User\n"),
+    "config user.email": () => fakeGitResult("test@example.com\n"),
+    "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main": () =>
+      state === "no-remote" ? fakeGitResult("") : fakeGitResult("origin\trefs/heads/main\n"),
+    "for-each-ref --format=%(upstream:short) refs/heads": () =>
+      state === "no-remote" ? fakeGitResult("") : fakeGitResult("origin/main\n"),
+    "rev-parse --verify --quiet refs/remotes/origin/main": () => fakeGitResult("abc123\n"),
+  };
+
+  return {
+    statusReads: () => statusReads,
+    client: {
+      gitPath: "git",
+      invoke: async (options) => {
+        const key = options.args.join(" ");
+
+        if (key === "status --porcelain=v2 --branch -z --untracked-files=all") {
+          statusReads += 1;
+
+          return fakeGitResult(
+            state === "detached"
+              ? "# branch.oid abc123\0# branch.head (detached)\0"
+              : "# branch.oid abc123\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +0 -0\0",
+          );
+        }
+
+        const answer = answers[key];
+
+        return answer === undefined ? fakeGitResult("", false) : answer();
+      },
+    },
+  };
+}
+
+/**
+ * Renders the footer with a real repository provider for one state.
+ *
+ * @param state - Detached or no-remote fixture.
+ * @returns The renderer setup.
+ */
+async function renderFooterWithRepository(
+  state: "normal" | "detached" | "no-remote",
+  children?: ReactNode,
+): Promise<Awaited<ReturnType<typeof testRender>>> {
+  const fake = createStateClient(state);
+  const setup = await testRender(
+    <AppTestProviders gitClient={fake.client}>
+      <FooterHarness region="branches">
+        {children}
+        <Registration actionId="remote.pull" options={{ scope: "global", owner: "top-bar" }} />
+        <Registration actionId="remote.push" options={{ scope: "global", owner: "top-bar" }} />
+        <Registration actionId="remote.fetch" options={{ scope: "global", owner: "top-bar" }} />
+        <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
+      </FooterHarness>
+    </AppTestProviders>,
+    { width: 120, height: 20 },
+  );
+  const deadline = Date.now() + 2_000;
+
+  while (fake.statusReads() === 0 && Date.now() < deadline) {
+    await act(async () => {
+      await setup.renderOnce();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+  }
+
+  await act(async () => {
+    await setup.renderOnce();
+  });
+
+  return setup;
 }
 
 beforeEach(() => {
@@ -260,8 +382,9 @@ describe("Footer", () => {
       <FooterHarness region="branches">
         <ModalModeProbe />
         <Registration actionId="nav.activate" options={{ scope: "overlay" }} />
+        <Registration actionId="nav.up" options={{ scope: "overlay" }} />
+        <Registration actionId="nav.down" options={{ scope: "overlay" }} />
         <Registration actionId="overlay.close" options={{ scope: "global", owner: "app" }} />
-        <Registration actionId="focus.next" options={{ scope: "global", owner: "shell" }} />
         <Registration actionId="branch.create" options={{ scope: "branches" }} />
       </FooterHarness>,
     );
@@ -275,8 +398,99 @@ describe("Footer", () => {
 
     expect(frame).toContain("Enter Activate");
     expect(frame).toContain("Esc Close or cancel");
-    expect(frame).toContain("Tab Next region");
+    expect(frame).toContain("Up");
+    expect(frame).toContain("Down");
+    expect(frame).not.toContain("Left");
+    expect(frame).not.toContain("Right");
+    expect(frame).not.toContain("Next region");
     expect(frame).not.toContain("New branch");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("advertises Left and Right for a confirmation that registers them", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="branches">
+        <ModalModeProbe />
+        <Registration actionId="nav.activate" options={{ scope: "overlay" }} />
+        <Registration actionId="nav.left" options={{ scope: "overlay" }} />
+        <Registration actionId="nav.right" options={{ scope: "overlay" }} />
+        <Registration actionId="overlay.close" options={{ scope: "global", owner: "app" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "branches");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Left");
+    expect(frame).toContain("Right");
+    expect(frame).toContain("Enter Activate");
+    expect(frame).toContain("Esc Close or cancel");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("filters remote hints while a mutation is running", async () => {
+    startOperation = () => {};
+    const setup = await renderFooterWithRepository("normal", <OperationModeProbe />);
+
+    await focusRegion(setup, "branches");
+
+    expect(setup.captureCharFrame()).toContain("Pull");
+
+    await act(async () => {
+      startOperation();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).not.toContain("Pull");
+    expect(frame).not.toContain("Push");
+    expect(frame).toContain("? Help");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("filters remote hints by availability in a detached HEAD state", async () => {
+    const setup = await renderFooterWithRepository("detached");
+
+    await focusRegion(setup, "branches");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("? Help");
+    expect(frame).not.toContain("Pull");
+    expect(frame).not.toContain("Push");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("filters remote hints by availability with no configured remote", async () => {
+    const setup = await renderFooterWithRepository("no-remote");
+
+    await focusRegion(setup, "branches");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("? Help");
+    expect(frame).not.toContain("Pull");
+    expect(frame).not.toContain("Push");
+    expect(frame).not.toContain("Fetch");
 
     await act(async () => {
       await setup.dispose();

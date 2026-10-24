@@ -328,7 +328,7 @@ With `diff.contextLines` set to 0, no run is collapsed because the threshold is 
 ## 14. Open questions
 
 - The exact line cap, byte cap, and oversized preview threshold. F-17 defers the numbers to this feature; confirm them and whether they are configurable.
-- Whether `diff.unstage` uses `git restore --staged` and `diff.discard` uses `git restore`, both of which require git 2.23 or newer, or the older `git reset` and `git checkout --` forms. Confirm the minimum git version.
+- Whether `diff.unstage` uses `git restore --staged` and `diff.discard` uses `git restore`, both of which require git 2.23 or newer, or the older `git reset` and `git checkout --` forms. The minimum git version is now documented as Git >= 2.30.0 in `00-project-architecture.md` section 1, so both `git restore` forms are available; this question is now only about which form the feature chooses.
 - Whether the first-file auto-expand should apply when the first Working Directory file is binary or oversized. This doc does not auto-expand those; it leaves them collapsed with the notice shown on expand.
 - When discarding a rename, should a new path that is tracked or still referenced block the whole discard, or should the old path be restored and the partial result reported? This doc restores the old path and reports the partial result without removing a tracked new path.
 - Whether untracked delete uses `git clean -f` or an exact domain unlink for a single file. Both paths are literal and scoped; confirm the preference after platform testing.

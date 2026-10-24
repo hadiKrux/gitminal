@@ -194,15 +194,20 @@ async function createGitFixture(options: GitFixtureOptions = {}): Promise<GitFix
   const { root, ownsRoot } = resolveFixtureRoot(options);
   const initialize = options.initialize ?? true;
   const bare = options.bare ?? false;
+  const environment = createFixtureEnvironment();
 
   try {
     mkdirSync(root, { recursive: true });
 
     if (initialize) {
-      runGitSetup(root, bare ? ["init", "--bare", "-b", "main"] : ["init", "-b", "main"]);
+      runGitSetup(
+        root,
+        bare ? ["init", "--bare", "-b", "main"] : ["init", "-b", "main"],
+        environment.env,
+      );
     }
 
-    const fixture = assembleFixture(root, bare, ownsRoot);
+    const fixture = assembleFixture(root, bare, ownsRoot, environment);
 
     if (initialize) {
       await configureIdentity(fixture);
@@ -212,6 +217,8 @@ async function createGitFixture(options: GitFixtureOptions = {}): Promise<GitFix
 
     return fixture;
   } catch (error) {
+    environment.cleanup();
+
     if (ownsRoot) {
       rmSync(root, { recursive: true, force: true, maxRetries: 3 });
     }
@@ -238,16 +245,84 @@ function resolveFixtureRoot(options: GitFixtureOptions): { root: string; ownsRoo
 }
 
 /**
+ * Environment overrides that keep integration fixtures hermetic.
+ *
+ * Ambient user or system git configuration must not change push defaults, hooks, identity, or
+ * remotes while a fixture runs. The production environment matrix is untouched. `GIT_CONFIG_GLOBAL`
+ * and `GIT_CONFIG_SYSTEM` need git 2.32, so the fixture also sets `GIT_CONFIG_NOSYSTEM` and points
+ * `HOME` and `XDG_CONFIG_HOME` at a per-fixture temporary directory, which is ignored on every
+ * supported version including the 2.30 floor.
+ */
+interface FixtureEnvironment {
+  /** Environment additions applied to every fixture invocation. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Removes the per-fixture config home. Safe to call more than once. */
+  cleanup(): void;
+}
+
+/**
+ * Creates an isolated git configuration home for one fixture.
+ *
+ * @returns The environment additions and their cleanup.
+ */
+function createFixtureEnvironment(): FixtureEnvironment {
+  const configHome = realpathSync(mkdtempSync(path.join(tmpdir(), "gitminal-fixture-env-")));
+
+  mkdirSync(path.join(configHome, "xdg"), { recursive: true });
+
+  return {
+    env: Object.freeze({
+      GIT_CONFIG_GLOBAL: nullDevice(),
+      GIT_CONFIG_SYSTEM: nullDevice(),
+      GIT_CONFIG_NOSYSTEM: "1",
+      HOME: configHome,
+      XDG_CONFIG_HOME: path.join(configHome, "xdg"),
+    }),
+    cleanup(): void {
+      rmSync(configHome, { recursive: true, force: true, maxRetries: 3 });
+    },
+  };
+}
+
+/**
+ * Resolves the platform null device used to disable a git config file.
+ *
+ * @returns `NUL` on Windows and `/dev/null` elsewhere.
+ */
+function nullDevice(): string {
+  return process.platform === "win32" ? "NUL" : "/dev/null";
+}
+
+/**
+ * Builds the fixture client with ambient git configuration disabled.
+ *
+ * @param environment - Per-fixture config isolation.
+ * @returns The production client bound to the fixture environment.
+ */
+function createFixtureClient(environment: FixtureEnvironment): GitClient {
+  return createGitClient({
+    baseEnv: { ...process.env, ...environment.env },
+    resolveSshCommandConfigured: async () => false,
+  });
+}
+
+/**
  * Builds the fixture object with its client and helpers.
  *
  * @param root - Absolute repository root.
  * @param bare - Whether the repository is bare.
  * @param ownsRoot - True when cleanup may remove the root.
+ * @param environment - Per-fixture config isolation.
  * @returns The fixture without identity configuration or seed content.
  */
-function assembleFixture(root: string, bare: boolean, ownsRoot: boolean): GitFixture {
+function assembleFixture(
+  root: string,
+  bare: boolean,
+  ownsRoot: boolean,
+  environment: FixtureEnvironment,
+): GitFixture {
   const gitDir = path.join(root, bare ? "" : ".git");
-  const client = createGitClient({ resolveSshCommandConfigured: async () => false });
+  const client = createFixtureClient(environment);
   const run = createFixtureRun(client, root);
   const files = createFixtureFiles(root);
   const commit = createFixtureCommit(run);
@@ -264,6 +339,8 @@ function assembleFixture(root: string, bare: boolean, ownsRoot: boolean): GitFix
     ...conflicts,
     ...hooks,
     cleanup(): void {
+      environment.cleanup();
+
       if (ownsRoot) {
         rmSync(root, { recursive: true, force: true, maxRetries: 3 });
       }
@@ -456,11 +533,17 @@ async function seedRepository(fixture: GitFixture): Promise<void> {
  *
  * @param cwd - Working directory.
  * @param args - Git arguments without the executable.
+ * @param env - Fixture environment additions that isolate git configuration.
  */
-function runGitSetup(cwd: string, args: readonly string[]): void {
+function runGitSetup(
+  cwd: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>>,
+): void {
   const result = spawnSync("git", [...args], {
     cwd,
     encoding: "utf8",
+    env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
 

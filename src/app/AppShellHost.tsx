@@ -5,38 +5,41 @@ import { useCommandRunner } from "@/app/hooks/useCommandRunner";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
-import { useRemoteFetchCommand } from "@/app/hooks/useRemoteFetchCommand";
+import { useOverlay } from "@/app/hooks/useOverlay";
+import { useRemoteCommands } from "@/app/hooks/useRemoteCommands";
 import { useRepositoryRefreshAction } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConsoleDrawer } from "@/features/console/ConsoleDrawer";
+import { OverlayHost } from "@/features/overlays/OverlayHost";
 import { AppShell } from "@/features/shell/AppShell";
-import type { SidebarPanel } from "@/features/shell/focus.types";
+import type { RegionId, SidebarPanel } from "@/features/shell/focus.types";
 import { PlaceholderSurface } from "@/features/shell/PlaceholderSurface";
 import { ResponsiveGate } from "@/features/shell/ResponsiveGate";
 import { TopBar } from "@/features/top-bar/TopBar";
 
 /**
- * Composes the shell with the temporary M4 feature surfaces.
+ * Composes the shell with the current feature surfaces.
  *
  * This is the only module allowed to import the shell together with feature surfaces. It owns
- * composition and global action registration only: the temporary top bar lives in
- * `features/top-bar`, the temporary console in `features/console`, and the generic placeholder in
- * `features/shell`. M5 replaces the top bar and M6 replaces the console, so this composition root
- * only swaps the supplied surfaces. It installs the single keyboard dispatcher and applies quit and
- * close behaviour against the focus, status, repository, and console providers.
+ * composition and global action registration only: the real top bar lives in `features/top-bar`, the
+ * temporary console in `features/console`, the overlay host in `features/overlays`, and the generic
+ * placeholder in `features/shell`. M6 replaces the console, so this composition root only swaps the
+ * supplied surfaces. It installs the single keyboard dispatcher and applies quit and close behaviour
+ * against the focus, status, repository, overlay, and console providers.
  *
  * @returns The responsive shell.
  */
 export function AppShellHost(): ReactNode {
   const renderer = useRenderer();
   const { status, clearStatus } = useStatus();
+  const overlay = useOverlay();
   const { state, focusRegion } = useFocusState();
   const consoleLog = useConsoleLog();
   const commandRunner = useCommandRunner();
 
   useHotkeys();
   useRepositoryRefreshAction();
-  useRemoteFetchCommand();
+  useRemoteCommands();
 
   useAction("app.quit", { scope: "global", owner: "app" }, () => {
     void (async () => {
@@ -47,35 +50,34 @@ export function AppShellHost(): ReactNode {
     })();
   });
 
-  useAction("remote.fetch", { scope: "global", owner: "top-bar" }, () => {
-    void commandRunner.runCommand({ commandId: "remote.fetch", target: { kind: "none" } });
-  });
-
   useAction("overlay.close", { scope: "global", owner: "app" }, () => {
-    if (status !== null) {
-      clearStatus();
-    }
-
-    if (consoleLog.isOpen) {
-      consoleLog.close();
-
-      // The console region unmounts when the drawer closes, so focus must return to the region that
-      // owned it before the console opened instead of waiting for the next focus action.
-      if (state.previousRegion !== null && state.previousRegion !== "console") {
-        focusRegion(state.previousRegion);
-      }
-
+    if (overlay.isOpen) {
+      overlay.close();
       return;
     }
 
-    if (state.textInputFocused && state.activeRegion !== null) {
-      focusRegion(state.activeRegion);
-      return;
-    }
+    closeTransientSurface({
+      hasStatus: status !== null,
+      clearStatus,
+      consoleOpen: consoleLog.isOpen,
+      closeConsole: () => {
+        consoleLog.close();
+        returnFromConsoleFocus(state.previousRegion, focusRegion);
+      },
+      returnFromTextInput: () => {
+        if (state.textInputFocused && state.activeRegion !== null) {
+          focusRegion(state.activeRegion);
+          return true;
+        }
 
-    if (state.previousRegion !== null && state.previousRegion !== state.activeRegion) {
-      focusRegion(state.previousRegion);
-    }
+        return false;
+      },
+      returnToPreviousRegion: () => {
+        if (state.previousRegion !== null && state.previousRegion !== state.activeRegion) {
+          focusRegion(state.previousRegion);
+        }
+      },
+    });
   });
 
   useAction("app.console", { scope: "global", owner: "app" }, () => {
@@ -110,6 +112,7 @@ export function AppShellHost(): ReactNode {
           console={<ConsoleDrawer />}
           consoleOpen={consoleLog.isOpen}
           onOpenConsole={consoleLog.open}
+          overlays={<OverlayHost />}
         />
       )}
     />
@@ -168,4 +171,55 @@ function buildSidebarPanels(): readonly SidebarPanel[] {
       ),
     },
   ];
+}
+
+/**
+ * Closes the transient surface Esc owns when no overlay is open.
+ *
+ * A status message is cleared first, then an open console drawer closes, then a focused text input
+ * returns focus to its region, and finally focus returns to the previous region. The callbacks own
+ * the provider writes so this function stays a small, testable branch table.
+ *
+ * @param input - Whether each surface is active plus the callbacks that close it.
+ */
+function closeTransientSurface(input: {
+  readonly hasStatus: boolean;
+  readonly clearStatus: () => void;
+  readonly consoleOpen: boolean;
+  readonly closeConsole: () => void;
+  readonly returnFromTextInput: () => boolean;
+  readonly returnToPreviousRegion: () => void;
+}): void {
+  if (input.hasStatus) {
+    input.clearStatus();
+  }
+
+  if (input.consoleOpen) {
+    input.closeConsole();
+    return;
+  }
+
+  if (input.returnFromTextInput()) {
+    return;
+  }
+
+  input.returnToPreviousRegion();
+}
+
+/**
+ * Returns focus to the region that owned it before the console opened.
+ *
+ * The console region unmounts when the drawer closes, so waiting for the next focus action would
+ * leave focus nowhere. The console itself is never a valid restore target.
+ *
+ * @param previousRegion - Region active before the console opened, or null.
+ * @param focusRegion - Native focus helper for a region frame.
+ */
+function returnFromConsoleFocus(
+  previousRegion: RegionId | null,
+  focusRegion: (region: RegionId) => void,
+): void {
+  if (previousRegion !== null && previousRegion !== "console") {
+    focusRegion(previousRegion);
+  }
 }

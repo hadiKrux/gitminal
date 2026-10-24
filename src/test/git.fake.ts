@@ -71,12 +71,13 @@ export function createFakeGitClient() {
       ),
     "config user.name": () => fakeGitResult("Test User\n"),
     "config user.email": () => fakeGitResult("test@example.com\n"),
-    "for-each-ref --format=%(upstream:short) refs/heads/main": () => fakeGitResult("origin/main\n"),
+    "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main": () =>
+      fakeGitResult("origin\trefs/heads/main\n"),
     "for-each-ref --format=%(upstream:short) refs/heads": () => fakeGitResult("origin/main\n"),
-    "rev-parse --verify --quiet origin/main": () => fakeGitResult("abc123\n"),
-    "for-each-ref --format=%(refname:short) %(upstream:short) refs/heads": () =>
-      fakeGitResult("main origin/main\n"),
-    "fetch --progress origin +refs/heads/main:refs/remotes/origin/main": () =>
+    "rev-parse --verify --quiet refs/remotes/origin/main": () => fakeGitResult("abc123\n"),
+    "for-each-ref --format=%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref) refs/heads":
+      () => fakeGitResult("main\torigin\trefs/heads/main\n"),
+    "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () =>
       fetchResult ?? fakeGitResult(""),
   };
 

@@ -22,9 +22,9 @@ export interface HotkeyResolutionInput {
    * only exercise region resolution.
    */
   readonly focusInsideRegion?: boolean;
-  /** True while an overlay owns the keyboard. Wired by `OverlayProvider` in M6. */
+  /** True while an overlay owns the keyboard. */
   readonly overlayOpen: boolean;
-  /** Action id that toggles the open overlay. Wired by `OverlayProvider` in M6. */
+  /** Action id that toggles the open overlay, when the overlay declares one. */
   readonly overlayToggleActionId?: string;
 }
 

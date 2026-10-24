@@ -8,6 +8,9 @@ import type {
   UpstreamStatus,
 } from "./repository.types";
 
+/** Prefix of the branch ref returned by `%(upstream:remoteref)`. */
+const UPSTREAM_BRANCH_REF_PREFIX = "refs/heads/";
+
 /** Evidence that never claims a deletion. */
 export const EMPTY_UPSTREAM_EVIDENCE: UpstreamEvidence = Object.freeze({
   prunedRefs: Object.freeze([]),
@@ -16,9 +19,62 @@ export const EMPTY_UPSTREAM_EVIDENCE: UpstreamEvidence = Object.freeze({
 });
 
 /**
+ * Formats the human-readable upstream ref for an explicit remote and branch.
+ *
+ * The display ref is always derived from the two configured values, never parsed back into them.
+ * A remote name may legally contain a slash, so the display string is ambiguous by design and must
+ * never be split to route a git command.
+ *
+ * @param remote - Remote name from the configured upstream.
+ * @param branch - Branch name inside that remote.
+ * @returns The display ref such as `origin/main`.
+ */
+export function formatUpstreamRef(remote: string, branch: string): string {
+  return `${remote}/${branch}`;
+}
+
+/**
+ * Parses the two tab-separated upstream atoms git reports for one branch.
+ *
+ * The input is `%(upstream:remotename)%09%(upstream:remoteref)`. The bulk `refs/heads` read adds a
+ * leading local-ref column, which the caller removes before calling this. Git's dedicated atoms
+ * keep a slash-named remote intact while `%(upstream:short)` splits it at the first slash. Ref and
+ * remote names cannot contain tabs, so tabs are safe separators.
+ *
+ * @param atoms - One line carrying exactly the remote name and the remote branch ref.
+ * @returns The descriptor, or null when either half is missing or the ref is not a branch.
+ */
+export function parseUpstreamAtoms(atoms: string): UpstreamDescriptor | null {
+  const columns = atoms.replace(/\r$/, "").split("\t");
+
+  if (columns.length !== 2) {
+    return null;
+  }
+
+  const remote = (columns[0] ?? "").trim();
+  const remoteRef = (columns[1] ?? "").trim();
+
+  if (remote.length === 0 || !remoteRef.startsWith(UPSTREAM_BRANCH_REF_PREFIX)) {
+    return null;
+  }
+
+  const branch = remoteRef.slice(UPSTREAM_BRANCH_REF_PREFIX.length);
+
+  if (branch.length === 0) {
+    return null;
+  }
+
+  return { ref: formatUpstreamRef(remote, branch), remote, branch };
+}
+
+/**
  * Splits a short upstream ref such as `origin/main` into its remote and branch.
  *
- * @param ref - Configured upstream ref.
+ * Display-only and ambiguous: a legal remote name may contain a slash, so `a/b/main` is read as
+ * remote `a` and branch `b/main`. Never use the result to route a git command; read
+ * `%(upstream:remotename)` and `%(upstream:remoteref)` through `parseUpstreamAtoms` instead.
+ *
+ * @param ref - Short upstream ref from `%(upstream:short)`.
  * @returns The parsed descriptor, or null when it has no remote or branch part.
  */
 export function parseUpstreamRef(ref: string): UpstreamDescriptor | null {
@@ -156,8 +212,10 @@ export async function readHasUpstreamBranches(
  *
  * The configured ref is read from branch configuration with `git for-each-ref`, not from `@{u}`,
  * because `@{u}` fails once the remote-tracking ref disappears. That keeps a deleted upstream
- * distinguishable from a branch that never configured one. Existence is then checked with
- * `git rev-parse --verify`.
+ * distinguishable from a branch that never configured one. The read uses git's explicit
+ * `%(upstream:remotename)` and `%(upstream:remoteref)` atoms because `%(upstream:short)` is
+ * ambiguous for a remote whose name contains a slash. Existence is then checked against the full
+ * `refs/remotes/<remote>/<branch>` path, never the ambiguous short ref.
  *
  * @param client - Git client bound to the configured executable.
  * @param options - Working directory, cancellation signal, branch, and evidence.
@@ -177,7 +235,11 @@ export async function readUpstreamStatus(
   }
 
   const configured = await client.invoke({
-    args: ["for-each-ref", "--format=%(upstream:short)", `refs/heads/${options.branch}`],
+    args: [
+      "for-each-ref",
+      "--format=%(upstream:remotename)%09%(upstream:remoteref)",
+      `refs/heads/${options.branch}`,
+    ],
     cwd: options.cwd,
     signal: options.signal,
     operationClass: "read",
@@ -187,20 +249,31 @@ export async function readUpstreamStatus(
     return { status: "unknown", upstream: null, descriptor: null };
   }
 
-  const upstream = firstLine(configured.stdout);
+  const atoms = firstLine(configured.stdout);
 
-  if (upstream === null) {
+  if (atoms === null) {
     return { status: "none", upstream: null, descriptor: null };
   }
 
-  const exists = await refExists(client, options.cwd, options.signal, upstream);
+  const descriptor = parseUpstreamAtoms(atoms);
+
+  if (descriptor === null) {
+    return { status: "unknown", upstream: null, descriptor: null };
+  }
+
+  const exists = await refExists(
+    client,
+    options.cwd,
+    options.signal,
+    `refs/remotes/${descriptor.remote}/${descriptor.branch}`,
+  );
   const status = classifyUpstream({
-    configuredRef: upstream,
+    configuredRef: descriptor.ref,
     refExists: exists,
     evidence: options.evidence,
   });
 
-  return { status, upstream, descriptor: parseUpstreamRef(upstream) };
+  return { status, upstream: descriptor.ref, descriptor };
 }
 
 /**

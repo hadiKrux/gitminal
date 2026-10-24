@@ -42,7 +42,7 @@ Non-goals: sandboxing git; enforcing repository policy; an allowlist of git subc
 | `<diff>` | Not used here | Diff colors are mapped from tokens in `20-theme-and-colors.md`. |
 | `useKeyboard` | Not used directly | Centralized in `useHotkeys`; destructive actions use action IDs through `useAction`. |
 
-Confirmations and errors are composed from the `src/ui/ModalFrame.tsx` presentational primitive, `ModalActions.tsx`, `Button`, and `Overlay`, and rendered through the stack-aware wrapper `src/features/overlays/OverlayHost.tsx`. The wrapper reads the top of the `OverlayProvider` stack; the primitive never reads the stack. `ModalActions` enforces Cancel-first focus for destructive actions. Success and informational messages never open a modal or overlay: they render only in the top bar status strip through `StatusProvider` and in the console.
+Confirmations and errors are composed from the `src/ui/ModalFrame.tsx` presentational primitive, `ModalActions.tsx`, `Button`, and `Overlay`, and rendered through the single-entry-aware wrapper `src/features/overlays/OverlayHost.tsx`. The wrapper reads the current `OverlayProvider` entry; the primitive never reads provider state. `ModalActions` enforces Cancel-first focus for destructive actions. Success and informational messages never open a modal or overlay: they render only in the top bar status strip through `StatusProvider` and in the console.
 
 All icons and markers used by this feature come from `src/theme/icons.ts`; see architecture section 6.1. No glyph literal is written in feature code.
 
@@ -50,7 +50,7 @@ All icons and markers used by this feature come from `src/theme/icons.ts`; see a
 
 ```text
 OverlayProvider
-  OverlayHost               (src/features/overlays/OverlayHost.tsx, stack-aware wrapper)
+  OverlayHost               (src/features/overlays/OverlayHost.tsx, single-entry-aware wrapper)
     ConfirmModal            (src/features/overlays/ConfirmModal.tsx -> src/ui/ModalFrame.tsx + Overlay + ModalActions)
     ErrorOverlay            (src/features/overlays/ErrorOverlay.tsx -> src/ui/ModalFrame.tsx + scrollbox stderr + redacted command)
 AppShell
@@ -77,7 +77,7 @@ Destructive flows call `ConfirmModal` with a named target and an action-specific
 
 ## 6. State model
 
-- `OverlayProvider` (provider state): the modal stack, the pending confirmation request (action ID, target label, scope options, primary index), and the current error record. It never stores success or informational messages; those are `StatusProvider` state.
+- `OverlayProvider` (provider state): the single open overlay entry (a feature modal or a confirmation with its exact label and destructiveness) and the focus captured when it opened. Opening another entry replaces the first instead of stacking. It never stores success or informational messages; those are `StatusProvider` state. The persistent error detail remains M6.
 - `RepositoryProvider` (provider state): the current snapshot, which is only replaced on a successful read after a mutation. The mutation latch lives in `commands.runner.ts`; `StatusProvider` holds its UI projection.
 - `commands.runner.ts` (domain state): the module-level write latch that enforces one mutation at a time. `StatusProvider` reflects it as the running-operation flag; the runner is the authority and the provider is the UI projection.
 - `git.client.ts` (per-invocation state): the child process handle, its timeout timer, and the `AbortSignal` subscription for one invocation. It holds no repository or UI state and exposes no persistent global.
@@ -142,7 +142,7 @@ On abort the client sends `SIGTERM`, waits two seconds, then sends `SIGKILL`, wa
 
 Network operations pass `--progress`: `git fetch --progress`, `git pull --progress --no-edit`, `git push --progress`, plus tag push and remote branch delete. `--no-edit` prevents pull from opening an editor for a merge message. Stderr is streamed through `git.progress.ts` and forwarded to `StatusProvider`; commands without a meaningful percentage emit phase-only events.
 
-Quit is part of this contract and never relies on the renderer default. The renderer is created with `exitOnCtrlC: false`, so `Ctrl+C` arrives as a key and dispatches `app.quit` instead of the renderer's default exit. The quit handler, not the renderer, decides whether confirmation is required. The target contract opens the confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is already open. M4 implements the operation half: the handler aborts the in-flight command through the `AbortSignal` owned by `useCommandRunner`, waits for it to settle, and only then calls `renderer.destroy()`. Draft-based confirmation is deferred to M6 with the overlay stack and is recorded as a contract deviation in `00-project-architecture.md`. The client performs the `SIGTERM`-then-`SIGKILL` sequence, and the renderer is destroyed only after the child has exited or been killed, so the terminal is restored after git has stopped writing to it.
+Quit is part of this contract and never relies on the renderer default. The renderer is created with `exitOnCtrlC: false`, so `Ctrl+C` arrives as a key and dispatches `app.quit` instead of the renderer's default exit. The quit handler, not the renderer, decides whether confirmation is required. The target contract opens the confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is already open. M4 implements the operation half: the handler aborts the in-flight command through the `AbortSignal` owned by `useCommandRunner`, waits for it to settle, and only then calls `renderer.destroy()`. Draft-based confirmation is deferred to M6 with the overlay entry and is recorded as a contract deviation in `00-project-architecture.md`. The client performs the `SIGTERM`-then-`SIGKILL` sequence, and the renderer is destroyed only after the child has exited or been killed, so the terminal is restored after git has stopped writing to it.
 
 ### 7.2 Integration test harness
 
@@ -152,7 +152,7 @@ Process-spawning tests are isolated from the unit suite:
 - Integration tests are colocated `*.integration.test.ts` files and run with `bun test:integration`. They may spawn the system git only through the fixture, and the fixture runs commands through `git.client.ts` so the production execution contract is what gets tested.
 - `src/test/git.fixture.ts` is the only test module allowed to spawn git directly for setup and teardown; the boundary check in architecture section 12 exempts it by path alongside `git.client.ts`. Production code never imports it.
 - Unit tests never spawn a process. They use recorded stdout and stderr fixtures and call parsers, builders, and availability functions directly.
-- `bun test` runs the unit suite and `bun test:integration` runs the spawning suite; CI runs both. Integration tests are skipped when `git --version` is below the documented minimum, and skip is reported as a skip, not a pass.
+- `bun test` runs the unit suite and `bun test:integration` runs the spawning suite; CI runs both. Integration tests are skipped when `git --version` is below the supported minimum, Git >= 2.30.0 (also the fixture floor), and skip is reported as a skip, not a pass. The fixture isolates ambient configuration on every supported version: it sets `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` to the null device for git 2.32 and later, and additionally sets `GIT_CONFIG_NOSYSTEM=1` with per-fixture `HOME` and `XDG_CONFIG_HOME` directories for 2.30 and 2.31.
 
 ## 8. Keyboard and focus
 
@@ -160,7 +160,7 @@ Action IDs and command IDs are distinct (architecture section 8.1). An action ID
 
 Bindings use action IDs only:
 
-- `app.quit`: quit path, with confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is open. M4 aborts and settles the running child before destroying the renderer; draft confirmation lands with the M6 overlay stack.
+- `app.quit`: quit path, with confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is open. M4 aborts and settles the running child before destroying the renderer; draft confirmation lands with the M6 overlay entry.
 - `overlay.close`: `Esc` cancels a confirmation; the destructive option is never the default focus.
 - `nav.activate`: confirms the focused modal button; `focus.next` and `focus.previous` move between `ModalActions`.
 - `form.submit`: `Ctrl/Cmd+Enter` submits a multiline form; single-line forms keep native `Enter`.
@@ -192,8 +192,8 @@ Invariants, each with the enforcing module and a required test:
 
 | Invariant | Enforcing module | Test |
 | --- | --- | --- |
-| Every destructive action confirms and names its target | `ConfirmModal.tsx`, per-feature handlers | `ConfirmModal.test.tsx` asserts target text and Cancel-first focus |
-| Both force push variants offered; safe primary; literal never default | `MoreMenu.tsx` and `ConfirmModal.tsx` | `MoreMenu.test.tsx` asserts order, labels, and default focus |
+| Every destructive action confirms and names its target | `ConfirmModal.tsx`, per-feature handlers | `useTopBarCommands.test.tsx` asserts the target/description, Cancel-first focus, and that a branch or upstream change while a force confirmation is open runs nothing; `OverlayHost.test.tsx` asserts the destructive Cancel-first default |
+| Both force push variants offered; safe primary; literal never default | `MoreMenu.tsx` and `ConfirmModal.tsx` | `MoreMenu.test.tsx` asserts order and labels; `OverlayHost.test.tsx` asserts destructive Cancel-first focus and non-destructive primary focus |
 | No automatic stash, reset, checkout, clean, or prune | `commands.registry.ts`, `commands.availability.ts` (no such commands) | `commands.availability.test.ts` asserts absence |
 | No credential storage or prompts | `git.client.ts` (prompt-disabling environment) | `git.client.test.ts` asserts environment flags and no TTY prompt |
 | Argument-array execution | `git.client.ts` | `git.client.test.ts` asserts argv array and no shell |
@@ -202,7 +202,7 @@ Invariants, each with the enforcing module and a required test:
 | One mutation at a time | `commands.runner.ts` write latch; `useCommandRunner` surfaces the blocked result | `commands.runner.test.ts` asserts blocked second write with reason; `useCommandRunner.test.tsx` asserts no refresh, console append, or error overlay for a blocked result |
 | Deletes never remove reachable commits | per-feature delete handlers (branch, tag, stash, worktree) | `branch.delete.test.ts` asserts only the named ref is deleted |
 | Remote branch delete requires explicit scope | `DeleteBranchModal.tsx` scope options | `DeleteBranchModal.test.tsx` asserts local-only is the default |
-| Push with no upstream never force pushes | push handler no-upstream branch | `remote.push.test.ts` asserts the create-upstream path and no force flag |
+| Push with no upstream never force pushes | push handler no-upstream branch | `commands.remote.test.ts` asserts the create-upstream argv and no force flag; `commands.remote.integration.test.ts` proves an explicit refspec scope with `push.default=matching` |
 | Missing-upstream indicators only after prune confirmation | `repository.upstream.ts` | `repository.upstream.test.ts` asserts `[?]` gating on prune |
 | Safety not configurable | `config.validate.ts` (no such fields) | `config.validate.test.ts` asserts unknown safety fields ignored |
 | `git.path` executed without a shell | `git.client.ts` | `git.client.test.ts` asserts direct exec |
@@ -245,7 +245,7 @@ Platform invariants:
 
 ## 13. Tests to add
 
-Colocated per architecture section 5: `git.client.test.ts` (argv, no shell, prompt environment, `git.path`, `stdio: ["ignore", "pipe", "pipe"]`, 10-second/30-second/120-second timeout selection, `AbortSignal` cancellation, `SIGTERM` then `SIGKILL` after two seconds, `--progress` on network commands, `--no-edit` on pull), `git.redact.test.ts`, `git.errors.test.ts` (classification), `commands.runner.test.ts` (serialization, blocked reason, pure execution), `src/app/hooks/useCommandRunner.test.tsx` (refresh on success and failure, one console entry, error routing, no refresh/console/error effects for a blocked result, no overlay for success), `commands.availability.test.ts` (detached HEAD, no upstream, no remote, empty repository, operation in progress), `commands.registry.test.ts` (destructive intents map to mutation commands with action IDs and explicit targets; `nav.*` is not a palette command and `focus.region.*` is), `useAction.test.tsx` (duplicate `(actionId, scope)` registration rejected; one global owner for `app.quit` and `remote.*`), `ConfirmModal.test.tsx` (named target, Cancel-first), `ModalActions.test.tsx`, `DeleteBranchModal.test.tsx` (scope default), `TextMarker.test.tsx` (glyph plus text), plus `keymap.parse.test.ts` and `theme.capability.test.ts` for the platform fallbacks.
+Colocated per architecture section 5: `git.client.test.ts` (argv, no shell, prompt environment, `git.path`, `stdio: ["ignore", "pipe", "pipe"]`, 10-second/30-second/120-second timeout selection, `AbortSignal` cancellation, `SIGTERM` then `SIGKILL` after two seconds, `--progress` on network commands, `--no-edit` on pull, truncation flags), `git.redact.test.ts`, `git.errors.test.ts` (classification), `commands.runner.test.ts` (serialization, blocked reason, pure execution), `src/app/hooks/useCommandRunner.test.tsx` (refresh on success and failure, one console entry, error routing, no refresh/console/error effects for a blocked result, no overlay for success, a second command blocked during the post-result refresh, timeout duration text), `commands.availability.test.ts` (detached HEAD, no upstream, no remote, empty repository, operation in progress), `commands.registry.test.ts` (remote commands use the global handler scope; destructive intents map to mutation commands with action IDs and explicit targets; `nav.*` is not a palette command and `focus.region.*` is), `useAction.test.tsx` (duplicate `(actionId, scope)` registration rejected; one global owner for `app.quit` and `remote.*`), `OverlayHost.test.tsx` (named target, Cancel-first, keyed confirmation focus), `ModalActions.test.tsx`, `DeleteBranchModal.test.tsx` (scope default), `TextMarker.test.tsx` (glyph plus text), plus `keymap.parse.test.ts` and `theme.capability.test.ts` for the platform fallbacks.
 
 Integration tests are `*.integration.test.ts` files run with `bun test:integration`. They spawn the system git only through `src/test/git.fixture.ts`, which creates and removes the temporary repository, and they exercise the production `git.client.ts` contract, including the two-second abort escalation. `bun test` is the unit suite and never spawns a process.
 

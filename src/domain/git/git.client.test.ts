@@ -559,6 +559,30 @@ describe("git client invocation", () => {
     const result = await promise;
 
     expect(result.stdout).toBe("01234\n[output truncated]\nBCDEF");
+    expect(result.stdoutTruncated).toBeTrue();
+    expect(result.stderrTruncated).toBeUndefined();
+  });
+
+  it("reports a truncated stderr stream without changing the text", async () => {
+    const { spawn, records } = createFakeSpawn();
+    const client = createTestClient(spawn, { outputLimitCharacters: 10 });
+    const promise = client.invoke({
+      args: ["status"],
+      cwd: "/repo",
+      signal: new AbortController().signal,
+      operationClass: "read",
+      sshCommandConfigured: true,
+    });
+
+    await waitFor(() => records.length === 1);
+
+    records[0]?.child.emitStderr("0123456789ABCDEF");
+    records[0]?.child.close(0, null);
+    const result = await promise;
+
+    expect(result.stderr).toBe("01234\n[output truncated]\nBCDEF");
+    expect(result.stderrTruncated).toBeTrue();
+    expect(result.stdoutTruncated).toBeUndefined();
   });
 
   it("does not duplicate characters when one chunk crosses the truncation boundary", async () => {

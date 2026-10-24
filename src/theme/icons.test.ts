@@ -21,6 +21,7 @@ const REQUIRED_ICON_GROUPS: Readonly<Record<string, readonly IconName[]>> = {
   "File status": ["modified", "added", "deleted", "renamed", "copied", "conflicted", "untracked"],
   Diff: ["diffAdd", "diffRemove", "diffContext", "diffNoNewline"],
   "Tag scope": ["tagLocal", "tagRemote", "tagUnpushed", "tagLocalOnly"],
+  "Remote actions": ["push", "pull"],
   "Operation status": ["success", "warning", "error", "info", "pending", "running", "done"],
   Spinner: ["spinnerFrames"],
   Toggle: ["checkboxOn", "checkboxOff"],
@@ -80,5 +81,7 @@ describe("ICONS", () => {
     expect(ICONS.pending).toBe("[ ]");
     expect(ICONS.running).toBe("[..]");
     expect(ICONS.done).toBe("[v]");
+    expect(ICONS.push).toBe("^");
+    expect(ICONS.pull).toBe("v");
   });
 });

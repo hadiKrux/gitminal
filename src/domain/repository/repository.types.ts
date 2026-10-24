@@ -362,6 +362,15 @@ export interface UpstreamDisplay {
   readonly indicatesMissing: boolean;
 }
 
+/** Sync relationship between the current branch and its upstream. */
+export type SyncState =
+  | "up-to-date"
+  | "ahead"
+  | "behind"
+  | "diverged"
+  | "no-upstream"
+  | "upstream-gone";
+
 /** Repository state text for the top bar and the M5 banner. */
 export interface RepositoryStateDisplay {
   /** Exclusive primary state. */
@@ -384,6 +393,8 @@ export interface RepositoryView {
   readonly ahead: number;
   /** Commits behind the upstream. */
   readonly behind: number;
+  /** Sync relationship derived from the upstream status and the ahead/behind counts. */
+  readonly sync: SyncState;
   /** Pending change counts. */
   readonly pending: PendingCounts;
   /** Repository state text. */

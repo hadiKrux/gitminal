@@ -94,6 +94,7 @@ export function RepositoryProvider(props: RepositoryProviderProps): ReactNode {
       recordRemoteCheck: evidence.recordRemoteCheck,
       confirmUpstreamAbsent: evidence.confirmUpstreamAbsent,
       markUpstreamUnknown: evidence.markUpstreamUnknown,
+      recordUpstreamEvidence: evidence.recordUpstreamEvidence,
       getAvailability: getAvailabilityFor,
     }),
     [state, store, runtime.gitClient, refreshCycle, setSelection, evidence, getAvailabilityFor],

@@ -36,7 +36,7 @@ export interface StatusState {
 
 /** Value exposed by `StatusProvider` and read through `useStatus`. */
 export interface StatusContextValue extends StatusState {
-  /** Shows a transient message and starts its dismissal timer. */
+  /** Shows a transient message; success and information messages auto-dismiss. */
   readonly setStatus: (status: TransientStatus, durationMs?: number) => void;
   /** Clears the transient message and cancels its timer. */
   readonly clearStatus: () => void;

@@ -8,6 +8,7 @@ import { resolveHotkeyAction, useHotkeys } from "@/app/hooks/useHotkeys";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
+import { OverlayProvider } from "@/app/providers/OverlayProvider";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
 import { resolveKeymap } from "@/domain/keymap/keymap.resolve";
 import type { KeyEventLike } from "@/domain/keymap/keymap.types";
@@ -323,7 +324,9 @@ describe("useHotkeys", () => {
         <ThemeProvider>
           <KeymapProvider platform="linux">
             <FocusProvider>
-              <HotkeyHarness />
+              <OverlayProvider>
+                <HotkeyHarness />
+              </OverlayProvider>
             </FocusProvider>
           </KeymapProvider>
         </ThemeProvider>

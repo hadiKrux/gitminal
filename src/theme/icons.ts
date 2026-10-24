@@ -33,6 +33,8 @@ export const ICONS = Object.freeze({
   tagRemote: "remote",
   tagUnpushed: "unpushed",
   tagLocalOnly: "local only",
+  push: "^",
+  pull: "v",
   success: "v",
   warning: "!",
   error: "x",

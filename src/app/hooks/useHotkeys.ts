@@ -5,6 +5,7 @@ import type { ActionScope } from "@/app/hooks/useAction.types";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import type { HotkeyResolution, HotkeyResolutionInput } from "@/app/hooks/useHotkeys.types";
 import { useKeymap } from "@/app/hooks/useKeymap";
+import { useOverlay } from "@/app/hooks/useOverlay";
 import { lookupBindingKey, readKeyEvent } from "@/domain/keymap/keymap.parse";
 import type { KeyEventLike, KeymapContext, ResolvedKeymap } from "@/domain/keymap/keymap.types";
 import type { RegionId } from "@/features/shell/focus.types";
@@ -47,12 +48,14 @@ const CLOSE_ACTION_ID = "overlay.close";
  * The hook is the only `useKeyboard` caller after the shell mounts. It resolves an action through
  * `resolveHotkeyAction`, looks up the handler for the resolved scope, and calls `preventDefault()`
  * only when a handler actually ran. Unhandled keys pass through to a focused input, a native list
- * widget, or OpenTUI's editing bindings untouched. Overlay state is deliberately not an option
- * here: `OverlayProvider` lands in M6 and will pass the open overlay and its toggle action then.
+ * widget, or OpenTUI's editing bindings untouched. While an overlay is open, the overlay inputs
+ * give that overlay ownership of the keyboard, with only `overlay.close`, `app.quit`, and the same
+ * overlay's toggle resolving from the global context.
  */
 export function useHotkeys(): void {
   const keymap = useKeymap();
   const { state } = useFocusState();
+  const overlay = useOverlay();
   const renderer = useRenderer();
 
   useKeyboard((key) => {
@@ -74,7 +77,8 @@ export function useHotkeys(): void {
       textInputFocused: state.textInputFocused,
       nativeListFocused: state.nativeListFocused,
       focusInsideRegion: state.focusInsideRegion,
-      overlayOpen: false,
+      overlayOpen: overlay.isOpen,
+      overlayToggleActionId: overlay.toggleActionId ?? undefined,
     });
 
     if (resolution === null) {

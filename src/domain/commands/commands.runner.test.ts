@@ -248,13 +248,13 @@ describe("runCommand", () => {
           nonFatal: true,
         },
       ],
-      warnings: ["upstream not found for feature"],
+      warnings: ["upstream not found for origin/feature"],
     });
 
     const result = await runCommand(createRequest("remote.fetch"), createOptions());
 
     expect(result.status).toBe("success");
-    expect(result.warnings).toEqual(["upstream not found for feature"]);
+    expect(result.warnings).toEqual(["upstream not found for origin/feature"]);
     expect(result.steps[0]?.nonFatal).toBeTrue();
   });
 

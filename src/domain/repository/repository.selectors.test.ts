@@ -7,6 +7,7 @@ import {
   selectRemoteFreshness,
   selectRepositoryView,
   selectStateDisplay,
+  selectSyncState,
   selectUpstreamDisplay,
 } from "@/domain/repository/repository.selectors";
 import {
@@ -128,6 +129,27 @@ describe("repository selectors", () => {
     expect(selectRemoteFreshness(record, 1_000 + REMOTE_STALE_AFTER_MS + 1)).toBe("stale");
   });
 
+  it("derives all six sync states", () => {
+    const withCounts = (ahead: number, behind: number): RepositorySnapshot => {
+      const base = snapshot();
+
+      return snapshot({
+        ahead,
+        behind,
+        status: base.status === null ? null : { ...base.status, ahead, behind },
+      });
+    };
+
+    expect(selectSyncState(snapshot(), "none")).toBe("no-upstream");
+    expect(selectSyncState(snapshot(), "gone")).toBe("upstream-gone");
+    expect(selectSyncState(snapshot(), "deleted-after-prune")).toBe("upstream-gone");
+    expect(selectSyncState(snapshot(), "unknown")).toBe("upstream-gone");
+    expect(selectSyncState(withCounts(0, 0), "healthy")).toBe("up-to-date");
+    expect(selectSyncState(withCounts(2, 0), "healthy")).toBe("ahead");
+    expect(selectSyncState(withCounts(0, 1), "healthy")).toBe("behind");
+    expect(selectSyncState(withCounts(2, 1), "healthy")).toBe("diverged");
+  });
+
   it("builds the view once for the top bar", () => {
     const state = detectRepositoryState(
       createRepositorySignals({
@@ -151,6 +173,7 @@ describe("repository selectors", () => {
     expect(view.upstream.label).toBe("origin/main");
     expect(view.ahead).toBe(2);
     expect(view.behind).toBe(1);
+    expect(view.sync).toBe("diverged");
     expect(view.pending.total).toBe(6);
     expect(view.state.primary).toBe("normal");
   });

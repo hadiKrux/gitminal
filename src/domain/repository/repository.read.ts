@@ -91,6 +91,13 @@ async function readWorkTreeSnapshot(
     return createFailureResult(options.cwd, statusRead.failure, probe.gitDir);
   }
 
+  // A truncated `git remote -v` can drop a remote from the middle of the output. Inferring a
+  // no-remote state from incomplete evidence would silently disable every remote action, so the
+  // read fails and the provider keeps its previous snapshot.
+  if (!remotesRead.ok) {
+    return createFailureResult(options.cwd, remotesRead.failure, probe.gitDir);
+  }
+
   const status = statusRead.snapshot;
   const branch = head.branch ?? status.branch;
   const upstream = await readUpstreamStatus(client, {

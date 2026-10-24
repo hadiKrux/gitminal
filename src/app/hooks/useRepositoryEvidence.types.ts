@@ -45,4 +45,15 @@ export interface RepositoryEvidenceHook {
    * @returns The refresh result.
    */
   markUpstreamUnknown(ref: string): Promise<RepositoryRefreshResult>;
+  /**
+   * Records confirmed absent refs and failed checks in one batch and re-reads the repository once.
+   *
+   * @param prunedRefs - Upstream refs a successful prune confirmed absent.
+   * @param unknownRefs - Upstream refs whose remote check failed.
+   * @returns The single refresh result, or null when both lists are empty.
+   */
+  recordUpstreamEvidence(
+    prunedRefs: readonly string[],
+    unknownRefs: readonly string[],
+  ): Promise<RepositoryRefreshResult | null>;
 }

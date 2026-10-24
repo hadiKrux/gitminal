@@ -1,13 +1,15 @@
-import { beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { AppShellHost } from "@/app/AppShellHost";
+import { resetCommandOrchestration } from "@/app/hooks/commandRunner.state";
 import { resetActionRegistry } from "@/app/hooks/useAction";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
+import { OverlayProvider } from "@/app/providers/OverlayProvider";
 import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
@@ -41,14 +43,16 @@ async function renderHost(client: GitClient): Promise<Awaited<ReturnType<typeof 
         <KeymapProvider platform="linux">
           <RepositoryProvider cwd="/repo" gitClient={client} enableWatcher={false} now={() => 0}>
             <FocusProvider>
-              <StatusProvider>
-                <ConsoleProvider>
-                  <box flexDirection="column" flexGrow={1} width={120} height={40}>
-                    <AppShellHost />
-                    <StatusProbe />
-                  </box>
-                </ConsoleProvider>
-              </StatusProvider>
+              <OverlayProvider>
+                <StatusProvider>
+                  <ConsoleProvider>
+                    <box flexDirection="column" flexGrow={1} width={120} height={40}>
+                      <AppShellHost />
+                      <StatusProbe />
+                    </box>
+                  </ConsoleProvider>
+                </StatusProvider>
+              </OverlayProvider>
             </FocusProvider>
           </RepositoryProvider>
         </KeymapProvider>
@@ -86,6 +90,12 @@ async function waitForInitialRead(
 beforeEach(() => {
   resetActionRegistry();
   resetCommandRunner();
+  resetCommandOrchestration();
+});
+
+afterEach(() => {
+  resetCommandRunner();
+  resetCommandOrchestration();
 });
 
 describe("AppShellHost quit", () => {
@@ -182,6 +192,74 @@ describe("AppShellHost quit", () => {
     expect(order).toEqual(["abort", "destroy"]);
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(latestStatus?.status).toEqual({ kind: "warning", message: "cancelled" });
+
+    destroy.mockRestore();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("waits for the post-result refresh before destroying the renderer", async () => {
+    const fake = createFakeGitClient();
+    let releaseRefresh: () => void = () => {};
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let statusReads = 0;
+    let holding = false;
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options): Promise<GitInvocationResult> => {
+        const key = options.args.join(" ");
+
+        if (key === "status --porcelain=v2 --branch -z --untracked-files=all") {
+          statusReads += 1;
+
+          if (statusReads >= 2) {
+            holding = true;
+            await refreshGate;
+          }
+        }
+
+        return await fake.client.invoke(options);
+      },
+    };
+    const setup = await renderHost(client);
+    const destroy = spyOn(setup.renderer, "destroy").mockImplementation(() => {});
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      setup.mockInput.pressKey("f");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    const deadline = Date.now() + 2_000;
+
+    while (!holding && Date.now() < deadline) {
+      await act(async () => {
+        await setup.renderOnce();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+
+    expect(holding).toBeTrue();
+
+    await act(async () => {
+      setup.mockInput.pressKey("q");
+      await Promise.resolve();
+    });
+
+    expect(destroy).not.toHaveBeenCalled();
+
+    releaseRefresh();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await setup.renderOnce();
+    });
+
+    expect(destroy).toHaveBeenCalledTimes(1);
 
     destroy.mockRestore();
     await act(async () => {

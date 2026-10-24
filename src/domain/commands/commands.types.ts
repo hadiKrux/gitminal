@@ -104,10 +104,16 @@ export interface CommandStepResult {
   readonly stdout: string;
   /** Captured standard error. */
   readonly stderr: string;
+  /** True when the captured stdout lost its middle to the client output limit. */
+  readonly stdoutTruncated?: boolean;
+  /** True when the captured stderr lost its middle to the client output limit. */
+  readonly stderrTruncated?: boolean;
   /** True when this step was cancelled. */
   readonly cancelled?: boolean;
   /** True when this step timed out. */
   readonly timedOut?: boolean;
+  /** Timeout that expired for this step, in milliseconds, or null when it did not time out. */
+  readonly timedOutAfterMs?: number | null;
   /**
    * True when a non-zero step is a supported, non-fatal outcome.
    *
@@ -153,6 +159,8 @@ export interface CommandResult {
   readonly cancelled?: boolean;
   /** True when the whole command timed out. */
   readonly timedOut?: boolean;
+  /** Timeout that expired, in milliseconds, when the command timed out. */
+  readonly timedOutAfterMs?: number | null;
 }
 
 /** One command dispatch. */
@@ -240,10 +248,34 @@ export interface CommandExecutionOutcome {
    * as a successful check or fetch.
    */
   readonly remoteResults?: readonly CommandRemoteResult[];
+  /**
+   * Upstream refs a Fetch --prune confirmed absent and deleted locally.
+   *
+   * Outcome-only evidence. The app-layer wrapper records it through
+   * `RepositoryProvider.recordUpstreamEvidence` before it returns the result, so the runner stays a
+   * pure executor and the refreshed snapshot classifies those refs as deleted.
+   */
+  readonly prunedUpstreamRefs?: readonly string[];
+  /**
+   * Upstream refs whose remote check failed during Fetch --prune.
+   *
+   * Outcome-only evidence. The app-layer wrapper records it in the same batched evidence write as
+   * the pruned refs before returning, so a failed check is never mistaken for a deleted branch and
+   * a run with both lists still performs one refresh.
+   */
+  readonly unknownUpstreamRefs?: readonly string[];
   /** True when the handler observed a cancellation. */
   readonly cancelled?: boolean;
   /** True when the handler observed a timeout. */
   readonly timedOut?: boolean;
+  /**
+   * True when a composite handler decides the whole command failed even though its individual
+   * steps are non-fatal.
+   *
+   * Fetch --prune sets it when every remote group failed and nothing was fetched or pruned, so a
+   * total failure reaches the error surface while partial success stays a warning.
+   */
+  readonly failed?: boolean;
   /**
    * Reason the handler refuses to execute its scope before doing any work.
    *

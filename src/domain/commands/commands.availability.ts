@@ -1,299 +1,28 @@
 import { gateRepository, hasOperationMarker } from "@/domain/repository/repository.states";
+import { getCommandDescriptor } from "./commands.registry";
 import type {
   CommandAvailability,
   CommandAvailabilityReason,
   CommandContext,
   CommandDescriptor,
-  CommandKind,
-  CommandRegion,
   CommandTarget,
   CommandTargetKind,
 } from "./commands.types";
 
-/** Compact descriptor row used to build the catalogue without repeating field names. */
-type DescriptorRow = readonly [
-  id: string,
-  kind: CommandKind,
-  scope: CommandRegion | "global",
-  targetKind: CommandTargetKind,
-  category: CommandDescriptor["category"],
-  label: string,
-  description: string,
-  needsInput: boolean,
-];
-
 /**
- * Minimal command catalogue for the repository-state and safety gates.
+ * Commands whose branch target must be the current branch.
  *
- * This is not the full M9 registry. It names exactly the commands that ticket 16 gates and ticket
- * 18 executes, so availability can be computed before the feature panels exist. `commands.registry.ts`
- * will replace it as the single catalogue later.
+ * Pull, push, and their variants operate on the checked-out branch, so the explicit target is a
+ * stale-target guard: a target captured before a checkout in another worktree must not push or pull
+ * a branch the user is no longer on.
  */
-const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
-  ["app.refresh", "read", "global", "none", "app", "Refresh", "Reload repository state", false],
-  ["remote.fetch", "mutation", "top-bar", "none", "remote", "Fetch", "Fetch a remote", false],
-  [
-    "remote.fetchPrune",
-    "mutation",
-    "top-bar",
-    "none",
-    "remote",
-    "Fetch prune",
-    "Fetch a remote and prune deleted refs",
-    false,
-  ],
-  [
-    "remote.pull",
-    "mutation",
-    "top-bar",
-    "none",
-    "remote",
-    "Pull",
-    "Pull the upstream branch",
-    false,
-  ],
-  [
-    "remote.push",
-    "mutation",
-    "top-bar",
-    "none",
-    "remote",
-    "Push",
-    "Push the current branch",
-    false,
-  ],
-  [
-    "remote.pushForceSafe",
-    "mutation",
-    "top-bar",
-    "none",
-    "remote",
-    "Force push safely",
-    "Push with --force-with-lease",
-    false,
-  ],
-  [
-    "remote.pushForceOverwrite",
-    "mutation",
-    "top-bar",
-    "none",
-    "remote",
-    "Overwrite remote",
-    "Push with --force",
-    false,
-  ],
-  [
-    "remote.pushNoVerify",
-    "mutation",
-    "top-bar",
-    "none",
-    "remote",
-    "Push without hooks",
-    "Push with --no-verify",
-    false,
-  ],
-  ["remote.more", "navigation", "top-bar", "none", "remote", "More", "Open remote actions", false],
-  [
-    "branch.create",
-    "mutation",
-    "branches",
-    "none",
-    "branch",
-    "Create branch",
-    "Create and check out a branch",
-    true,
-  ],
-  [
-    "branch.delete",
-    "mutation",
-    "branches",
-    "branch",
-    "branch",
-    "Delete branch",
-    "Delete the selected branch",
-    false,
-  ],
-  ["tag.create", "mutation", "tags", "none", "tag", "Create tag", "Create a tag", true],
-  ["tag.push", "mutation", "tags", "tag", "tag", "Push tag", "Push the selected tag", false],
-  ["tag.delete", "mutation", "tags", "tag", "tag", "Delete tag", "Delete the selected tag", false],
-  ["stash.create", "mutation", "stashes", "none", "stash", "Create stash", "Stash changes", true],
-  ["stash.apply", "mutation", "stashes", "stash", "stash", "Apply stash", "Apply a stash", false],
-  [
-    "stash.pop",
-    "mutation",
-    "stashes",
-    "stash",
-    "stash",
-    "Pop stash",
-    "Apply and drop a stash",
-    false,
-  ],
-  ["stash.delete", "mutation", "stashes", "stash", "stash", "Drop stash", "Drop a stash", false],
-  [
-    "worktree.create",
-    "mutation",
-    "worktrees",
-    "none",
-    "worktree",
-    "Create worktree",
-    "Add a linked worktree",
-    true,
-  ],
-  [
-    "worktree.delete",
-    "mutation",
-    "worktrees",
-    "worktree",
-    "worktree",
-    "Delete worktree",
-    "Remove a linked worktree",
-    false,
-  ],
-  ["commit.submit", "mutation", "right-pane", "none", "commit", "Commit", "Create a commit", false],
-  [
-    "commit.submitNoVerify",
-    "mutation",
-    "right-pane",
-    "none",
-    "commit",
-    "Commit without hooks",
-    "Create a commit with --no-verify",
-    false,
-  ],
-  ["commit.amend", "mutation", "right-pane", "none", "commit", "Amend commit", "Amend HEAD", false],
-  [
-    "commit.amendNoVerify",
-    "mutation",
-    "right-pane",
-    "none",
-    "commit",
-    "Amend without hooks",
-    "Amend HEAD with --no-verify",
-    false,
-  ],
-  ["diff.stage", "mutation", "diff", "diffFile", "diff", "Stage file", "Stage one file", false],
-  [
-    "diff.unstage",
-    "mutation",
-    "diff",
-    "diffFile",
-    "diff",
-    "Unstage file",
-    "Unstage one file",
-    false,
-  ],
-  [
-    "diff.discard",
-    "mutation",
-    "diff",
-    "diffFile",
-    "diff",
-    "Discard changes",
-    "Discard tracked changes in a file",
-    false,
-  ],
-  [
-    "diff.deleteUntracked",
-    "mutation",
-    "diff",
-    "diffFile",
-    "diff",
-    "Delete untracked file",
-    "Delete an untracked file",
-    false,
-  ],
-  ["diff.stageAll", "mutation", "diff", "none", "diff", "Stage all", "Stage every change", false],
-  [
-    "diff.unstageAll",
-    "mutation",
-    "diff",
-    "none",
-    "diff",
-    "Unstage all",
-    "Unstage every change",
-    false,
-  ],
-  [
-    "diff.discardAll",
-    "mutation",
-    "diff",
-    "none",
-    "diff",
-    "Discard all",
-    "Discard every tracked change",
-    false,
-  ],
-  [
-    "diff.deleteAllUntracked",
-    "mutation",
-    "diff",
-    "none",
-    "diff",
-    "Delete all untracked",
-    "Delete every untracked file",
-    false,
-  ],
+const CURRENT_BRANCH_ACTIONS: ReadonlySet<string> = new Set([
+  "remote.pull",
+  "remote.push",
+  "remote.pushForceSafe",
+  "remote.pushForceOverwrite",
+  "remote.pushNoVerify",
 ]);
-
-/** Indexed command catalogue. */
-const COMMAND_DESCRIPTORS: ReadonlyMap<string, CommandDescriptor> = new Map(
-  DESCRIPTOR_ROWS.map((row) => {
-    const descriptor = createDescriptor(row);
-
-    return [descriptor.id, descriptor] as const;
-  }),
-);
-
-/**
- * Builds a descriptor from one compact row.
- *
- * @param row - Descriptor row.
- * @returns The frozen descriptor.
- */
-function createDescriptor(row: DescriptorRow): CommandDescriptor {
-  const [id, kind, scope, targetKind, category, label, description, needsInput] = row;
-
-  return Object.freeze({
-    id,
-    actionId: id,
-    kind,
-    scope,
-    targetKind,
-    label,
-    description,
-    keywords: Object.freeze(buildKeywords(id, label)),
-    category,
-    paletteInvocable: true,
-    needsInput,
-  });
-}
-
-/**
- * Derives palette keywords from a command id and label.
- *
- * @param id - Command id such as `remote.fetchPrune`.
- * @param label - Human-readable label.
- * @returns Search terms with the id parts and the label words.
- */
-function buildKeywords(id: string, label: string): string[] {
-  const idParts = id
-    .split(".")
-    .flatMap((part) => part.split(/(?=[A-Z])/))
-    .map((part) => part.toLowerCase());
-  const labelWords = label.toLowerCase().split(" ");
-
-  return [...new Set([...idParts, ...labelWords])];
-}
-
-/**
- * Reads one command descriptor.
- *
- * @param commandId - Stable command id.
- * @returns The descriptor, or undefined when the command is not in the minimal catalogue.
- */
-export function getCommandDescriptor(commandId: string): CommandDescriptor | undefined {
-  return COMMAND_DESCRIPTORS.get(commandId);
-}
 
 /**
  * Combines repository-wide gates with target validation for one command.
@@ -394,6 +123,10 @@ const TARGET_VALUE_VALIDATORS: Readonly<
 /**
  * Validates a branch target.
  *
+ * A remote command's target must be the current branch. The top bar always passes the current
+ * branch, so a mismatch means the target is stale, for example after an external checkout, and the
+ * command must not act on a branch the user is no longer viewing.
+ *
  * @param descriptor - Command descriptor.
  * @param target - Command target.
  * @param context - Command context.
@@ -414,6 +147,10 @@ function validateBranchTarget(
 
   if (descriptor.id === "branch.delete" && context.signals.branch === target.name) {
     return "cannot-delete-current-branch";
+  }
+
+  if (CURRENT_BRANCH_ACTIONS.has(descriptor.id) && context.signals.branch !== target.name) {
+    return "invalid-target";
   }
 
   return null;

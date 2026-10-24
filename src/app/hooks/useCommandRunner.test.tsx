@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
+import {
+  isCommandOrchestrationActive,
+  recordCommandExecution,
+  resetCommandOrchestration,
+} from "@/app/hooks/commandRunner.state";
 import { resolveActionHandler } from "@/app/hooks/useAction";
 import { useCommandRunner } from "@/app/hooks/useCommandRunner";
 import type { CommandFailureReport, CommandRunnerHook } from "@/app/hooks/useCommandRunner.types";
@@ -84,9 +89,10 @@ function createFakeGit(): { client: GitClient; statusReads: () => number } {
     "remote -v": () => result("origin\tgit@example.com:repo.git (fetch)\n"),
     "config user.name": () => result("Test User\n"),
     "config user.email": () => result("test@example.com\n"),
-    "for-each-ref --format=%(upstream:short) refs/heads/main": () => result("origin/main\n"),
+    "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main": () =>
+      result("origin\trefs/heads/main\n"),
     "for-each-ref --format=%(upstream:short) refs/heads": () => result("origin/main\n"),
-    "rev-parse --verify --quiet origin/main": () => result("abc123\n"),
+    "rev-parse --verify --quiet refs/remotes/origin/main": () => result("abc123\n"),
   };
 
   return {
@@ -185,7 +191,9 @@ function RunnerProbe(props: { withDefaultSink?: boolean }): ReactNode {
  * @param options - Harness options.
  * @returns The renderer setup and the fake client.
  */
-async function renderRunner(options: { withDefaultSink?: boolean } = {}): Promise<{
+async function renderRunner(
+  options: { withDefaultSink?: boolean; wrapClient?: (client: GitClient) => GitClient } = {},
+): Promise<{
   setup: Awaited<ReturnType<typeof testRender>>;
   fake: ReturnType<typeof createFakeGit>;
 }> {
@@ -196,6 +204,7 @@ async function renderRunner(options: { withDefaultSink?: boolean } = {}): Promis
   handlerCalls = 0;
 
   const fake = createFakeGit();
+  const client = options.wrapClient === undefined ? fake.client : options.wrapClient(fake.client);
   let setup: Awaited<ReturnType<typeof testRender>> | undefined;
 
   await act(async () => {
@@ -203,7 +212,7 @@ async function renderRunner(options: { withDefaultSink?: boolean } = {}): Promis
       <ConfigProvider>
         <RepositoryProvider
           cwd="/repo"
-          gitClient={fake.client}
+          gitClient={client}
           createWatcher={NOOP_WATCHER}
           enableWatcher={false}
           now={() => 0}
@@ -277,12 +286,14 @@ const FETCH_REQUEST: CommandRequest = { commandId: "remote.fetch", target: { kin
 
 beforeEach(() => {
   resetCommandRunner();
+  resetCommandOrchestration();
   errorReports = [];
   handlerCalls = 0;
 });
 
 afterEach(() => {
   resetCommandRunner();
+  resetCommandOrchestration();
 });
 
 describe("useCommandRunner", () => {
@@ -349,7 +360,7 @@ describe("useCommandRunner", () => {
           nonFatal: true,
         }),
       ],
-      warnings: ["upstream not found for feature"],
+      warnings: ["upstream not found for origin/feature"],
     });
     const { setup, fake } = await renderRunner();
 
@@ -366,7 +377,7 @@ describe("useCommandRunner", () => {
     expect(errorReports).toHaveLength(0);
     expect(latestStatus?.status).toEqual({
       kind: "warning",
-      message: "upstream not found for feature",
+      message: "upstream not found for origin/feature",
     });
     expect(latestStatus?.operation).toBeNull();
 
@@ -399,8 +410,11 @@ describe("useCommandRunner", () => {
     });
   });
 
-  it("treats a timed-out result as a warning, never success", async () => {
-    const cleanup = registerOutcome("remote.fetch", { steps: [], timedOut: true });
+  it("treats a timed-out result as a warning with the reported duration, never success", async () => {
+    const cleanup = registerOutcome("remote.fetch", {
+      steps: [okStep({ exitCode: null, timedOut: true, timedOutAfterMs: 120_000 })],
+      timedOut: true,
+    });
     const { setup, fake } = await renderRunner();
 
     await waitForInitialRead(setup, fake);
@@ -410,8 +424,109 @@ describe("useCommandRunner", () => {
     });
 
     expect(latestConsole?.entries[0]?.status).toBe("timed-out");
-    expect(latestStatus?.status).toEqual({ kind: "warning", message: "timed out" });
+    expect(latestStatus?.status).toEqual({
+      kind: "warning",
+      message: "timed out after 120 seconds",
+    });
     expect(errorReports).toHaveLength(0);
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("blocks a second command while the first refresh is still in flight", async () => {
+    const cleanup = registerOutcome("remote.fetch", { steps: [okStep()] });
+    let releaseRefresh: () => void = () => {};
+    let holding = false;
+    let statusReads = 0;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const { setup, fake } = await renderRunner({
+      wrapClient: (client) => ({
+        gitPath: client.gitPath,
+        invoke: async (options) => {
+          if (options.args[0] === "status") {
+            statusReads += 1;
+
+            if (statusReads >= 2) {
+              holding = true;
+              await refreshGate;
+            }
+          }
+
+          return await client.invoke(options);
+        },
+      }),
+    });
+
+    await waitForInitialRead(setup, fake);
+
+    let first: Promise<unknown> | undefined;
+
+    await act(async () => {
+      first = latestRunner?.runCommand(FETCH_REQUEST);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    const deadline = Date.now() + 2_000;
+
+    while (!holding && Date.now() < deadline) {
+      await act(async () => {
+        await setup.renderOnce();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+
+    expect(holding).toBeTrue();
+    expect(latestStatus?.operation?.label).toBe("Fetch");
+
+    let second: Awaited<ReturnType<CommandRunnerHook["runCommand"]>> | undefined;
+
+    await act(async () => {
+      second = await latestRunner?.runCommand(FETCH_REQUEST);
+    });
+
+    expect(second?.status).toBe("blocked");
+    expect(second?.blockedReason).toBe("operation-in-progress");
+    expect(handlerCalls).toBe(1);
+    expect(latestStatus?.operation?.label).toBe("Fetch");
+
+    await act(async () => {
+      releaseRefresh();
+      await first;
+    });
+
+    expect(latestStatus?.operation).toBeNull();
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("resets a stale orchestration slot so a new command can start", async () => {
+    const cleanup = registerOutcome("remote.fetch", { steps: [okStep()] });
+    const { setup, fake } = await renderRunner();
+
+    await waitForInitialRead(setup, fake);
+
+    recordCommandExecution(new AbortController(), new Promise<never>(() => {}));
+    expect(isCommandOrchestrationActive()).toBeTrue();
+
+    resetCommandOrchestration();
+    expect(isCommandOrchestrationActive()).toBeFalse();
+
+    let outcome: Awaited<ReturnType<CommandRunnerHook["runCommand"]>> | undefined;
+
+    await act(async () => {
+      outcome = await latestRunner?.runCommand(FETCH_REQUEST);
+    });
+
+    expect(outcome?.status).toBe("success");
+    expect(handlerCalls).toBe(1);
 
     cleanup();
     await act(async () => {

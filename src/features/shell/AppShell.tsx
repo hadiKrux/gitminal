@@ -59,16 +59,10 @@ export function AppShell(props: {
 
   return (
     <box flexDirection="column" flexGrow={1} backgroundColor={tokens.background}>
-      <Panel
-        {...topBar.regionProps}
-        focused={topBar.focused}
-        height={3}
-        flexShrink={0}
-        justifyContent="center"
-      >
-        <box flexDirection="row" height={1} flexShrink={0}>
+      <Panel {...topBar.regionProps} focused={topBar.focused} height={4} flexShrink={0}>
+        <box flexDirection="row" flexGrow={1} height={2}>
           <TextMarker focused={topBar.focused} />
-          <box flexGrow={1} flexDirection="row" marginLeft={1}>
+          <box flexDirection="column" flexGrow={1} height={2} marginLeft={1}>
             {props.topBar}
           </box>
         </box>

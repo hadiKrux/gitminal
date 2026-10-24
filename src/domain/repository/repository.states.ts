@@ -73,6 +73,7 @@ const ALWAYS_AVAILABLE_ACTIONS: ReadonlySet<string> = new Set([
   "help.search",
   "console.clear",
   "diff.toggle",
+  "remote.more",
 ]);
 
 /** Action prefixes that are navigation-only and stay available in every primary state. */
@@ -113,7 +114,14 @@ const EMPTY_REPOSITORY_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /** Actions that need a branch HEAD. */
-const DETACHED_HEAD_ACTIONS: ReadonlySet<string> = new Set(["remote.pull", "branch.delete"]);
+const DETACHED_HEAD_ACTIONS: ReadonlySet<string> = new Set([
+  "remote.pull",
+  "remote.push",
+  "remote.pushForceSafe",
+  "remote.pushForceOverwrite",
+  "remote.pushNoVerify",
+  "branch.delete",
+]);
 
 /** Actions that need at least one configured remote. */
 const NO_REMOTE_ACTIONS: ReadonlySet<string> = new Set([
@@ -124,11 +132,14 @@ const NO_REMOTE_ACTIONS: ReadonlySet<string> = new Set([
   "remote.pushNoVerify",
   "remote.fetch",
   "remote.fetchPrune",
-  "remote.more",
 ]);
 
 /** Actions that need a configured upstream. */
-const NO_UPSTREAM_ACTIONS: ReadonlySet<string> = new Set(["remote.pull"]);
+const NO_UPSTREAM_ACTIONS: ReadonlySet<string> = new Set([
+  "remote.pull",
+  "remote.pushForceSafe",
+  "remote.pushForceOverwrite",
+]);
 
 /** Actions whose scope is the upstream refs of local branches. */
 const LOCAL_UPSTREAM_SCOPE_ACTIONS: ReadonlySet<string> = new Set([
@@ -137,7 +148,11 @@ const LOCAL_UPSTREAM_SCOPE_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /** Actions blocked when the configured upstream is confirmed gone. */
-const UPSTREAM_GONE_ACTIONS: ReadonlySet<string> = new Set(["remote.pull"]);
+const UPSTREAM_GONE_ACTIONS: ReadonlySet<string> = new Set([
+  "remote.pull",
+  "remote.pushForceSafe",
+  "remote.pushForceOverwrite",
+]);
 
 /** Bulk index actions blocked while a merge, rebase, or cherry-pick is in progress. */
 const OPERATION_MARKER_ACTIONS: ReadonlySet<string> = new Set(["diff.stageAll", "diff.unstageAll"]);

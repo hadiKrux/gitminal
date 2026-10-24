@@ -9,6 +9,7 @@ import type {
   RepositoryStateDisplay,
   RepositoryStateSnapshot,
   RepositoryView,
+  SyncState,
   UpstreamDisplay,
   UpstreamStatus,
 } from "./repository.types";
@@ -80,6 +81,46 @@ export function selectAheadBehind(snapshot: RepositorySnapshot | null): {
   readonly behind: number;
 } {
   return { ahead: snapshot?.status?.ahead ?? 0, behind: snapshot?.status?.behind ?? 0 };
+}
+
+/**
+ * Reads the sync relationship between the current branch and its upstream.
+ *
+ * The upstream classification decides the missing cases first, then the ahead and behind counts
+ * read from the last fetched refs decide the rest. Refs are never recomputed here, so a network
+ * result can only arrive through a completed fetch or push that refreshed the snapshot.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @param upstreamStatus - Upstream classification read with the snapshot.
+ * @returns One of the six sync states.
+ */
+export function selectSyncState(
+  snapshot: RepositorySnapshot | null,
+  upstreamStatus: UpstreamStatus,
+): SyncState {
+  if (upstreamStatus === "none") {
+    return "no-upstream";
+  }
+
+  if (upstreamStatus !== "healthy") {
+    return "upstream-gone";
+  }
+
+  const { ahead, behind } = selectAheadBehind(snapshot);
+
+  if (ahead > 0 && behind > 0) {
+    return "diverged";
+  }
+
+  if (ahead > 0) {
+    return "ahead";
+  }
+
+  if (behind > 0) {
+    return "behind";
+  }
+
+  return "up-to-date";
 }
 
 /**
@@ -214,6 +255,7 @@ export function selectRepositoryView(
     upstream: selectUpstreamDisplay(snapshot, upstreamStatus),
     ahead: aheadBehind.ahead,
     behind: aheadBehind.behind,
+    sync: selectSyncState(snapshot, upstreamStatus),
     pending: selectPendingCounts(snapshot),
     state: selectStateDisplay(state),
   };

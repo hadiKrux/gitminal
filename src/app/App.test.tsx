@@ -3,6 +3,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useEffect } from "react";
 import { App } from "@/app/App";
 import { APP_VERSION } from "@/app/app.constants";
+import { resetCommandOrchestration } from "@/app/hooks/commandRunner.state";
 import { resetActionRegistry } from "@/app/hooks/useAction";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useRepository } from "@/app/hooks/useRepository";
@@ -121,6 +122,7 @@ beforeEach(() => {
   checkForUpdateMock.mockClear();
   resetActionRegistry();
   resetCommandRunner();
+  resetCommandOrchestration();
   latestConsole = undefined;
   latestStatus = undefined;
   latestRepository = undefined;
@@ -372,8 +374,7 @@ describe("App splash gate", () => {
     expect(frame).toContain("main");
     expect(frame).toContain("origin/main");
     expect(frame).toContain("ahead 2 behind 1");
-    expect(frame).toContain("1 staged 1 unstaged 1 untracked");
-    expect(frame).toContain("normal");
+    expect(frame).toContain("diverged");
 
     await act(async () => {
       await setup.dispose();

@@ -1,20 +1,20 @@
 import { createGitProgressParser } from "@/domain/git/git.progress";
-import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
-import { parseUpstreamRef } from "@/domain/repository/repository.upstream";
-import type { RemoteFetchGroup, RemoteFetchRun } from "./commands.fetch.types";
+import {
+  buildFetchTrackingRefArgs,
+  buildUpstreamGroupsArgs,
+  isTruncatedOutput,
+  readUpstreamGroups,
+} from "@/domain/git/git.remotes";
+import type { RemoteFetchGroup } from "@/domain/git/git.remotes.types";
+import type { GitInvocationResult } from "@/domain/git/git.types";
+import type { RemoteFetchRun } from "./commands.fetch.types";
+import { toCommandStep } from "./commands.steps";
 import type {
   CommandExecutionOutcome,
   CommandHandlerContext,
   CommandRemoteResult,
   CommandStepResult,
 } from "./commands.types";
-
-/** Arguments that list the configured upstream of every local branch. */
-const UPSTREAM_REFS_ARGS: readonly string[] = Object.freeze([
-  "for-each-ref",
-  "--format=%(refname:short) %(upstream:short)",
-  "refs/heads",
-]);
 
 /**
  * Executes the spec-conformant `remote.fetch` mutation.
@@ -35,17 +35,17 @@ export async function executeRemoteFetch(
   context: CommandHandlerContext,
 ): Promise<CommandExecutionOutcome> {
   const upstreams = await context.client.invoke({
-    args: UPSTREAM_REFS_ARGS,
+    args: buildUpstreamGroupsArgs(),
     cwd: context.cwd,
     signal: context.signal,
     operationClass: "read",
   });
 
-  if (!upstreams.ok) {
-    return { steps: [toStep(upstreams)] };
+  if (!upstreams.ok || isTruncatedOutput(upstreams)) {
+    return { steps: [toCommandStep(upstreams)], failed: true };
   }
 
-  const groups = readFetchGroups(upstreams.stdout);
+  const groups = readUpstreamGroups(upstreams.stdout);
 
   if (groups.length === 0) {
     return { steps: [], blockedReason: "no-local-upstreams" };
@@ -91,20 +91,23 @@ async function runFetchGroup(
   const warnings: string[] = [];
   let succeeded = true;
 
-  for (const ref of group.refs) {
-    const descriptor = parseUpstreamRef(ref);
+  for (const descriptor of group.refs) {
+    const args = buildFetchTrackingRefArgs(descriptor.remote, descriptor.branch);
 
-    if (descriptor === null) {
+    if (args === null) {
+      succeeded = false;
+      steps.push(createInvalidRefStep(descriptor.ref));
+
       continue;
     }
 
-    const result = await fetchRef(context.client, context, descriptor.remote, descriptor.branch);
+    const result = await fetchRef(context, args);
     const missingUpstream = isMissingRemoteRef(result);
 
-    steps.push(toStep(result, missingUpstream));
+    steps.push(toCommandStep(result, missingUpstream));
 
     if (missingUpstream) {
-      warnings.push(`upstream not found for ${descriptor.branch}`);
+      warnings.push(`upstream not found for ${descriptor.ref}`);
     } else if (!result.ok) {
       succeeded = false;
     }
@@ -157,21 +160,17 @@ function isMissingRemoteRef(result: GitInvocationResult): boolean {
  * force-pushed upstream is rejected as non-fast-forward and its tracking ref stays stale. A local
  * branch is never a destination.
  *
- * @param client - Git client bound to the configured executable.
  * @param context - Handler context carrying the root and signal.
- * @param remote - Remote name.
- * @param branch - Branch name inside that remote.
+ * @param args - Validated fetch argument array.
  * @returns The settled invocation.
  */
 async function fetchRef(
-  client: GitClient,
   context: CommandHandlerContext,
-  remote: string,
-  branch: string,
+  args: readonly string[],
 ): Promise<GitInvocationResult> {
   const parser = createGitProgressParser();
-  const result = await client.invoke({
-    args: ["fetch", "--progress", remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`],
+  const result = await context.client.invoke({
+    args,
     cwd: context.cwd,
     signal: context.signal,
     operationClass: "network",
@@ -190,61 +189,17 @@ async function fetchRef(
 }
 
 /**
- * Groups configured upstream refs by remote.
+ * Builds a failed step for a configured upstream that is unsafe as one argv value.
  *
- * @param stdout - Captured `for-each-ref` output.
- * @returns Remote groups in first-seen order with sorted distinct refs.
+ * @param ref - Rejected upstream ref.
+ * @returns A step with no argv and a naming error.
  */
-function readFetchGroups(stdout: string): readonly RemoteFetchGroup[] {
-  const grouped = new Map<string, Set<string>>();
-
-  for (const line of stdout.split("\n")) {
-    const trimmed = line.trim();
-
-    if (trimmed.length === 0) {
-      continue;
-    }
-
-    const separator = trimmed.indexOf(" ");
-
-    if (separator < 0) {
-      continue;
-    }
-
-    const upstream = trimmed.slice(separator + 1).trim();
-    const descriptor = parseUpstreamRef(upstream);
-
-    if (descriptor === null) {
-      continue;
-    }
-
-    const refs = grouped.get(descriptor.remote) ?? new Set<string>();
-    refs.add(upstream);
-    grouped.set(descriptor.remote, refs);
-  }
-
-  return [...grouped.entries()].map(([remote, refs]) => ({
-    remote,
-    refs: [...refs].sort(),
-  }));
-}
-
-/**
- * Converts one invocation result into a command step.
- *
- * @param result - Settled invocation.
- * @param nonFatal - True when a non-zero exit is the documented missing-upstream outcome.
- * @returns The command step.
- */
-function toStep(result: GitInvocationResult, nonFatal: boolean = false): CommandStepResult {
+function createInvalidRefStep(ref: string): CommandStepResult {
   return {
-    argv: result.argv,
-    exitCode: result.exitCode,
-    durationMs: result.durationMs,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    cancelled: result.cancelled || undefined,
-    timedOut: result.timedOut || undefined,
-    nonFatal: nonFatal || undefined,
+    argv: [],
+    exitCode: 1,
+    durationMs: 0,
+    stdout: "",
+    stderr: `fatal: invalid configured upstream "${ref}"`,
   };
 }

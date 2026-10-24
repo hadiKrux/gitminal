@@ -4,6 +4,7 @@ import { act, type ReactNode } from "react";
 import { useStatus } from "@/app/hooks/useStatus";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
+import { createGitProgressParser } from "@/domain/git/git.progress";
 
 /** Latest status context captured by the probe. */
 let latest: StatusContextValue | undefined;
@@ -71,6 +72,44 @@ describe("StatusProvider", () => {
     });
   });
 
+  it("keeps warning and error statuses until another status replaces them", async () => {
+    const setup = await renderStatus();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      latest?.setStatus({ kind: "warning", message: "partial success" }, 10);
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(latest?.status).toEqual({ kind: "warning", message: "partial success" });
+
+    await act(async () => {
+      latest?.setStatus({ kind: "error", message: "push failed" }, 10);
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(latest?.status).toEqual({ kind: "error", message: "push failed" });
+
+    await act(async () => {
+      latest?.setStatus({ kind: "info", message: "ready" }, 10);
+    });
+
+    expect(latest?.status).toEqual({ kind: "info", message: "ready" });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("clears a status manually and cancels its timer", async () => {
     const setup = await renderStatus();
 
@@ -126,6 +165,35 @@ describe("StatusProvider", () => {
     });
 
     expect(latest?.operation).toBeNull();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("clears the percentage when a new phase arrives without one", async () => {
+    const setup = await renderStatus();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      latest?.beginOperation("Fetch");
+    });
+
+    const parser = createGitProgressParser();
+
+    for (const event of parser.push(
+      "Counting objects: 100%\r\nEnumerating objects: 10, done.\r\n",
+    )) {
+      await act(async () => {
+        latest?.updateOperation(event);
+      });
+    }
+
+    expect(latest?.operation?.phase).toBe("Enumerating objects");
+    expect(latest?.operation?.percent).toBeNull();
 
     await act(async () => {
       await setup.dispose();

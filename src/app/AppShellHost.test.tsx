@@ -1,26 +1,31 @@
-import { beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import type { SelectRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { AppShellHost } from "@/app/AppShellHost";
+import { resetCommandOrchestration } from "@/app/hooks/commandRunner.state";
 import {
   getActionRegistryVersion,
   hasRegisteredAction,
   resetActionRegistry,
 } from "@/app/hooks/useAction";
+import type { ActionScope } from "@/app/hooks/useAction.types";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
+import { OverlayProvider } from "@/app/providers/OverlayProvider";
 import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
 import { resetCommandRunner } from "@/domain/commands/commands.runner";
-import type { GitClient, GitInvocationResult, GitWatcherFactory } from "@/domain/git/git.types";
+import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
 import type { FocusContextValue } from "@/features/shell/focus.types";
 import { FOCUS_ACTION_BY_REGION } from "@/features/shell/regions";
+import { MORE_MENU_SELECT_ID } from "@/features/top-bar/MoreMenu.constants";
 import { createFakeGitClient } from "@/test/git.fake";
 
 /** Inert git client so provider reads never spawn a process. */
@@ -49,34 +54,6 @@ let latestFocus: FocusContextValue | undefined;
 let latestStatus: StatusContextValue | undefined;
 
 /**
- * Creates a watcher factory for a healthy recursive git-dir watch.
- *
- * The default production configuration watches only the git directory, so this fake publishes a
- * status with no watcher limitation. The working-tree hint must still appear from the mode alone.
- *
- * @returns The watcher factory.
- */
-function createGitDirWatcher(): GitWatcherFactory {
-  return (options) => {
-    const status = {
-      watching: true,
-      mode: options.mode ?? "git-dir",
-      path: options.gitDir,
-      recursive: true,
-      limitation: null,
-    } as const;
-
-    return {
-      start(): void {
-        options.onStatus?.(status);
-      },
-      stop(): void {},
-      status,
-    };
-  };
-}
-
-/**
  * Captures the active region below the shell.
  *
  * @returns A status line.
@@ -99,27 +76,13 @@ function StatusProbe(): ReactNode {
 }
 
 /**
- * Optional provider seams for one host render.
- *
- * `worktreeWatch` is omitted by default so the default production mode (git-dir only) is what the
- * tests exercise unless they opt in.
- */
-interface RenderHostOptions {
-  readonly worktreeWatch?: boolean;
-  readonly enableWatcher?: boolean;
-  readonly createWatcher?: GitWatcherFactory;
-}
-
-/**
  * Renders the composition root with the required providers.
  *
  * @param client - Git client used by the repository provider.
- * @param options - Watch mode, watcher enablement, and watcher factory seams.
  * @returns The renderer setup.
  */
 async function renderHost(
   client: GitClient = INERT_CLIENT,
-  options: RenderHostOptions = {},
 ): Promise<Awaited<ReturnType<typeof testRender>>> {
   latestFocus = undefined;
   latestStatus = undefined;
@@ -128,24 +91,19 @@ async function renderHost(
     <ConfigProvider>
       <ThemeProvider>
         <KeymapProvider platform="linux">
-          <RepositoryProvider
-            cwd="/repo"
-            gitClient={client}
-            createWatcher={options.createWatcher}
-            enableWatcher={options.enableWatcher ?? false}
-            worktreeWatch={options.worktreeWatch}
-            now={() => 0}
-          >
+          <RepositoryProvider cwd="/repo" gitClient={client} enableWatcher={false} now={() => 0}>
             <FocusProvider>
-              <StatusProvider>
-                <ConsoleProvider>
-                  <box flexDirection="column" flexGrow={1} width={120} height={40}>
-                    <AppShellHost />
-                    <FocusProbe />
-                    <StatusProbe />
-                  </box>
-                </ConsoleProvider>
-              </StatusProvider>
+              <OverlayProvider>
+                <StatusProvider>
+                  <ConsoleProvider>
+                    <box flexDirection="column" flexGrow={1} width={120} height={40}>
+                      <AppShellHost />
+                      <FocusProbe />
+                      <StatusProbe />
+                    </box>
+                  </ConsoleProvider>
+                </StatusProvider>
+              </OverlayProvider>
             </FocusProvider>
           </RepositoryProvider>
         </KeymapProvider>
@@ -155,9 +113,46 @@ async function renderHost(
   );
 }
 
+/**
+ * Renders only the composition root so the footer occupies the true bottom row.
+ *
+ * @param client - Git client used by the repository provider.
+ * @returns The renderer setup.
+ */
+async function renderBareHost(client: GitClient): Promise<Awaited<ReturnType<typeof testRender>>> {
+  return testRender(
+    <ConfigProvider>
+      <ThemeProvider>
+        <KeymapProvider platform="linux">
+          <RepositoryProvider cwd="/repo" gitClient={client} enableWatcher={false} now={() => 0}>
+            <FocusProvider>
+              <OverlayProvider>
+                <StatusProvider>
+                  <ConsoleProvider>
+                    <box flexDirection="column" flexGrow={1} width={120} height={30}>
+                      <AppShellHost />
+                    </box>
+                  </ConsoleProvider>
+                </StatusProvider>
+              </OverlayProvider>
+            </FocusProvider>
+          </RepositoryProvider>
+        </KeymapProvider>
+      </ThemeProvider>
+    </ConfigProvider>,
+    { width: 120, height: 30, exitOnCtrlC: false, kittyKeyboard: true },
+  );
+}
+
 beforeEach(() => {
   resetActionRegistry();
   resetCommandRunner();
+  resetCommandOrchestration();
+});
+
+afterEach(() => {
+  resetCommandRunner();
+  resetCommandOrchestration();
 });
 
 describe("AppShellHost", () => {
@@ -181,18 +176,28 @@ describe("AppShellHost", () => {
     });
   });
 
-  it("registers every global action exactly once", async () => {
+  it("registers every global and top-bar action exactly once", async () => {
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
     const versionBefore = getActionRegistryVersion();
-    const expected = [
-      ...Object.values(FOCUS_ACTION_BY_REGION),
-      "focus.next",
-      "focus.previous",
-      "app.quit",
-      "overlay.close",
-      "app.console",
-      "app.refresh",
-      "remote.fetch",
+    const expected: readonly (readonly [string, ActionScope])[] = [
+      ...Object.values(FOCUS_ACTION_BY_REGION).map((actionId) => [actionId, "global"] as const),
+      ["focus.next", "global"],
+      ["focus.previous", "global"],
+      ["app.quit", "global"],
+      ["overlay.close", "global"],
+      ["app.console", "global"],
+      ["app.refresh", "global"],
+      ["remote.pull", "global"],
+      ["remote.push", "global"],
+      ["remote.fetch", "global"],
+      ["remote.fetchPrune", "global"],
+      ["remote.pushForceSafe", "global"],
+      ["remote.pushForceOverwrite", "global"],
+      ["remote.pushNoVerify", "global"],
+      ["remote.more", "global"],
+      ["nav.left", "top-bar"],
+      ["nav.right", "top-bar"],
+      ["nav.activate", "top-bar"],
     ];
     const setup = await renderHost();
 
@@ -200,14 +205,117 @@ describe("AppShellHost", () => {
       await setup.renderOnce();
     });
 
-    for (const actionId of expected) {
-      expect(hasRegisteredAction(actionId, "global")).toBe(true);
+    for (const [actionId, scope] of expected) {
+      expect(hasRegisteredAction(actionId, scope), `${actionId} in ${scope}`).toBe(true);
     }
 
+    expect(hasRegisteredAction("remote.fetch", "global")).toBe(true);
     expect(getActionRegistryVersion() - versionBefore).toBe(expected.length);
     expect(consoleError).not.toHaveBeenCalled();
 
     consoleError.mockRestore();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("opens the More menu with the more action and closes it with Esc", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "origin/main");
+
+    await act(async () => {
+      setup.mockInput.pressKey(".");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).toContain("More remote actions");
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("more-menu-select");
+
+    await act(async () => {
+      setup.mockInput.pressEscape();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).not.toContain("More remote actions");
+    expect(latestFocus?.state.activeRegion).toBe("top-bar");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("opens a force confirmation from the More menu, runs nothing, and restores focus on cancel", async () => {
+    const fake = createFakeGitClient();
+    const setup = await renderHost(fake.client);
+
+    await waitForFrame(setup, "origin/main");
+
+    await act(async () => {
+      setup.mockInput.pressKey(".");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const select = setup.renderer.root.findDescendantById(MORE_MENU_SELECT_ID) as
+      | SelectRenderable
+      | undefined;
+
+    await act(async () => {
+      select?.setSelectedIndex(3);
+      select?.selectCurrent();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Overwrite remote");
+    expect(frame).toContain("main -> origin/main");
+    expect([...fake.counts.keys()].some((key) => key.startsWith("push "))).toBeFalse();
+
+    await act(async () => {
+      setup.mockInput.pressEscape();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).not.toContain("main -> origin/main");
+    expect(latestFocus?.state.activeRegion).toBe("top-bar");
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-top-bar");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("advertises Enter and Up/Down for the open More menu", async () => {
+    const setup = await renderBareHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "origin/main");
+
+    await act(async () => {
+      setup.mockInput.pressKey(".");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("More remote actions");
+    expect(frame).toContain("Enter Activate");
+    expect(frame).toContain("Up Move up");
+    expect(frame).toContain("Down Move down");
+    expect(frame).toContain("Esc Close or cancel");
+
     await act(async () => {
       await setup.dispose();
     });
@@ -314,26 +422,25 @@ describe("AppShellHost", () => {
     });
   });
 
-  it("renders branch, upstream, ahead and behind, pending counts, and state", async () => {
+  it("renders branch, upstream, ahead and behind, and the sync badge", async () => {
     const fake = createFakeGitClient();
     const setup = await renderHost(fake.client);
 
-    await waitForFrame(setup, "normal");
+    await waitForFrame(setup, "diverged");
 
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("main");
     expect(frame).toContain("origin/main");
     expect(frame).toContain("ahead 2 behind 1");
-    expect(frame).toContain("1 staged 1 unstaged 1 untracked");
-    expect(frame).toContain("normal");
+    expect(frame).toContain("! diverged");
 
     await act(async () => {
       await setup.dispose();
     });
   });
 
-  it("omits counts and the watch hint when there is no readable work tree", async () => {
+  it("omits counts when there is no readable work tree", async () => {
     const setup = await renderHost();
 
     await waitForFrame(setup, "not a git repository");
@@ -342,37 +449,6 @@ describe("AppShellHost", () => {
 
     expect(frame).not.toContain("ahead 0 behind 0");
     expect(frame).not.toContain("0 staged 0 unstaged 0 untracked");
-    expect(frame).not.toContain("unwatched tree");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("renders a text hint when the opt-in worktree watch is off", async () => {
-    const setup = await renderHost(createFakeGitClient().client, {
-      worktreeWatch: true,
-      enableWatcher: false,
-    });
-
-    await waitForFrame(setup, "worktree watch off");
-
-    expect(setup.captureCharFrame()).toContain("worktree watch off");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("renders the working-tree hint for the default git-dir watch", async () => {
-    const setup = await renderHost(createFakeGitClient().client, {
-      enableWatcher: true,
-      createWatcher: createGitDirWatcher(),
-    });
-
-    await waitForFrame(setup, "unwatched tree");
-
-    expect(setup.captureCharFrame()).toContain("unwatched tree; press r");
 
     await act(async () => {
       await setup.dispose();
