@@ -26,6 +26,10 @@ import { ModalFrame } from "@/ui/ModalFrame";
  * keys the menu advertises, and they keep the menu inert rather than falling through if focus lands
  * outside the select.
  *
+ * Every color the native select draws comes from the theme tokens, because its OpenTUI defaults
+ * (a near-black focused background, a blue-gray selected row, and yellow selected text) clash with
+ * the surrounding `ModalFrame`.
+ *
  * @param props - Options with availability and the explicit-command handler.
  * @returns The More menu modal.
  */
@@ -88,6 +92,14 @@ export function MoreMenu(props: {
           description: option.description,
           value: option.commandId,
         }))}
+        backgroundColor={tokens.surface}
+        focusedBackgroundColor={tokens.surface}
+        textColor={tokens.text}
+        focusedTextColor={tokens.text}
+        selectedBackgroundColor={tokens.selection}
+        selectedTextColor={tokens.text}
+        descriptionColor={tokens.dim}
+        selectedDescriptionColor={tokens.muted}
         showDescription
         wrapSelection={false}
         selectedIndex={0}

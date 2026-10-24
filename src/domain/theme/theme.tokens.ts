@@ -58,9 +58,9 @@ export const THEME_TOKEN_TARGETS: readonly ThemeTokenTarget[] = [
   },
   {
     token: "surface",
-    target: "raised rows, modals, inputs, ProgressBar track",
+    target: "raised rows, modals, inputs, native modal selects, ProgressBar track",
     prop: "backgroundColor",
-    purpose: "Raised rows, modals, and inputs",
+    purpose: "Raised rows, modals, inputs, and native select backgrounds",
   },
   {
     token: "border",
@@ -76,27 +76,27 @@ export const THEME_TOKEN_TARGETS: readonly ThemeTokenTarget[] = [
   },
   {
     token: "text",
-    target: "text",
+    target: "text and native select option text",
     prop: "fg",
-    purpose: "Primary text",
+    purpose: "Primary text and select option labels",
   },
   {
     token: "muted",
-    target: "secondary text",
+    target: "secondary text and the selected native select option description",
     prop: "fg",
-    purpose: "Secondary text and author names",
+    purpose: "Secondary text, author names, and selected option descriptions",
   },
   {
     token: "dim",
-    target: "hints and disabled text",
+    target: "hints, disabled text, and native select option descriptions",
     prop: "fg",
-    purpose: "Hints, context lines, and disabled text",
+    purpose: "Hints, context lines, disabled text, and option descriptions",
   },
   {
     token: "selection",
-    target: "selected box row",
+    target: "selected box row and selected native select option",
     prop: "backgroundColor",
-    purpose: "Selected row background",
+    purpose: "Selected row and selected option background",
   },
   {
     token: "accent",

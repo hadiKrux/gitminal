@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { SelectRenderable } from "@opentui/core";
+import { type CapturedFrame, type CapturedSpan, RGBA, type SelectRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { resetActionRegistry } from "@/app/hooks/useAction";
 import type { GitClient } from "@/domain/git/git.types";
+import { DEFAULT_THEME_NAME, THEME_FLAVORS } from "@/domain/theme/theme.catppuccin";
 import { MoreMenu } from "@/features/top-bar/MoreMenu";
 import { MORE_MENU_SELECT_ID } from "@/features/top-bar/MoreMenu.constants";
 import { MoreMenuLive } from "@/features/top-bar/MoreMenuLive";
@@ -63,9 +64,65 @@ async function renderMenu(
   );
 }
 
+/**
+ * Finds the first captured span whose text contains the given text.
+ *
+ * @param frame - Captured frame with colored spans.
+ * @param text - Text the span must contain.
+ * @returns The matching span.
+ * @throws When no span matches.
+ */
+function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
+  for (const line of frame.lines) {
+    for (const span of line.spans) {
+      if (span.text.includes(text)) {
+        return span;
+      }
+    }
+  }
+
+  throw new Error(`No captured span contains ${text}`);
+}
+
 describe("MoreMenu", () => {
   beforeEach(() => {
     resetActionRegistry();
+  });
+
+  it("draws every row from theme tokens instead of the OpenTUI select defaults", async () => {
+    const setup = await renderMenu(buildOptions(["remote.fetch", "remote.fetchPrune"]), () => {});
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const tokens = THEME_FLAVORS[DEFAULT_THEME_NAME].tokens;
+    const spans = setup.captureSpans();
+    // The selected option's row is drawn above its description, so the first span containing
+    // "Fetch" is the selected label and not the description below it.
+    const selectedName = findSpanContaining(spans, "Fetch");
+    const selectedDescription = findSpanContaining(
+      spans,
+      "Fetch the upstream refs of local branches",
+    );
+    const plainName = findSpanContaining(spans, "Fetch --prune");
+    const plainDescription = findSpanContaining(
+      spans,
+      "Fetch and delete remote tracking refs confirmed gone",
+    );
+
+    expect(selectedName.fg.equals(RGBA.fromHex(tokens.text))).toBe(true);
+    expect(selectedName.bg.equals(RGBA.fromHex(tokens.selection))).toBe(true);
+    expect(selectedDescription.fg.equals(RGBA.fromHex(tokens.muted))).toBe(true);
+    expect(selectedDescription.bg.equals(RGBA.fromHex(tokens.selection))).toBe(true);
+    expect(plainName.fg.equals(RGBA.fromHex(tokens.text))).toBe(true);
+    expect(plainName.bg.equals(RGBA.fromHex(tokens.surface))).toBe(true);
+    expect(plainDescription.fg.equals(RGBA.fromHex(tokens.dim))).toBe(true);
+    expect(plainDescription.bg.equals(RGBA.fromHex(tokens.surface))).toBe(true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
   });
 
   it("renders the five options with their descriptions", async () => {

@@ -135,13 +135,13 @@ Token-to-OpenTUI-prop mapping (the resolver supplies a final color per prop):
 | --- | --- | --- |
 | `background` | root `<box>` and `<text>` base | `backgroundColor` |
 | `panel` | `Panel`, `PanelHeader`, sidebar `<box>` | `backgroundColor` |
-| `surface` | raised rows, modals, inputs, `ProgressBar` track cells | `backgroundColor`; FrameBuffer fill color for the progress track |
+| `surface` | raised rows, modals, inputs, native `<select>` backgrounds, `ProgressBar` track cells | `backgroundColor`; FrameBuffer fill color for the progress track |
 | `border` | inactive `<box>` borders and separators | `borderColor` |
 | `focus` | focused `<box>` border | `focusedBorderColor` |
-| `text` | `<text>` | `fg` |
-| `muted` | secondary `<text>` | `fg` |
-| `dim` | hints and disabled text | `fg` (with the dim attribute) |
-| `selection` | selected `<box>` row | `backgroundColor` |
+| `text` | `<text>` and `<select>` option names | `fg` |
+| `muted` | secondary `<text>` and the selected `<select>` option description | `fg` |
+| `dim` | hints, disabled text, and `<select>` option descriptions | `fg` (with the dim attribute) |
+| `selection` | selected `<box>` row and selected `<select>` option | `backgroundColor` |
 | `accent` | `Button`, ref badges, and `ProgressBar` filled cells | `backgroundColor` on `Button`, `fg` on `Badge`, FrameBuffer fill color for the progress fill |
 | `success` | `StatusBadge`, add counts | `fg` |
 | `warning` | `StatusBadge`, pending state | `fg` |
