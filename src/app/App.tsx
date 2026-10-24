@@ -2,11 +2,14 @@ import { useRenderer } from "@opentui/react";
 import { type ReactNode, useCallback, useState } from "react";
 import { AppShellHost } from "@/app/AppShellHost";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
+import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
+import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
 import { SplashGate } from "@/app/SplashGate";
+import type { GitClient } from "@/domain/git/git.types";
 import type { CheckForUpdate } from "@/domain/update/update.types";
 
 /**
@@ -14,15 +17,23 @@ import type { CheckForUpdate } from "@/domain/update/update.types";
  *
  * Owns the one-way `splashDismissed` state and the splash-only quit callback that destroys the
  * renderer. The splash runs before any provider mounts; after dismissal the configuration, theme,
- * keymap, focus, and status providers wrap the shell, which owns `app.quit` and the centralized
- * keyboard dispatcher from then on. `App` does not subscribe to keys itself: `SplashGate` owns the
- * splash subscription and `useHotkeys` owns every key after the shell mounts, so exactly one
- * keyboard handler is mounted at a time.
+ * keymap, repository, focus, status, and console providers wrap the shell, which owns `app.quit` and
+ * the centralized keyboard dispatcher from then on. `App` does not subscribe to keys itself:
+ * `SplashGate` owns the splash subscription and `useHotkeys` owns every key after the shell mounts,
+ * so exactly one keyboard handler is mounted at a time.
  *
- * @param props - Optional update check override for embedding and tests.
+ * @param props - Git client, cwd, watcher, update check, and an optional test probe.
  * @returns The splash gate or the provider-backed shell.
  */
-export function App(props: { checkForUpdate?: CheckForUpdate } = {}): ReactNode {
+export function App(
+  props: {
+    checkForUpdate?: CheckForUpdate;
+    gitClient?: GitClient;
+    repositoryCwd?: string;
+    enableWatcher?: boolean;
+    probe?: ReactNode;
+  } = {},
+): ReactNode {
   const [splashDismissed, setSplashDismissed] = useState(false);
   const renderer = useRenderer();
 
@@ -39,11 +50,20 @@ export function App(props: { checkForUpdate?: CheckForUpdate } = {}): ReactNode 
       <ConfigProvider>
         <ThemeProvider>
           <KeymapProvider>
-            <FocusProvider>
-              <StatusProvider>
-                <AppShellHost />
-              </StatusProvider>
-            </FocusProvider>
+            <RepositoryProvider
+              cwd={props.repositoryCwd}
+              gitClient={props.gitClient}
+              enableWatcher={props.enableWatcher}
+            >
+              <FocusProvider>
+                <StatusProvider>
+                  <ConsoleProvider>
+                    <AppShellHost />
+                    {props.probe}
+                  </ConsoleProvider>
+                </StatusProvider>
+              </FocusProvider>
+            </RepositoryProvider>
           </KeymapProvider>
         </ThemeProvider>
       </ConfigProvider>

@@ -82,7 +82,7 @@ Why now: every later feature plugs into this frame. Building it against placehol
 
 ## M4 - Repository and git foundation
 
-Status: Ready for dev
+Status: Done (phase 1 execution contract and phase 2 freshness layer; `remote.fetch` is the one wired mutation command, and the full command registry, progress rendering, and the real top-bar and console surfaces stay deferred)
 
 Tickets: [`18-safety-and-platform-behavior.md`](18-safety-and-platform-behavior.md), [`16-repository-states.md`](16-repository-states.md), [`17-freshness-and-performance.md`](17-freshness-and-performance.md)
 
@@ -92,9 +92,15 @@ Build in this order because they share files:
 2. 16: `repository.states.ts`, state detection, and gating.
 3. 17: `RepositoryProvider`, the first repository read, refresh, serialization, watcher opt-in, pagination and diff limits, and `useCommandRunner`.
 
-Observable outcome: the app reads the current repository on launch, shows branch, upstream, ahead and behind, and repository state, and a read-only command runs through the orchestrator with a console entry and status.
+Done in phase 1: the git client execution contract, prompt/editor/pager environment, timeouts and cancellation, error classification, redaction, the canonical status read, repository probes, remotes and identity reads, the command runner with its write latch, repository state detection and gating, and command availability.
 
-Deferred: the full command registry and availability rules for every feature, progress rendering, and the performance edge cases that need real data.
+Done in phase 2: incremental `--progress` parsing, the debounced git-directory watcher with opt-in worktree mode, upstream classification and per-remote fetch evidence recording, repository selectors, the graph paging and search engines, diff caps, the bounded console buffer and formatter, `RepositoryProvider` with coalesced refresh and watcher and terminal-focus refresh, `useRepository` with the single global `app.refresh` handler, `ConsoleProvider` and `useConsoleLog`, and `useCommandRunner` with the exact eight-step effect order.
+
+The one mutation command reachable end to end is `remote.fetch`: `AppShellHost` registers the real upstream-scoped fetch handler and dispatches it through `useCommandRunner` from the temporary global `remote.fetch` action bound to `f`. The M5 top bar replaces that trigger and keeps the same orchestrator path.
+
+Observable outcome: the app reads the current repository on launch, shows branch, upstream, ahead and behind, staged, unstaged and untracked counts, and repository state in the temporary top-bar placeholder, and pressing `f` runs a real fetch through `useCommandRunner` that produces exactly one console entry, one status, and one refresh. A fetch that reaches a remote also advances that remote's last successful fetch timestamp; a failed remote leaves it untouched. The real top bar is M5 and the console drawer is M6.
+
+Deferred: the full command registry and availability rules for every feature, progress rendering in the top bar, the graph and diff surfaces that consume the paging engines, the overlay-based error surface (`useCommandRunner` routes failures through an injectable sink that sets an error status until M6), draft-based quit confirmation (quit aborts the child and waits for it to settle, but does not yet ask about an unsaved draft), and the performance edge cases that need real data.
 
 Why now: the top bar and every panel read the repository snapshot. The git client and command runner are the shared contract that all mutations use, so they belong before the first actionable feature.
 

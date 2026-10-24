@@ -1,0 +1,421 @@
+import type {
+  GitFailureKind,
+  GitIdentity,
+  RemoteInfo,
+  StatusSnapshot,
+} from "@/domain/git/git.types";
+
+/** Upstream classification after a local or remote check. */
+export type UpstreamCheck = "none" | "checked" | "unknown";
+
+/**
+ * Every F-16 repository state member.
+ *
+ * The union is split into exclusive primary states and orthogonal flags. A primary state describes
+ * what the whole shell can show; flags describe conditions layered on an otherwise usable
+ * repository, so a repository can be `normal` plus `detached` plus `conflicted`.
+ */
+export type RepositoryState =
+  | "loading"
+  | "normal"
+  | "subdirectory"
+  | "not-a-repository"
+  | "bare"
+  | "empty"
+  | "missing-git"
+  | "permission-error"
+  | "detached"
+  | "no-upstream"
+  | "upstream-gone"
+  | "no-remote"
+  | "no-origin"
+  | "merge-in-progress"
+  | "rebase-in-progress"
+  | "cherry-pick-in-progress"
+  | "conflicted"
+  | "checkout-dirty"
+  | "operation-in-progress"
+  | "external-changes"
+  | "huge-repository"
+  | "binary-or-oversized"
+  | "missing-identity"
+  | "hook-failure"
+  | "auth-network-failure"
+  | "invalid-config"
+  | "invalid-theme";
+
+/** States that describe the whole repository and exclude every other primary state. */
+export type RepositoryPrimaryState = Extract<
+  RepositoryState,
+  | "loading"
+  | "normal"
+  | "subdirectory"
+  | "not-a-repository"
+  | "bare"
+  | "empty"
+  | "missing-git"
+  | "permission-error"
+>;
+
+/** States layered on top of a usable repository, reported in a stable order. */
+export type RepositoryFlag = Exclude<RepositoryState, RepositoryPrimaryState>;
+
+/** Result of state detection: one exclusive primary state plus ordered active flags. */
+export interface RepositoryStateSnapshot {
+  /** The exclusive state that decides which shell surface renders. */
+  readonly primary: RepositoryPrimaryState;
+  /** Active orthogonal flags, ordered as documented in ticket 16. */
+  readonly flags: readonly RepositoryFlag[];
+}
+
+/**
+ * Raw inputs to state detection.
+ *
+ * The provider fills this from the git read modules and from its own refresh state. Detection and
+ * gating are pure functions of these values, so repository state is never inferred inside UI code.
+ */
+export interface RepositorySignals {
+  /** Directory the app was launched from. */
+  readonly cwd: string;
+  /** True while the first signal set has not arrived yet. */
+  readonly loaded: boolean;
+  /** True when the configured git executable could be started. */
+  readonly gitAvailable: boolean;
+  /** True when the working directory is inside a work tree. */
+  readonly insideWorkTree: boolean;
+  /** True when the repository is bare. */
+  readonly bare: boolean;
+  /** Absolute work-tree root, or null when unavailable. */
+  readonly repositoryRoot: string | null;
+  /** Absolute git directory, or null when unavailable. */
+  readonly gitDir: string | null;
+  /** True when HEAD resolves to a commit. */
+  readonly headExists: boolean;
+  /** Short branch name, or null when detached or unavailable. */
+  readonly branch: string | null;
+  /** True when HEAD is detached. */
+  readonly detached: boolean;
+  /** Abbreviated HEAD commit id shown for a detached HEAD. */
+  readonly shortHash: string | null;
+  /** Configured remote names. */
+  readonly remotes: readonly string[];
+  /** Configured upstream ref, or null when the branch has none. */
+  readonly upstream: string | null;
+  /** True when the configured upstream ref exists locally. */
+  readonly upstreamExists: boolean;
+  /** Whether the upstream was actually checked. */
+  readonly upstreamCheck: UpstreamCheck;
+  /**
+   * True when at least one local branch has a configured upstream.
+   *
+   * Resolved during the repository read from `for-each-ref refs/heads`. It gates the scoped Fetch
+   * command, whose scope is exactly the upstream refs of local branches. A failed read leaves it
+   * true so an incomplete read never disables Fetch; the executor still refuses an empty scope.
+   */
+  readonly hasUpstreamBranches: boolean;
+  /** True while a merge is in progress. */
+  readonly mergeInProgress: boolean;
+  /** True while a rebase is in progress. */
+  readonly rebaseInProgress: boolean;
+  /** True while a cherry-pick is in progress. */
+  readonly cherryPickInProgress: boolean;
+  /** Paths with unmerged entries. */
+  readonly conflictedPaths: readonly string[];
+  /** Number of index-side changes. */
+  readonly stagedCount: number;
+  /** Number of tracked working-tree changes. */
+  readonly unstagedCount: number;
+  /** Number of untracked entries. */
+  readonly untrackedCount: number;
+  /** Configured commit identity. */
+  readonly identity: GitIdentity;
+  /** True when a permission or filesystem error is the dominant failure. */
+  readonly permissionError: boolean;
+  /** True when git reported that the directory is not a repository. */
+  readonly notARepository: boolean;
+  /** True while a mutation is running. */
+  readonly operationRunning: boolean;
+  /** True when the working tree changed outside the app and is not being watched. */
+  readonly externalChanges: boolean;
+  /** True when the repository exceeds the configured size thresholds. */
+  readonly hugeRepository: boolean;
+  /** True when the selected diff is binary or over the size limit. */
+  readonly binaryOrOversized: boolean;
+  /** True when a checkout was rejected because the working tree is dirty. */
+  readonly checkoutDirty: boolean;
+  /** True when the last commit or push failed in a hook. */
+  readonly hookFailure: boolean;
+  /** True when the last remote operation failed authentication or networking. */
+  readonly authNetworkFailure: boolean;
+  /** True when the configuration could not be read or was partially invalid. */
+  readonly invalidConfig: boolean;
+  /** True when the theme file could not be read or was partially invalid. */
+  readonly invalidTheme: boolean;
+}
+
+/**
+ * A normal snapshot of everything the shell reads from the repository.
+ *
+ * The snapshot is data only. State detection and gating consume `RepositorySignals`, and the
+ * provider owns both values, so a feature never derives repository state itself.
+ */
+export interface RepositorySnapshot {
+  /** Directory the app was launched from. */
+  readonly cwd: string;
+  /** Absolute work-tree root, or null when unavailable. */
+  readonly root: string | null;
+  /** Absolute git directory, or null when unavailable. */
+  readonly gitDir: string | null;
+  /** Short branch name, or null when detached. */
+  readonly branch: string | null;
+  /** HEAD commit id, or null in an unborn branch. */
+  readonly headOid: string | null;
+  /** Abbreviated HEAD commit id for a detached HEAD. */
+  readonly shortHash: string | null;
+  /** True when HEAD is detached. */
+  readonly detached: boolean;
+  /** True when the repository is bare. */
+  readonly bare: boolean;
+  /** Configured remotes. */
+  readonly remotes: readonly RemoteInfo[];
+  /** Configured upstream ref, or null when the branch has none. */
+  readonly upstream: string | null;
+  /** Commits ahead of the upstream. */
+  readonly ahead: number;
+  /** Commits behind the upstream. */
+  readonly behind: number;
+  /** Canonical status snapshot, or null before the first read. */
+  readonly status: StatusSnapshot | null;
+  /** Configured commit identity. */
+  readonly identity: GitIdentity;
+  /** Clock value of the successful read, in milliseconds. */
+  readonly readAt: number;
+}
+
+/**
+ * Machine-readable reason a repository-wide gate blocks an action.
+ *
+ * These codes are stable and shared by the footer, palette, help, buttons, and confirmations. The
+ * UI maps each code to its display text in one place.
+ */
+export type RepositoryGateReason =
+  | "loading"
+  | "not-a-repository"
+  | "bare-repository"
+  | "git-missing"
+  | "permission-error"
+  | "no-commits-yet"
+  | "detached-head"
+  | "no-remote"
+  | "no-upstream"
+  | "no-local-upstreams"
+  | "upstream-gone"
+  | "operation-in-progress"
+  | "merge-in-progress"
+  | "rebase-in-progress"
+  | "cherry-pick-in-progress"
+  | "missing-git-identity";
+
+/** Result of a repository-wide availability gate. */
+export interface RepositoryGateResult {
+  /** True when the action may run. */
+  readonly available: boolean;
+  /** Stable blocked reason, present only when `available` is false. */
+  readonly reason?: RepositoryGateReason;
+}
+
+/**
+ * One repository-wide gate rule.
+ *
+ * A rule names the actions it applies to and the state condition that activates it. The rule table
+ * is evaluated in order, so the first matching reason explains the block.
+ */
+export interface RepositoryGateRule {
+  /** Machine-readable reason returned when the rule matches. */
+  readonly reason: RepositoryGateReason;
+  /** Actions the rule applies to. */
+  readonly actions: ReadonlySet<string>;
+  /** Reports whether the state activates the rule. */
+  readonly applies: (state: RepositoryStateSnapshot, signals: RepositorySignals) => boolean;
+}
+
+/** Result of confirming a remote branch with `git ls-remote`. */
+export type RemoteBranchCheck = "present" | "absent" | "unknown";
+
+/**
+ * Classification of the configured upstream branch.
+ *
+ * `gone` means the upstream ref is configured but absent locally, which is enough to gate `pull`
+ * but not enough to claim the remote branch was deleted. Only `deleted-after-prune` and
+ * `deleted-after-app-deletion` carry that claim, and `unknown` covers a failed or timed-out remote
+ * check.
+ */
+export type UpstreamStatus =
+  | "none"
+  | "healthy"
+  | "gone"
+  | "deleted-after-prune"
+  | "deleted-after-app-deletion"
+  | "unknown";
+
+/** Parsed upstream ref, split into the remote and branch it tracks. */
+export interface UpstreamDescriptor {
+  /** Full upstream ref such as `origin/main`. */
+  readonly ref: string;
+  /** Remote half of the ref. */
+  readonly remote: string;
+  /** Branch half of the ref. */
+  readonly branch: string;
+}
+
+/** Evidence that decides how an absent upstream is classified. */
+export interface UpstreamEvidence {
+  /** Upstream refs a successful Fetch --prune confirmed absent. */
+  readonly prunedRefs: readonly string[];
+  /** Upstream refs a successful app-initiated remote branch deletion removed. */
+  readonly appDeletedRefs: readonly string[];
+  /** Upstream refs whose most recent remote check failed or timed out. */
+  readonly unknownRefs: readonly string[];
+}
+
+/** Inputs to the pure upstream classification. */
+export interface UpstreamClassificationInput {
+  /** Configured upstream ref, or null when the branch has none. */
+  readonly configuredRef: string | null;
+  /** True when the configured ref exists as a local remote-tracking ref. */
+  readonly refExists: boolean;
+  /** Deletion and failure evidence from the current session. */
+  readonly evidence: UpstreamEvidence;
+}
+
+/** Result of reading and classifying the upstream. */
+export interface UpstreamReadResult {
+  /** Classification used by the state machine, selectors, and gates. */
+  readonly status: UpstreamStatus;
+  /** Configured upstream ref, or null when none is configured. */
+  readonly upstream: string | null;
+  /** Parsed ref, or null when none is configured or it cannot be parsed. */
+  readonly descriptor: UpstreamDescriptor | null;
+}
+
+/** Kind of remote interaction that proves a remote was reachable. */
+export type RemoteCheckKind = "check" | "fetch";
+
+/** Last successful remote interaction, per remote. */
+export interface RemoteCheckRecord {
+  /** Clock value of the last successful check, or null when never checked. */
+  readonly lastSuccessfulCheckAt: number | null;
+  /** Clock value of the last successful fetch, or null when never fetched. */
+  readonly lastSuccessfulFetchAt: number | null;
+}
+
+/** Freshness of a remote derived from its last successful check or fetch. */
+export type RemoteFreshness = "fresh" | "stale" | "unknown";
+
+/**
+ * Right-pane selection union.
+ *
+ * Selection is provider state keyed by stable identity, never by row index, so a refresh can keep
+ * it. A diff-file selection is a highlight only and does not change the right-pane mode.
+ */
+export type RepositorySelection =
+  | { readonly kind: "pending" }
+  | { readonly kind: "commit"; readonly oid: string }
+  | { readonly kind: "stash"; readonly objectName: string }
+  | { readonly kind: "worktree"; readonly path: string }
+  | {
+      readonly kind: "diffFile";
+      readonly section: string;
+      readonly path: string;
+      readonly oldPath?: string;
+    };
+
+/** Pending change counts derived from the canonical status snapshot. */
+export interface PendingCounts {
+  /** Entries with an index-side change. */
+  readonly staged: number;
+  /** Tracked entries with a working-tree change. */
+  readonly unstaged: number;
+  /** Untracked entries. */
+  readonly untracked: number;
+  /** Staged plus unstaged, the count shown on the Pending Changes row. */
+  readonly total: number;
+}
+
+/** Branch label shown in the top bar and branch rows. */
+export interface BranchDisplay {
+  /** Branch name, or the abbreviated hash for a detached HEAD, or a loading placeholder. */
+  readonly label: string;
+  /** True when HEAD is detached. */
+  readonly detached: boolean;
+  /** Abbreviated hash shown for a detached HEAD. */
+  readonly shortHash: string | null;
+}
+
+/** Upstream label and status shown next to the branch. */
+export interface UpstreamDisplay {
+  /** Upstream classification. */
+  readonly status: UpstreamStatus;
+  /** Text shown next to the branch; never only a marker. */
+  readonly label: string;
+  /** True when the label describes a missing or unconfirmed upstream. */
+  readonly indicatesMissing: boolean;
+}
+
+/** Repository state text for the top bar and the M5 banner. */
+export interface RepositoryStateDisplay {
+  /** Exclusive primary state. */
+  readonly primary: RepositoryPrimaryState;
+  /** Active flags, in detection order. */
+  readonly flags: readonly RepositoryFlag[];
+  /** Human-readable state text such as `not a git repository` or `merge in progress`. */
+  readonly label: string;
+}
+
+/** Everything the placeholder top bar needs, derived in one place. */
+export interface RepositoryView {
+  /** True until the first read settles. */
+  readonly loading: boolean;
+  /** Branch label. */
+  readonly branch: BranchDisplay;
+  /** Upstream label. */
+  readonly upstream: UpstreamDisplay;
+  /** Commits ahead of the upstream. */
+  readonly ahead: number;
+  /** Commits behind the upstream. */
+  readonly behind: number;
+  /** Pending change counts. */
+  readonly pending: PendingCounts;
+  /** Repository state text. */
+  readonly state: RepositoryStateDisplay;
+}
+
+/** Options for `readRepositorySnapshot`. */
+export interface RepositoryReadOptions {
+  /** Directory the app was launched from. */
+  readonly cwd: string;
+  /** Cancellation signal. */
+  readonly signal: AbortSignal;
+  /** Clock used for the read timestamp. */
+  readonly now: () => number;
+  /** Upstream deletion and failure evidence collected this session. */
+  readonly evidence: UpstreamEvidence;
+}
+
+/** Result of one repository snapshot read. */
+export interface RepositoryReadResult {
+  /** True when every required read succeeded. */
+  readonly ok: boolean;
+  /** Snapshot on success, or null when the read failed or no repository exists. */
+  readonly snapshot: RepositorySnapshot | null;
+  /** Signals built from the read, always complete. */
+  readonly signals: RepositorySignals;
+  /** Upstream classification read with the snapshot. */
+  readonly upstreamStatus: UpstreamStatus;
+  /** True when the configured git executable could be started. */
+  readonly gitAvailable: boolean;
+  /** Classified error message, or null on success. */
+  readonly error: string | null;
+  /** Classified failure kind that produced the failed result, or null on success. */
+  readonly failureKind: GitFailureKind | null;
+}

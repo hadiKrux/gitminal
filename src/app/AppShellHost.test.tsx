@@ -10,19 +10,71 @@ import {
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
+import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
+import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
+import { resetCommandRunner } from "@/domain/commands/commands.runner";
+import type { GitClient, GitInvocationResult, GitWatcherFactory } from "@/domain/git/git.types";
 import type { FocusContextValue } from "@/features/shell/focus.types";
 import { FOCUS_ACTION_BY_REGION } from "@/features/shell/regions";
+import { createFakeGitClient } from "@/test/git.fake";
+
+/** Inert git client so provider reads never spawn a process. */
+const INERT_CLIENT: GitClient = {
+  gitPath: "git",
+  invoke: async (): Promise<GitInvocationResult> => ({
+    argv: ["git"],
+    cwd: "/repo",
+    exitCode: 128,
+    terminationSignal: null,
+    stdout: "",
+    stderr: "fatal: not a git repository",
+    durationMs: 0,
+    cancelled: false,
+    timedOut: false,
+    timedOutAfterMs: null,
+    spawnError: null,
+    ok: false,
+  }),
+};
 
 /** Latest focus context captured by the probe. */
 let latestFocus: FocusContextValue | undefined;
 
 /** Latest status context captured by the probe. */
 let latestStatus: StatusContextValue | undefined;
+
+/**
+ * Creates a watcher factory for a healthy recursive git-dir watch.
+ *
+ * The default production configuration watches only the git directory, so this fake publishes a
+ * status with no watcher limitation. The working-tree hint must still appear from the mode alone.
+ *
+ * @returns The watcher factory.
+ */
+function createGitDirWatcher(): GitWatcherFactory {
+  return (options) => {
+    const status = {
+      watching: true,
+      mode: options.mode ?? "git-dir",
+      path: options.gitDir,
+      recursive: true,
+      limitation: null,
+    } as const;
+
+    return {
+      start(): void {
+        options.onStatus?.(status);
+      },
+      stop(): void {},
+      status,
+    };
+  };
+}
 
 /**
  * Captures the active region below the shell.
@@ -47,11 +99,28 @@ function StatusProbe(): ReactNode {
 }
 
 /**
+ * Optional provider seams for one host render.
+ *
+ * `worktreeWatch` is omitted by default so the default production mode (git-dir only) is what the
+ * tests exercise unless they opt in.
+ */
+interface RenderHostOptions {
+  readonly worktreeWatch?: boolean;
+  readonly enableWatcher?: boolean;
+  readonly createWatcher?: GitWatcherFactory;
+}
+
+/**
  * Renders the composition root with the required providers.
  *
+ * @param client - Git client used by the repository provider.
+ * @param options - Watch mode, watcher enablement, and watcher factory seams.
  * @returns The renderer setup.
  */
-async function renderHost(): Promise<Awaited<ReturnType<typeof testRender>>> {
+async function renderHost(
+  client: GitClient = INERT_CLIENT,
+  options: RenderHostOptions = {},
+): Promise<Awaited<ReturnType<typeof testRender>>> {
   latestFocus = undefined;
   latestStatus = undefined;
 
@@ -59,15 +128,26 @@ async function renderHost(): Promise<Awaited<ReturnType<typeof testRender>>> {
     <ConfigProvider>
       <ThemeProvider>
         <KeymapProvider platform="linux">
-          <FocusProvider>
-            <StatusProvider>
-              <box flexDirection="column" flexGrow={1} width={120} height={40}>
-                <AppShellHost />
-                <FocusProbe />
-                <StatusProbe />
-              </box>
-            </StatusProvider>
-          </FocusProvider>
+          <RepositoryProvider
+            cwd="/repo"
+            gitClient={client}
+            createWatcher={options.createWatcher}
+            enableWatcher={options.enableWatcher ?? false}
+            worktreeWatch={options.worktreeWatch}
+            now={() => 0}
+          >
+            <FocusProvider>
+              <StatusProvider>
+                <ConsoleProvider>
+                  <box flexDirection="column" flexGrow={1} width={120} height={40}>
+                    <AppShellHost />
+                    <FocusProbe />
+                    <StatusProbe />
+                  </box>
+                </ConsoleProvider>
+              </StatusProvider>
+            </FocusProvider>
+          </RepositoryProvider>
         </KeymapProvider>
       </ThemeProvider>
     </ConfigProvider>,
@@ -77,6 +157,7 @@ async function renderHost(): Promise<Awaited<ReturnType<typeof testRender>>> {
 
 beforeEach(() => {
   resetActionRegistry();
+  resetCommandRunner();
 });
 
 describe("AppShellHost", () => {
@@ -110,6 +191,8 @@ describe("AppShellHost", () => {
       "app.quit",
       "overlay.close",
       "app.console",
+      "app.refresh",
+      "remote.fetch",
     ];
     const setup = await renderHost();
 
@@ -206,7 +289,7 @@ describe("AppShellHost", () => {
       await setup.renderOnce();
     });
 
-    expect(setup.captureCharFrame()).not.toContain("Command console");
+    expect(setup.captureCharFrame()).not.toContain("No commands yet.");
 
     await act(async () => {
       setup.mockInput.pressKey("`", { ctrl: true });
@@ -215,7 +298,7 @@ describe("AppShellHost", () => {
       await setup.renderOnce();
     });
 
-    expect(setup.captureCharFrame()).toContain("Command console");
+    expect(setup.captureCharFrame()).toContain("No commands yet.");
 
     await act(async () => {
       setup.mockInput.pressKey("`", { ctrl: true });
@@ -224,7 +307,72 @@ describe("AppShellHost", () => {
       await setup.renderOnce();
     });
 
-    expect(setup.captureCharFrame()).not.toContain("Command console");
+    expect(setup.captureCharFrame()).not.toContain("No commands yet.");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("renders branch, upstream, ahead and behind, pending counts, and state", async () => {
+    const fake = createFakeGitClient();
+    const setup = await renderHost(fake.client);
+
+    await waitForFrame(setup, "normal");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("main");
+    expect(frame).toContain("origin/main");
+    expect(frame).toContain("ahead 2 behind 1");
+    expect(frame).toContain("1 staged 1 unstaged 1 untracked");
+    expect(frame).toContain("normal");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("omits counts and the watch hint when there is no readable work tree", async () => {
+    const setup = await renderHost();
+
+    await waitForFrame(setup, "not a git repository");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).not.toContain("ahead 0 behind 0");
+    expect(frame).not.toContain("0 staged 0 unstaged 0 untracked");
+    expect(frame).not.toContain("unwatched tree");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("renders a text hint when the opt-in worktree watch is off", async () => {
+    const setup = await renderHost(createFakeGitClient().client, {
+      worktreeWatch: true,
+      enableWatcher: false,
+    });
+
+    await waitForFrame(setup, "worktree watch off");
+
+    expect(setup.captureCharFrame()).toContain("worktree watch off");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("renders the working-tree hint for the default git-dir watch", async () => {
+    const setup = await renderHost(createFakeGitClient().client, {
+      enableWatcher: true,
+      createWatcher: createGitDirWatcher(),
+    });
+
+    await waitForFrame(setup, "unwatched tree");
+
+    expect(setup.captureCharFrame()).toContain("unwatched tree; press r");
 
     await act(async () => {
       await setup.dispose();
@@ -247,11 +395,76 @@ describe("AppShellHost", () => {
       await setup.renderOnce();
     });
 
-    expect(setup.captureCharFrame()).toContain("Command console");
+    expect(setup.captureCharFrame()).toContain("No commands yet.");
     expect(latestFocus?.state.activeRegion).toBe("console");
 
     await act(async () => {
       await setup.dispose();
     });
   });
+
+  it("restores the previous region when Esc closes the console", async () => {
+    const setup = await renderHost();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      setup.mockInput.pressKey("1");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestFocus?.state.activeRegion).toBe("branches");
+
+    await act(async () => {
+      setup.mockInput.pressKey("9");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).toContain("No commands yet.");
+    expect(latestFocus?.state.activeRegion).toBe("console");
+    expect(latestFocus?.state.previousRegion).toBe("branches");
+
+    await act(async () => {
+      setup.mockInput.pressEscape();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).not.toContain("No commands yet.");
+    expect(latestFocus?.state.activeRegion).toBe("branches");
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-branches");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
 });
+
+/**
+ * Renders until the captured frame contains one expected marker.
+ *
+ * @param setup - Renderer setup.
+ * @param marker - Text that appears after the initial read settles.
+ */
+async function waitForFrame(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  marker: string,
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+
+  while (!setup.captureCharFrame().includes(marker) && Date.now() < deadline) {
+    await act(async () => {
+      await setup.renderOnce();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+  }
+}

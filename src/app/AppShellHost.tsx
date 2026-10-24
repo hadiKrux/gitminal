@@ -1,57 +1,71 @@
-import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { useAction } from "@/app/hooks/useAction";
+import { useCommandRunner } from "@/app/hooks/useCommandRunner";
+import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
+import { useRemoteFetchCommand } from "@/app/hooks/useRemoteFetchCommand";
+import { useRepositoryRefreshAction } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
-import type { StatusKind } from "@/app/providers/StatusProvider.types";
-import type { ThemeTokens } from "@/domain/theme/theme.types";
+import { ConsoleDrawer } from "@/features/console/ConsoleDrawer";
 import { AppShell } from "@/features/shell/AppShell";
 import type { SidebarPanel } from "@/features/shell/focus.types";
+import { PlaceholderSurface } from "@/features/shell/PlaceholderSurface";
 import { ResponsiveGate } from "@/features/shell/ResponsiveGate";
-import { useTokens } from "@/theme/useTokens";
+import { TopBar } from "@/features/top-bar/TopBar";
 
 /**
- * Composes the shell with placeholder feature surfaces.
+ * Composes the shell with the temporary M4 feature surfaces.
  *
- * This is the only module allowed to import the shell together with feature surfaces. Until the
- * panel, graph, diff, composer, and console milestones land, every surface is a local placeholder;
- * the composition root still supplies them as `ReactNode` props so feature-to-feature imports never
- * appear. It registers the global actions it owns, installs the single keyboard dispatcher, and
- * applies quit and close behaviour against the focus and status providers. The right-pane surface
- * becomes a derivation from `RepositoryProvider.selection` when the repository milestone lands, and
- * quit confirmation plus operation abort join when the draft, overlay, and command-runner modules
- * exist; until then quit refuses while an operation is marked as running. `overlay.close` clears a
- * transient status and continues to the focus restore in the same press.
+ * This is the only module allowed to import the shell together with feature surfaces. It owns
+ * composition and global action registration only: the temporary top bar lives in
+ * `features/top-bar`, the temporary console in `features/console`, and the generic placeholder in
+ * `features/shell`. M5 replaces the top bar and M6 replaces the console, so this composition root
+ * only swaps the supplied surfaces. It installs the single keyboard dispatcher and applies quit and
+ * close behaviour against the focus, status, repository, and console providers.
  *
  * @returns The responsive shell.
  */
 export function AppShellHost(): ReactNode {
   const renderer = useRenderer();
-  const { status, operation, setStatus, clearStatus } = useStatus();
+  const { status, clearStatus } = useStatus();
   const { state, focusRegion } = useFocusState();
-  const [consoleOpen, setConsoleOpen] = useState(false);
+  const consoleLog = useConsoleLog();
+  const commandRunner = useCommandRunner();
 
   useHotkeys();
+  useRepositoryRefreshAction();
+  useRemoteFetchCommand();
 
   useAction("app.quit", { scope: "global", owner: "app" }, () => {
-    // Interim M3 guard. Confirmation and operation abort land with OverlayProvider and
-    // useCommandRunner; until then a running operation must not be detached silently.
-    if (operation !== null) {
-      setStatus({
-        kind: "warning",
-        message: "Wait for the running operation to finish before quitting.",
-      });
-      return;
-    }
+    void (async () => {
+      // Draft confirmation lands with the overlay stack. Until then quit always aborts the child
+      // and waits for it to settle before tearing down the renderer.
+      await commandRunner.abort();
+      renderer.destroy();
+    })();
+  });
 
-    renderer.destroy();
+  useAction("remote.fetch", { scope: "global", owner: "top-bar" }, () => {
+    void commandRunner.runCommand({ commandId: "remote.fetch", target: { kind: "none" } });
   });
 
   useAction("overlay.close", { scope: "global", owner: "app" }, () => {
     if (status !== null) {
       clearStatus();
+    }
+
+    if (consoleLog.isOpen) {
+      consoleLog.close();
+
+      // The console region unmounts when the drawer closes, so focus must return to the region that
+      // owned it before the console opened instead of waiting for the next focus action.
+      if (state.previousRegion !== null && state.previousRegion !== "console") {
+        focusRegion(state.previousRegion);
+      }
+
+      return;
     }
 
     if (state.textInputFocused && state.activeRegion !== null) {
@@ -65,18 +79,16 @@ export function AppShellHost(): ReactNode {
   });
 
   useAction("app.console", { scope: "global", owner: "app" }, () => {
-    setConsoleOpen((open) => !open);
+    consoleLog.toggle();
   });
-
-  const sidebarPanels = buildSidebarPanels();
 
   return (
     <ResponsiveGate
       renderShell={(layoutMode) => (
         <AppShell
           layoutMode={layoutMode}
-          topBar={<TopBarPlaceholder />}
-          sidebarPanels={sidebarPanels}
+          topBar={<TopBar />}
+          sidebarPanels={buildSidebarPanels()}
           graph={
             <PlaceholderSurface
               title="Commit graph"
@@ -95,76 +107,12 @@ export function AppShellHost(): ReactNode {
               detail="Working, staged, and untracked diffs arrive with the diff milestone."
             />
           }
-          console={
-            <PlaceholderSurface
-              title="Command console"
-              detail="Command entries and output arrive with the console milestone."
-            />
-          }
-          consoleOpen={consoleOpen}
-          onOpenConsole={() => setConsoleOpen(true)}
+          console={<ConsoleDrawer />}
+          consoleOpen={consoleLog.isOpen}
+          onOpenConsole={consoleLog.open}
         />
       )}
     />
-  );
-}
-
-/**
- * Renders the placeholder top bar with the live status strip.
- *
- * This is a temporary composition-root placeholder. The real top bar surface replaces it in M5.
- *
- * @returns The identity, repository placeholder, and current status text.
- */
-function TopBarPlaceholder(): ReactNode {
-  const tokens = useTokens();
-  const { status, operation } = useStatus();
-  const message =
-    operation === null
-      ? (status?.message ?? "ready")
-      : `${operation.phase}${operation.percent === null ? "" : ` ${Math.round(operation.percent)}%`}`;
-  const color = statusColor(status?.kind, tokens);
-
-  return (
-    <>
-      <text fg={tokens.text} wrapMode="none" attributes={TextAttributes.BOLD}>
-        Gitminal
-      </text>
-      <text fg={tokens.muted} wrapMode="none">
-        {"  "}branch: no repository
-      </text>
-      <box flexGrow={1} />
-      <text fg={color} wrapMode="none">
-        {message}
-      </text>
-    </>
-  );
-}
-
-/**
- * Renders one placeholder surface inside a shell region.
- *
- * This is a temporary composition-root placeholder. Each feature surface replaces it in its own
- * milestone.
- *
- * @param props - Surface title and the feature milestone that will replace it.
- * @returns The placeholder content.
- */
-function PlaceholderSurface(props: { title: string; detail: string }): ReactNode {
-  const tokens = useTokens();
-
-  return (
-    <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
-      <text fg={tokens.text} wrapMode="none" attributes={TextAttributes.BOLD}>
-        {props.title}
-      </text>
-      <text fg={tokens.dim} wrapMode="none">
-        {props.detail}
-      </text>
-      <text fg={tokens.dim} wrapMode="none">
-        Placeholder until its feature milestone lands.
-      </text>
-    </box>
   );
 }
 
@@ -220,26 +168,4 @@ function buildSidebarPanels(): readonly SidebarPanel[] {
       ),
     },
   ];
-}
-
-/**
- * Maps a status severity to its theme color.
- *
- * @param kind - Status kind, or `undefined` when there is no message.
- * @param tokens - Active theme tokens.
- * @returns The color for the status strip text.
- */
-function statusColor(kind: StatusKind | undefined, tokens: ThemeTokens): string {
-  switch (kind) {
-    case "success":
-      return tokens.success;
-    case "warning":
-      return tokens.warning;
-    case "error":
-      return tokens.error;
-    case "info":
-      return tokens.info;
-    default:
-      return tokens.muted;
-  }
 }

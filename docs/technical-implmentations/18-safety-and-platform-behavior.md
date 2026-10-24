@@ -142,13 +142,13 @@ On abort the client sends `SIGTERM`, waits two seconds, then sends `SIGKILL`, wa
 
 Network operations pass `--progress`: `git fetch --progress`, `git pull --progress --no-edit`, `git push --progress`, plus tag push and remote branch delete. `--no-edit` prevents pull from opening an editor for a merge message. Stderr is streamed through `git.progress.ts` and forwarded to `StatusProvider`; commands without a meaningful percentage emit phase-only events.
 
-Quit is part of this contract and never relies on the renderer default. The renderer is created with `exitOnCtrlC: false`, so `Ctrl+C` arrives as a key and dispatches `app.quit` instead of the renderer's default exit. The quit handler, not the renderer, decides whether confirmation is required. `app.quit` opens the confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is already open. After confirmation, or immediately when nothing needs confirmation, the handler aborts the in-flight command through the `AbortSignal` owned by `useCommandRunner`; the client performs the `SIGTERM`-then-`SIGKILL` sequence; the renderer is destroyed only after the child has exited or been killed, so the terminal is restored after git has stopped writing to it.
+Quit is part of this contract and never relies on the renderer default. The renderer is created with `exitOnCtrlC: false`, so `Ctrl+C` arrives as a key and dispatches `app.quit` instead of the renderer's default exit. The quit handler, not the renderer, decides whether confirmation is required. The target contract opens the confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is already open. M4 implements the operation half: the handler aborts the in-flight command through the `AbortSignal` owned by `useCommandRunner`, waits for it to settle, and only then calls `renderer.destroy()`. Draft-based confirmation is deferred to M6 with the overlay stack and is recorded as a contract deviation in `00-project-architecture.md`. The client performs the `SIGTERM`-then-`SIGKILL` sequence, and the renderer is destroyed only after the child has exited or been killed, so the terminal is restored after git has stopped writing to it.
 
 ### 7.2 Integration test harness
 
 Process-spawning tests are isolated from the unit suite:
 
-- `src/test/git.fixture.ts` creates a temporary repository with `git init`, configures a local identity, seeds commits, and removes the directory in a `finally` block. It also builds the fixtures for prompting hooks (a `pre-commit` that reads stdin or invokes an editor), SSH and credential failures, merge conflicts, renames with pathspec metacharacters, empty repositories, and lock files.
+- `src/test/git.fixture.ts` creates a temporary repository with `git init`, configures a local identity, seeds commits, and removes the directory in a `finally` block. It also builds the fixtures that exist today: prompting hooks (a `pre-commit` that reads stdin), merge and rebase conflicts, an index-lock helper, and empty and bare repositories. SSH and credential failure fixtures and rename-with-pathspec fixtures are not implemented yet.
 - Integration tests are colocated `*.integration.test.ts` files and run with `bun test:integration`. They may spawn the system git only through the fixture, and the fixture runs commands through `git.client.ts` so the production execution contract is what gets tested.
 - `src/test/git.fixture.ts` is the only test module allowed to spawn git directly for setup and teardown; the boundary check in architecture section 12 exempts it by path alongside `git.client.ts`. Production code never imports it.
 - Unit tests never spawn a process. They use recorded stdout and stderr fixtures and call parsers, builders, and availability functions directly.
@@ -160,7 +160,7 @@ Action IDs and command IDs are distinct (architecture section 8.1). An action ID
 
 Bindings use action IDs only:
 
-- `app.quit`: quit path, with confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is open. After confirmation it aborts the child and only then destroys the renderer.
+- `app.quit`: quit path, with confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is open. M4 aborts and settles the running child before destroying the renderer; draft confirmation lands with the M6 overlay stack.
 - `overlay.close`: `Esc` cancels a confirmation; the destructive option is never the default focus.
 - `nav.activate`: confirms the focused modal button; `focus.next` and `focus.previous` move between `ModalActions`.
 - `form.submit`: `Ctrl/Cmd+Enter` submits a multiline form; single-line forms keep native `Enter`.

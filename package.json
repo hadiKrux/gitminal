@@ -29,7 +29,7 @@
     "preview": "bun run src/index.tsx",
     "dev": "bun run --watch src/index.tsx",
     "test": "bun test --timeout 10000 --path-ignore-patterns='**/*.integration.test.ts'",
-    "test:integration": "bun test --timeout 60000 '**/*.integration.test.ts'",
+    "test:integration": "bun test --timeout 60000 integration.test",
     "test:all": "bun test --timeout 60000",
     "typecheck": "tsc --noEmit",
     "audit": "fallow audit",

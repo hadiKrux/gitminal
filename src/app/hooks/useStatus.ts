@@ -2,6 +2,9 @@ import { useContext } from "react";
 import { StatusContext } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
 
+/** Severity of a transient status message, re-exported for feature consumers. */
+export type { StatusKind } from "@/app/providers/StatusProvider.types";
+
 /**
  * Reads transient status, operation progress, and the footer hint mode.
  *
