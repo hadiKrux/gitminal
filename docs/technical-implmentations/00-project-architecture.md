@@ -69,7 +69,7 @@ Forbidden imports and key access (enforced by the section 12 scripts):
 - Process spawning (`node:child_process`, `Bun.spawn`, `Bun.spawnSync`, `Bun.shell`, or `Bun.$`) outside `src/domain/git/git.client.ts` and `src/test/git.fixture.ts`.
 - Network access (`fetch`, `Bun.fetch`, `globalThis.fetch`, `window.fetch`, `Bun.connect`, `WebSocket`, or a `node:http`, `node:https`, `node:http2`, `node:net`, `node:dgram`, `node:tls`, or `undici` import) outside `src/domain/update/update.check.ts`.
 - Hex color literals outside `src/domain/theme/theme.catppuccin.ts`.
-- Raw key string comparisons outside `src/domain/keymap/**` and `src/app/hooks/useHotkeys.ts`. `src/app/quit.key.ts` is the only exception: `SplashGate` runs before any provider mounts and `WorkspacePlaceholder` mounts after dismissal inside the config, theme, and keymap providers, and both compare only the fixed `Ctrl+C` quit chord (`key.ctrl` plus `key.name`) through that single helper until the shell's `app.quit` handler replaces them. The boundary check flags equality comparisons between a string literal and a key-like `name`, `sequence`, `raw`, or `code` access, and allows only those three paths. See `21-startup-splash.md` section 8.
+- Raw key string comparisons outside `src/domain/keymap/**` and `src/app/hooks/useHotkeys.ts`. `src/app/quit.key.ts` is the only exception: `SplashGate` runs before any provider mounts and compares only the fixed `Ctrl+C` quit chord (`key.ctrl` plus `key.name`) through that single helper. After dismissal the shell's `app.quit` action owns quit through the keymap. The boundary check flags equality comparisons between a string literal and a key-like `name`, `sequence`, `raw`, or `code` access, and allows only those three paths. See `21-startup-splash.md` section 8.
 - Any external package import inside `src/domain/**` or `src/lib/**`, including React and `@opentui/*`. Node builtins are limited to this per-module allowlist; every other builtin is rejected under domain and lib:
 
   | Module | Allowed Node builtins |
@@ -121,7 +121,6 @@ gitminal/
       App.tsx
       AppShellHost.tsx
       SplashGate.tsx
-      WorkspacePlaceholder.tsx
       app.constants.ts
       quit.key.ts
       providers/
@@ -136,12 +135,16 @@ gitminal/
         KeymapProvider.types.ts
         OverlayProvider.tsx
         StatusProvider.tsx
+        StatusProvider.types.ts
         ConsoleProvider.tsx
       hooks/
         useHotkeys.ts
+        useHotkeys.types.ts
         useAction.ts
+        useAction.types.ts
         useCommandRunner.ts
         useFocusRegion.ts
+        useFocusState.ts
         useListCursor.ts
         useDebouncedValue.ts
         useDraft.ts
@@ -163,9 +166,13 @@ gitminal/
       shell/
         AppShell.tsx
         Sidebar.tsx
+        SidebarPanelFrame.tsx
+        SidebarSwitcher.tsx
         MainArea.tsx
         Footer.tsx
+        Footer.constants.ts
         ResponsiveGate.tsx
+        TooSmallNotice.tsx
         regions.ts
         focus.types.ts
         useFocusModel.ts
@@ -272,6 +279,7 @@ gitminal/
       TruncatedText.tsx
       KeyHint.tsx
       HintBar.tsx
+      HintBar.types.ts
       Spinner.tsx
       ProgressBar.tsx
       EmptyState.tsx
@@ -377,6 +385,7 @@ gitminal/
     test/
       git.fixture.ts
       react.guard.tsx
+      shell.harness.tsx
 ```
 
 Rules for this tree:
@@ -454,9 +463,9 @@ Hooks available from `@opentui/react` 0.6.6:
 
 | Hook | Use for |
 | --- | --- |
-| `useKeyboard(handler, { release? })` | The single global key dispatcher, owned by `src/app/hooks/useHotkeys.ts`. `src/app/SplashGate.tsx` and `src/app/WorkspacePlaceholder.tsx` are the only other callers before the shell mounts, one at a time: `SplashGate` while the splash is visible and `WorkspacePlaceholder` after dismissal. The temporary quit path is replaced by the shell's `app.quit` path. Features never call it directly. See `21-startup-splash.md`. |
-| `useOnResize(cb)` | Responsive layout fallbacks in `ResponsiveGate` and `AppShell`. |
-| `useTerminalDimensions()` | Minimum-size checks, truncation budgets, hint fitting. |
+| `useKeyboard(handler, { release? })` | The single global key dispatcher, owned by `src/app/hooks/useHotkeys.ts`. `src/app/SplashGate.tsx` is the only other caller, and only while the splash is visible. The temporary splash quit path is replaced by the shell's `app.quit` path. Features never call it directly. See `21-startup-splash.md`. |
+| `useOnResize(cb)` | Not used by M3. `useTerminalDimensions` drives responsive rendering; a breakpoint-memoized resize hook is deferred until a measured need. |
+| `useTerminalDimensions()` | Responsive layout mode, minimum-size checks, truncation budgets, hint fitting. |
 | `useRenderer()` | Bootstrap access, focus management, console drawer access. |
 | `useFocus(handler)` / `useBlur(handler)` | Terminal-window focus and blur only: refresh on terminal focus, pause work on blur. Never region focus. |
 | `usePaste(handler)` | Commit message and field paste handling. |
@@ -465,7 +474,7 @@ Hooks available from `@opentui/react` 0.6.6:
 
 Component rules:
 
-1. Keyboard ownership is centralized. `useHotkeys` is the only `useKeyboard` caller after the shell mounts. `SplashGate` runs before the providers mount, and `WorkspacePlaceholder` mounts after dismissal inside the config, theme, and keymap providers. They are the documented exception, and exactly one of them subscribes at a time: `SplashGate` owns dismissal and quit while the splash is visible, and `WorkspacePlaceholder` owns only quit after dismissal until the shell's `useHotkeys` and `app.quit` path replace the temporary subscription. `useHotkeys` resolves precedence (open overlay, then text input, then native list widget, then focused region context, then global), and it calls `preventDefault()` only when it handles the key. Features register handlers by action ID through `useAction`. No feature inspects `KeyEvent` directly.
+1. Keyboard ownership is centralized. `useHotkeys` is the only `useKeyboard` caller after the shell mounts. `SplashGate` runs before the providers mount and is the documented exception while the splash is visible. It owns dismissal and quit, then unmounts as the shell's `useHotkeys` and `app.quit` path takes over. `useHotkeys` resolves precedence (open overlay, then text input, then native list widget, then focused region context, then global), and it calls `preventDefault()` only when it handles the key. Features register handlers by action ID through `useAction`. No feature inspects `KeyEvent` directly.
 2. OpenTUI native focus is the single focus authority. The renderer's `currentFocusedRenderable` receives keys. `FocusProvider` is a projection: it derives `activeRegion` from the focused renderable's nearest ancestor region frame, derives `textInputFocused` from `currentFocusedEditor`, and stores `previousRegion` plus the per-region cursor map. It does not hold a competing writable `activeRegion`. Every region frame is a focusable `<box>` with a stable id and `focusedBorderColor`, so the border follows native focus, including when a descendant text input is focused. The focused region also gets a leading text marker; color is never the only signal.
 3. Every navigable list is either a `<select>` (uniform rows, native up/down and Enter, focused when it is the active widget) or a non-focusable `<scrollbox>` of `<box>` rows when rows need custom content such as graph lanes, ref badges, diff headers, or inline actions. In the custom case, the region frame owns focus, and navigation and selection are implemented by `useListCursor` and rendered as a leading marker plus a highlighted row background. `useListCursor` implements `g`/`G` only where the keymap binds `nav.first` and `nav.last`; `tags`, `stashes`, and `worktrees` deliberately do not bind them.
 4. Mouse focus uses OpenTUI `autoFocus`. Clicking a text input focuses it; clicking any other element focuses the nearest focusable ancestor, normally the region frame. Region and row mouse handlers must not call `focus()` directly; they select the row and dispatch, and native focus follows the click. Double click is detected by `useListCursor` (two clicks on the same row inside a threshold). Mouse never exposes an action that has no keybinding.
@@ -583,8 +592,8 @@ Direct region jumps use the digits `1`-`9` in screen order: `1`-`5` are the five
 - `Ctrl`/`Cmd`-modified shortcuts do not resolve through the app keymap in text input mode. They do so only outside text input mode or when they are in the text-input-safe allowlist above and use a modifier. Unmodified keys always pass to the input.
 - Native list mode applies when a `<select>` or `<tab-select>` is focused. That widget owns `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.first`, `nav.last`, and `nav.activate`; `useHotkeys` must not prevent those keys from reaching it. A focused `<tab-select>` also consumes Left and Right natively, which is how the collapsed sidebar switches panels; no app action binds those keys in a sidebar context. Global modified shortcuts, `focus.next`/`focus.previous`, and the `focus.region.*` digit jumps still work.
 - `overlay` is not a region. On open, `OverlayProvider` captures the current focused renderable, blurs it, and focuses the first focusable element in the modal after mount. While open, the overlay owns keys. The overlay context applies the same text-input and native-list delegation for keys it does not handle; region focus does not apply. On close, it restores the captured renderable if it is still mounted, otherwise it focuses that renderable's region frame.
-- The only global actions that may resolve while an overlay is open are the overlay's own toggle and `overlay.close`: `app.palette` when the palette is the open overlay, `app.help` when help is the open overlay, and `app.quit` as the hardcoded quit escape hatch. They toggle or close that overlay. No other global action, including `remote.*`, `app.themePicker`, or `app.reloadConfig`, is reachable until the overlay closes. The console drawer is not an overlay; `app.console` stays global while it is open.
-- The startup splash is not a region and has no focus. It renders before the providers and the keymap mount. `SplashGate` owns the only `useKeyboard` subscription while the splash is visible: `Ctrl+C` calls `onQuit` without dismissing, and every other key calls `onDismiss`. After dismissal `SplashGate` unmounts and `WorkspacePlaceholder` owns the only `useKeyboard` subscription, which handles only `Ctrl+C` through the same quit callback. Exactly one subscriber is mounted until `useHotkeys` and the shell's `app.quit` replace the temporary path. Both read the fixed quit chord only through `src/app/quit.key.ts`. See `21-startup-splash.md`.
+- Outside a modal text field, the only global actions that may resolve while an overlay is open are the overlay's own toggle and `overlay.close`: `app.palette` when the palette is the open overlay, `app.help` when help is the open overlay, and `app.quit` as the hardcoded quit escape hatch. They toggle or close that overlay. No other global action, including `remote.*`, `app.themePicker`, or `app.reloadConfig`, is reachable until the overlay closes. Inside a modal text field, `overlay.close` on `Esc`, the hardcoded `Ctrl+C` quit path, and modifier-gated text-input-safe actions may fire; a plain unmodified global action never does. The console drawer is not an overlay; `app.console` stays global while it is open.
+- The startup splash is not a region and has no focus. It renders before the providers and the keymap mount. `SplashGate` owns the only `useKeyboard` subscription while the splash is visible: `Ctrl+C` calls `onQuit` without dismissing, and every other key calls `onDismiss`. After dismissal `SplashGate` unmounts and the shell's `useHotkeys` owns keys, with `app.quit` as the quit path. `SplashGate` reads the fixed quit chord only through `src/app/quit.key.ts`. See `21-startup-splash.md`.
 - Action IDs are exactly the IDs in product spec section 6.1 and live in `src/domain/keymap/keymap.defaults.ts`. Features receive action IDs only.
 - `KeymapContext` uses the exact `RegionId` values plus `global` and `overlay`: `top-bar`, `branches`, `remotes`, `tags`, `stashes`, `worktrees`, `graph`, `right-pane`, `diff`, and `console`. `useHotkeys` therefore looks up `contexts.get(activeRegion)` directly, with no adapter or cast between the focus model and the keymap.
 - `nav.left` and `nav.right` bind the top bar, the right pane, and overlays, with `Left`/`h` and `Right`/`l` as defaults. Sidebar panels do not bind them: the collapsed switcher is a native `<tab-select>` and owns those keys in native list mode.
@@ -861,7 +870,7 @@ Ticket index: [`index.md`](index.md). Recommended build order: [`index.md`](inde
 | `18-safety-and-platform-behavior.md` | F-18 Safety and platform behavior | `domain/git/git.errors.ts`, `domain/git/git.redact.ts`, `app/hooks/useCommandRunner.ts` |
 | `19-configuration-and-keybindings.md` | F-19 Configuration and keybindings | `domain/config`, `domain/keymap`, `app/providers/ConfigProvider.tsx`, `app/providers/ConfigProvider.types.ts`, `app/providers/KeymapProvider.tsx`, `app/providers/KeymapProvider.types.ts` |
 | `20-theme-and-colors.md` | F-20 Theme and colors | `features/theme-picker`, `domain/theme`, `theme`, `app/providers/ThemeProvider.tsx`, `app/providers/ThemeProvider.types.ts`, `app/hooks/useTheme.ts` |
-| `21-startup-splash.md` | F-21 Startup splash and update check | `features/splash`, `features/splash/SplashScreen.constants.ts`, `features/splash/SplashUpdateNotice.tsx`, `domain/update`, `app/App.tsx`, `app/SplashGate.tsx`, `app/WorkspacePlaceholder.tsx`, `app/quit.key.ts`, `lib/semver.ts`, `lib/semver.types.ts` |
+| `21-startup-splash.md` | F-21 Startup splash and update check | `features/splash`, `features/splash/SplashScreen.constants.ts`, `features/splash/SplashUpdateNotice.tsx`, `domain/update`, `app/App.tsx`, `app/SplashGate.tsx`, `app/quit.key.ts`, `lib/semver.ts`, `lib/semver.types.ts` |
 
 ## 16. How to add a feature or file
 

@@ -10,9 +10,9 @@ import { useUpdateCheck } from "@/features/splash/useUpdateCheck";
  * Hosts the splash screen, its one-shot update check, and the single splash keyboard subscription.
  *
  * The gate is mounted only while the splash is visible, so its `useKeyboard` subscription is the
- * only one removed when the workspace placeholder mounts. `Ctrl+C` is routed to `onQuit` without
- * dismissing, and every other key dismisses through `onDismiss`, so quitting never also dismisses
- * the splash.
+ * only one removed when the shell mounts and `useHotkeys` takes over. `Ctrl+C` is routed to
+ * `onQuit` without dismissing, and every other key dismisses through `onDismiss`, so quitting never
+ * also dismisses the splash.
  *
  * @param props - The dismissal and quit callbacks plus an optional update check override.
  * @returns The splash screen.

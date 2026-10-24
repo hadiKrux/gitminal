@@ -1,0 +1,285 @@
+import { beforeEach, describe, expect, it } from "bun:test";
+import { testRender } from "@opentui/react/test-utils";
+import { act, type ReactNode, useEffect } from "react";
+import { resetActionRegistry, useAction } from "@/app/hooks/useAction";
+import type { ActionRegistrationOptions } from "@/app/hooks/useAction.types";
+import { useFocusRegion } from "@/app/hooks/useFocusRegion";
+import { useStatus } from "@/app/hooks/useStatus";
+import { Footer } from "@/features/shell/Footer";
+import type { RegionId } from "@/features/shell/focus.types";
+import { ShellTestProviders } from "@/test/shell.harness";
+
+/**
+ * Registers one action handler without rendering visible content.
+ *
+ * @param props - Action id and options.
+ * @returns The marker element.
+ */
+function Registration(props: { actionId: string; options: ActionRegistrationOptions }): ReactNode {
+  useAction(props.actionId, props.options, () => {});
+
+  return <text> </text>;
+}
+
+/**
+ * Switches the footer to modal hint mode after mount.
+ *
+ * @returns The marker element.
+ */
+function ModalModeProbe(): ReactNode {
+  const { setHintMode } = useStatus();
+
+  useEffect(() => {
+    setHintMode("modal");
+  }, [setHintMode]);
+
+  return <text> </text>;
+}
+
+/**
+ * Renders one focusable region frame above the footer.
+ *
+ * @param props - Region id and optional registrations.
+ * @returns The harness layout.
+ */
+function FooterHarness(props: { region: RegionId; children?: ReactNode }): ReactNode {
+  const region = useFocusRegion(props.region);
+
+  return (
+    <box flexDirection="column" flexGrow={1}>
+      {props.children}
+      <box {...region.regionProps} width={40} height={2}>
+        <text>{props.region}</text>
+      </box>
+      <box id="footer-outside" focusable width={40} height={1}>
+        <text>outside</text>
+      </box>
+      <Footer />
+    </box>
+  );
+}
+
+/**
+ * Renders the footer harness inside the required providers.
+ *
+ * @param layout - Harness content.
+ * @param width - Terminal width.
+ * @returns The renderer setup.
+ */
+async function renderFooter(
+  layout: ReactNode,
+  width: number = 120,
+): Promise<Awaited<ReturnType<typeof testRender>>> {
+  return testRender(<ShellTestProviders>{layout}</ShellTestProviders>, {
+    width,
+    height: 20,
+  });
+}
+
+/**
+ * Focuses the region frame in the harness.
+ *
+ * @param setup - Renderer setup.
+ * @param region - Region id.
+ */
+async function focusRegion(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  region: RegionId,
+): Promise<void> {
+  await act(async () => {
+    setup.renderer.root.findDescendantById(`region-${region}`)?.focus();
+  });
+  await act(async () => {
+    await setup.renderOnce();
+  });
+}
+
+/**
+ * Focuses a renderable outside every region.
+ *
+ * @param setup - Renderer setup.
+ */
+async function focusOutside(setup: Awaited<ReturnType<typeof testRender>>): Promise<void> {
+  await act(async () => {
+    setup.renderer.root.findDescendantById("footer-outside")?.focus();
+  });
+  await act(async () => {
+    await setup.renderOnce();
+  });
+}
+
+beforeEach(() => {
+  resetActionRegistry();
+});
+
+describe("Footer", () => {
+  it("shows hints for the focused region and the global actions", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="branches">
+        <Registration actionId="branch.create" options={{ scope: "branches" }} />
+        <Registration actionId="app.quit" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "branches");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("n New branch");
+    expect(frame).toContain("q Quit");
+    expect(frame).toContain("? Help");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("falls back to global hints when focus leaves every region", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="branches">
+        <Registration actionId="branch.create" options={{ scope: "branches" }} />
+        <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "branches");
+
+    expect(setup.captureCharFrame()).toContain("n New branch");
+
+    await focusOutside(setup);
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("? Help");
+    expect(frame).not.toContain("New branch");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("hides a global hint when the focused context owns the same key", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="stashes">
+        <Registration actionId="stash.pop" options={{ scope: "stashes" }} />
+        <Registration actionId="remote.pull" options={{ scope: "global", owner: "top-bar" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "stashes");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("p Pop stash");
+    expect(frame).not.toContain("Pull");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("drops hints in priority order as the width shrinks", async () => {
+    const layout = (
+      <FooterHarness region="graph">
+        <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.quit" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.console" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="focus.next" options={{ scope: "global", owner: "shell" }} />
+        <Registration actionId="focus.previous" options={{ scope: "global", owner: "shell" }} />
+      </FooterHarness>
+    );
+    const wide = await renderFooter(layout, 80);
+
+    await act(async () => {
+      await wide.renderOnce();
+    });
+
+    const wideFrame = wide.captureCharFrame();
+
+    expect(wideFrame).toContain("? Help");
+    expect(wideFrame).toContain("q Quit");
+    expect(wideFrame).toContain("Toggle console");
+
+    await act(async () => {
+      await wide.dispose();
+    });
+
+    resetActionRegistry();
+
+    const narrow = await renderFooter(layout, 12);
+
+    await act(async () => {
+      await narrow.renderOnce();
+    });
+
+    const narrowFrame = narrow.captureCharFrame();
+
+    expect(narrowFrame).toContain("? Help");
+    expect(narrowFrame).not.toContain("Quit");
+
+    await act(async () => {
+      await narrow.dispose();
+    });
+  });
+
+  it("never emits direct region jump hints", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="branches">
+        <Registration actionId="focus.region.graph" options={{ scope: "global", owner: "shell" }} />
+        <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "branches");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("? Help");
+    expect(frame).not.toContain("Focus commit graph");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("replaces region hints with modal keys when an overlay is open", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="branches">
+        <ModalModeProbe />
+        <Registration actionId="nav.activate" options={{ scope: "overlay" }} />
+        <Registration actionId="overlay.close" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="focus.next" options={{ scope: "global", owner: "shell" }} />
+        <Registration actionId="branch.create" options={{ scope: "branches" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "branches");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Enter Activate");
+    expect(frame).toContain("Esc Close or cancel");
+    expect(frame).toContain("Tab Next region");
+    expect(frame).not.toContain("New branch");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+});

@@ -144,6 +144,24 @@ export interface ResolvedKeymap {
   readonly warnings: readonly string[];
 }
 
+/** One footer-ready hint derived from the resolved keymap. */
+export interface KeymapHint {
+  /** Action the hint belongs to. */
+  readonly actionId: string;
+  /** Human-readable action name. */
+  readonly label: string;
+  /** Effective bindings formatted for display. */
+  readonly keys: readonly string[];
+  /** Drop order for the footer; lower values are kept longer. */
+  readonly priority: number;
+}
+
+/** Filters applied while deriving footer hints. */
+export interface KeymapHintOptions {
+  /** Reports whether the action has a current handler in the given context. */
+  readonly isAvailable?: (actionId: string, scope: KeymapContext) => boolean;
+}
+
 /** Inputs for one keymap resolution pass. */
 export interface ResolveKeymapOptions {
   /** Overrides from the main configuration file. */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { formatBinding } from "@/domain/keymap/keymap.describe";
+import { describeContextHints, formatBinding } from "@/domain/keymap/keymap.describe";
 import { bindingKey, parseBinding } from "@/domain/keymap/keymap.parse";
+import { resolveKeymap } from "@/domain/keymap/keymap.resolve";
 import type { KeymapPlatform, ParsedBinding } from "@/domain/keymap/keymap.types";
 
 /**
@@ -59,5 +60,46 @@ describe("formatBinding", () => {
 
     expect(formatted).toBe("Ctrl+P");
     expect(bindingKey(parseValid(formatted))).toBe("ctrl+shift+p");
+  });
+});
+
+describe("describeContextHints", () => {
+  it("lists context actions before globals and hides direct focus actions", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const hints = describeContextHints(keymap, "branches");
+
+    const branchCreate = hints.findIndex((hint) => hint.actionId === "branch.create");
+    const quit = hints.findIndex((hint) => hint.actionId === "app.quit");
+
+    expect(branchCreate).toBeGreaterThanOrEqual(0);
+    expect(quit).toBeGreaterThan(branchCreate);
+    expect(hints.some((hint) => hint.actionId === "app.quit")).toBe(true);
+    expect(hints.some((hint) => hint.actionId.startsWith("focus.region."))).toBe(false);
+  });
+
+  it("drops a global hint when the focused context owns the same key", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const hints = describeContextHints(keymap, "stashes");
+
+    expect(hints.some((hint) => hint.actionId === "stash.pop")).toBe(true);
+    expect(hints.some((hint) => hint.actionId === "remote.pull")).toBe(false);
+  });
+
+  it("keeps help first and filters by availability", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const hints = describeContextHints(keymap, "global", {
+      isAvailable: (actionId) => actionId === "app.help" || actionId === "app.quit",
+    });
+
+    expect(hints.map((hint) => hint.actionId)).toEqual(["app.help", "app.quit"]);
+  });
+
+  it("formats every effective binding of an action", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const hints = describeContextHints(keymap, "global", {
+      isAvailable: (actionId) => actionId === "app.help",
+    });
+
+    expect(hints[0]?.keys).toEqual(["?", "F1"]);
   });
 });

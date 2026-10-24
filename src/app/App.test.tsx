@@ -3,11 +3,8 @@ import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { App } from "@/app/App";
 import { APP_VERSION } from "@/app/app.constants";
-import { ACTION_CATALOGUE } from "@/domain/keymap/keymap.defaults";
-import { DEFAULT_THEME_NAME } from "@/domain/theme/theme.catppuccin";
-import { resolveTheme } from "@/domain/theme/theme.resolve";
+import { resetActionRegistry } from "@/app/hooks/useAction";
 import type { UpdateCheckResult } from "@/domain/update/update.types";
-import { ICONS } from "@/theme/icons";
 
 /** A check that never settles, proving the splash does not wait for the network. */
 const pendingCheck = new Promise<UpdateCheckResult>(() => {});
@@ -33,6 +30,7 @@ function countKeyboardSubscribers(setup: Awaited<ReturnType<typeof testRender>>)
 
 beforeEach(() => {
   checkForUpdateMock.mockClear();
+  resetActionRegistry();
 });
 
 describe("App splash gate", () => {
@@ -63,14 +61,12 @@ describe("App splash gate", () => {
     });
 
     const dismissedFrame = setup.captureCharFrame();
-    const resolvedThemeLabel = resolveTheme(DEFAULT_THEME_NAME).label;
 
-    expect(dismissedFrame).toContain("Gitminal workspace");
+    expect(dismissedFrame).toContain("Gitminal");
+    expect(dismissedFrame).toContain("Branches");
+    expect(dismissedFrame).toContain("Commits");
+    expect(dismissedFrame).toContain("Diffs");
     expect(dismissedFrame).not.toContain("Press any key to continue");
-    expect(resolvedThemeLabel).toBe("Catppuccin Mocha");
-    expect(dismissedFrame).toContain(
-      `Theme: ${resolvedThemeLabel} ${ICONS.hintSeparator} ${ACTION_CATALOGUE.length} actions`,
-    );
     expect(countKeyboardSubscribers(setup)).toBe(1);
 
     await act(async () => {
@@ -99,7 +95,7 @@ describe("App splash gate", () => {
 
     expect(destroySpy).toHaveBeenCalledTimes(1);
     expect(setup.captureCharFrame()).toContain("Press any key to continue");
-    expect(setup.captureCharFrame()).not.toContain("Gitminal workspace");
+    expect(setup.captureCharFrame()).not.toContain("Gitminal");
 
     destroySpy.mockRestore();
     await act(async () => {
@@ -125,7 +121,7 @@ describe("App splash gate", () => {
       await setup.renderOnce();
     });
 
-    expect(setup.captureCharFrame()).toContain("Gitminal workspace");
+    expect(setup.captureCharFrame()).toContain("Gitminal");
     expect(destroySpy).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -162,7 +158,7 @@ describe("App splash gate", () => {
     });
 
     expect(destroySpy).not.toHaveBeenCalled();
-    expect(setup.captureCharFrame()).toContain("Gitminal workspace");
+    expect(setup.captureCharFrame()).toContain("Gitminal");
 
     await act(async () => {
       setup.mockInput.pressKey("c");
@@ -172,7 +168,7 @@ describe("App splash gate", () => {
     });
 
     expect(destroySpy).not.toHaveBeenCalled();
-    expect(setup.captureCharFrame()).toContain("Gitminal workspace");
+    expect(setup.captureCharFrame()).toContain("Gitminal");
 
     destroySpy.mockRestore();
     await act(async () => {

@@ -1,24 +1,26 @@
 import { useRenderer } from "@opentui/react";
 import { type ReactNode, useCallback, useState } from "react";
+import { AppShellHost } from "@/app/AppShellHost";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
+import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
+import { StatusProvider } from "@/app/providers/StatusProvider";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
 import { SplashGate } from "@/app/SplashGate";
-import { WorkspacePlaceholder } from "@/app/WorkspacePlaceholder";
 import type { CheckForUpdate } from "@/domain/update/update.types";
 
 /**
  * Root component that shows the startup splash until any key dismisses it.
  *
- * Owns the one-way `splashDismissed` state and the temporary quit callback that destroys the
- * renderer until the shell's `app.quit` handler replaces it in the app shell milestone. The splash
- * runs before any provider mounts; after dismissal the configuration, theme, and keymap providers
- * wrap the workspace so the first screen can read resolved defaults. It does not subscribe to keys
- * itself: `SplashGate` owns the splash subscription and `WorkspacePlaceholder` owns the
- * post-dismissal subscription, so exactly one keyboard handler is mounted at a time.
+ * Owns the one-way `splashDismissed` state and the splash-only quit callback that destroys the
+ * renderer. The splash runs before any provider mounts; after dismissal the configuration, theme,
+ * keymap, focus, and status providers wrap the shell, which owns `app.quit` and the centralized
+ * keyboard dispatcher from then on. `App` does not subscribe to keys itself: `SplashGate` owns the
+ * splash subscription and `useHotkeys` owns every key after the shell mounts, so exactly one
+ * keyboard handler is mounted at a time.
  *
  * @param props - Optional update check override for embedding and tests.
- * @returns The splash gate or the provider-backed workspace placeholder.
+ * @returns The splash gate or the provider-backed shell.
  */
 export function App(props: { checkForUpdate?: CheckForUpdate } = {}): ReactNode {
   const [splashDismissed, setSplashDismissed] = useState(false);
@@ -28,7 +30,7 @@ export function App(props: { checkForUpdate?: CheckForUpdate } = {}): ReactNode 
     setSplashDismissed(true);
   }, []);
 
-  const quitApp = useCallback(() => {
+  const quitSplash = useCallback(() => {
     renderer.destroy();
   }, [renderer]);
 
@@ -37,7 +39,11 @@ export function App(props: { checkForUpdate?: CheckForUpdate } = {}): ReactNode 
       <ConfigProvider>
         <ThemeProvider>
           <KeymapProvider>
-            <WorkspacePlaceholder onQuit={quitApp} />
+            <FocusProvider>
+              <StatusProvider>
+                <AppShellHost />
+              </StatusProvider>
+            </FocusProvider>
           </KeymapProvider>
         </ThemeProvider>
       </ConfigProvider>
@@ -45,6 +51,10 @@ export function App(props: { checkForUpdate?: CheckForUpdate } = {}): ReactNode 
   }
 
   return (
-    <SplashGate checkForUpdate={props.checkForUpdate} onDismiss={dismissSplash} onQuit={quitApp} />
+    <SplashGate
+      checkForUpdate={props.checkForUpdate}
+      onDismiss={dismissSplash}
+      onQuit={quitSplash}
+    />
   );
 }

@@ -40,9 +40,9 @@ Status: Done
 
 Tickets: [`21-startup-splash.md`](21-startup-splash.md)
 
-Scope: the real `src/index.tsx` bootstrap with `exitOnCtrlC: false`, the splash gate components (`src/app/App.tsx`, `src/app/SplashGate.tsx`, `src/app/WorkspacePlaceholder.tsx`, `src/app/quit.key.ts`), `src/app/app.constants.ts`, the splash UI (`src/features/splash/SplashScreen.tsx`, `SplashScreen.constants.ts`, `SplashUpdateNotice.tsx`), the any-key dismissal, the `Ctrl+C` quit path, and the one-shot update check.
+Scope: the real `src/index.tsx` bootstrap with `exitOnCtrlC: false`, the splash gate components (`src/app/App.tsx`, `src/app/SplashGate.tsx`, `src/app/quit.key.ts`), `src/app/app.constants.ts`, the splash UI (`src/features/splash/SplashScreen.tsx`, `SplashScreen.constants.ts`, `SplashUpdateNotice.tsx`), the any-key dismissal, the `Ctrl+C` quit path, and the one-shot update check.
 
-Observable outcome: `bun run dev` renders the splash with the wordmark and running version; any key opens the workspace placeholder; `Ctrl+C` quits and restores the terminal. A failed or slow update check is silent and never blocks dismissal.
+Observable outcome: `bun run dev` renders the splash with the wordmark and running version; any key opens the shell; `Ctrl+C` quits and restores the terminal. A failed or slow update check is silent and never blocks dismissal.
 
 Deferred: the shell providers, repository reads, configuration, and theming.
 
@@ -68,15 +68,15 @@ Why now: the shell's `useHotkeys`, `KeymapProvider`, focus borders, and footer h
 
 ## M3 - App shell and focus
 
-Status: Ready for dev
+Status: Done (shell and focus frame; every row in Deferred below is still open)
 
 Tickets: [`01-app-shell-and-focus.md`](01-app-shell-and-focus.md)
 
 Scope: `AppShellHost`, the four-region frame, `TopBar` slot, `Sidebar`, `MainArea`, `Footer`, `ResponsiveGate`, the region constants, `FocusProvider`, `StatusProvider`, `useHotkeys`, `useAction`, `useFocusRegion`, `useFocusModel`, Tab traversal, direct region jumps, cursor persistence, and the terminal-too-small notice.
 
-Observable outcome: the shell renders with the four regions, focus moves by Tab and the digit jumps, region borders follow focus, the footer shows hints, and the too-small notice appears at the documented breakpoints. Panels, graph, diff, composer, and console are placeholders.
+Observable outcome: the shell renders with the four regions, focus starts on the top bar, moves by Tab, Shift+Tab, and the digit jumps, region borders and markers follow focus, the footer shows global hints, and the too-small notice appears at the documented breakpoints with the current, enforced, and target sizes. Panels, graph, diff, composer, and console are placeholders.
 
-Deferred: every panel's content, the real top bar actions, repository state, overlays, and command execution.
+Deferred: every panel's content, the real top bar actions, repository state, overlays, command execution, quit confirmation and operation abort, loading rows, overlay footer keys, the right-pane selection derivation, `search` and `form` input modes, and console provider ownership. M3 ships global-only footer hints until the first real panel registers region-scoped actions in M5/M7.
 
 Why now: every later feature plugs into this frame. Building it against placeholders avoids blocking on repository or git work while proving the focus model, which is the hardest part of the UI architecture.
 
