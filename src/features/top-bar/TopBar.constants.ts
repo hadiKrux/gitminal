@@ -1,6 +1,3 @@
-/** The app identity shown on the top bar's first row. */
-export const TOP_BAR_IDENTITY = "Gitminal";
-
 /** Space taken by the panel border, the content marker, and the content margin, in cells. */
 export const TOP_BAR_CHROME_WIDTH = 6;
 

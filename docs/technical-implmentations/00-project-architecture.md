@@ -194,6 +194,7 @@ gitminal/
         useUpdateCheck.types.ts
       shell/
         AppShell.tsx
+        AppShell.constants.ts
         Sidebar.tsx
         SidebarPanelFrame.tsx
         SidebarSwitcher.tsx
@@ -537,7 +538,7 @@ Hooks available from `@opentui/react` 0.6.6:
 Component rules:
 
 1. Keyboard ownership is centralized. `useHotkeys` is the only `useKeyboard` caller after the shell mounts. `SplashGate` runs before the providers mount and is the documented exception while the splash is visible. It owns dismissal and quit, then unmounts as the shell's `useHotkeys` and `app.quit` path takes over. `useHotkeys` resolves precedence (open overlay, then text input, then native list widget, then focused region context, then global), and it calls `preventDefault()` only when it handles the key. Features register handlers by action ID through `useAction`. No feature inspects `KeyEvent` directly.
-2. OpenTUI native focus is the single focus authority. The renderer's `currentFocusedRenderable` receives keys. `FocusProvider` is a projection: it derives `activeRegion` from the focused renderable's nearest ancestor region frame, derives `textInputFocused` from `currentFocusedEditor`, and stores `previousRegion` plus the per-region cursor map. It does not hold a competing writable `activeRegion`. Every region frame is a focusable `<box>` with a stable id and `focusedBorderColor`, so the border follows native focus, including when a descendant text input is focused. The focused region also gets a leading text marker; color is never the only signal.
+2. OpenTUI native focus is the single focus authority. The renderer's `currentFocusedRenderable` receives keys. `FocusProvider` is a projection: it derives `activeRegion` from the focused renderable's nearest ancestor region frame, derives `textInputFocused` from `currentFocusedEditor`, and stores `previousRegion` plus the per-region cursor map. It does not hold a competing writable `activeRegion`. Every region frame is a focusable `<box>` with a stable id and `focusedBorderColor`, so the border follows native focus, including when a descendant text input is focused. The focused frame switches its border to the focus token and its title to the text token; the title text itself never changes, so no marker is added to a boxed title. List rows and controls keep their own text markers.
 3. Every navigable list is either a `<select>` (uniform rows, native up/down and Enter, focused when it is the active widget) or a non-focusable `<scrollbox>` of `<box>` rows when rows need custom content such as graph lanes, ref badges, diff headers, or inline actions. In the custom case, the region frame owns focus, and navigation and selection are implemented by `useListCursor` and rendered as a leading marker plus a highlighted row background. `useListCursor` implements `g`/`G` only where the keymap binds `nav.first` and `nav.last`; `tags`, `stashes`, and `worktrees` deliberately do not bind them.
 4. Mouse focus uses OpenTUI `autoFocus`. Clicking a text input focuses it; clicking any other element focuses the nearest focusable ancestor, normally the region frame. Region and row mouse handlers must not call `focus()` directly; they select the row and dispatch, and native focus follows the click. Double click is detected by `useListCursor` (two clicks on the same row inside a threshold). Mouse never exposes an action that has no keybinding.
 5. Diffs always use `<diff>` with `view="unified"`, `showLineNumbers`, and theme-mapped `addedBg`, `removedBg`, `addedSignColor`, `removedSignColor`. Collapsed unchanged runs are computed in `@/domain/diff/diff.collapse.ts` before the diff string is passed in. Every string passed to `<diff>` must be a valid unified patch with recomputed hunk headers; truncation cuts at hunk boundaries. The unified view draws one line-number gutter. The mockup's two-gutter appearance is illustrative; v1 deliberately renders one gutter rather than adding a custom renderer.
@@ -583,7 +584,7 @@ Required `ICONS` groups and their default values:
 Consumers, all of which read from `ICONS`:
 
 - `src/ui/TextMarker.tsx` renders focus, selection, and status markers.
-- `src/ui/Panel.tsx` renders the focus marker inside a region frame's border title.
+- `src/ui/Panel.tsx` renders the border title and its focus-dependent title color.
 - `src/ui/Badge.tsx` and `src/ui/StatusBadge.tsx` render tag, branch, and sync badges.
 - `src/ui/Spinner.tsx` renders `spinnerFrames` through `useTimeline`.
 - `src/ui/ProgressBar.tsx` draws a FrameBuffer bar; it uses theme colors and no glyphs.
@@ -601,7 +602,7 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 
 | Primitive | OpenTUI composition | Purpose |
 | --- | --- | --- |
-| `Panel` | `<box>` with border, optional `focusable`, stable `id`, `focusedBorderColor`, border title | Bordered region with a native focus-aware border and a title embedded in the top border (`┌─ Title ────────┐`). The title gains a leading focus marker and the `text` token while the region owns focus, and stays `muted` otherwise. Region frames pass `focusable` and the region id. |
+| `Panel` | `<box>` with border, optional `focusable`, stable `id`, `focusedBorderColor`, border title | Bordered region with a native focus-aware border and a title embedded in the top border (`┌─ Title ────────┐`). The border switches to the focus token and the title to the `text` token while the region owns focus, and the title stays `muted` otherwise. The title text is identical in both focus states. Region frames pass `focusable` and the region id. |
 | `PanelHeader` | `<box>` + `<text>` + `<span>` | Section header with title, count, bulk actions. |
 | `ListView` | `<scrollbox>` + `<ListRow>` children | Virtualized custom-row list. |
 | `ListRow` | `<box>` + `<text>` + `<span>` | Row with marker, columns, actions. Marker from `ICONS` in `@/theme/icons`. |

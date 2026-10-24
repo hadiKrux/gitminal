@@ -7,8 +7,9 @@ import { useFocusState } from "@/app/hooks/useFocusState";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useRemoteCommands } from "@/app/hooks/useRemoteCommands";
-import { useRepositoryRefreshAction } from "@/app/hooks/useRepository";
+import { useRepository, useRepositoryRefreshAction } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
+import { selectRepositoryPath } from "@/domain/repository/repository.selectors";
 import { ConsoleDrawer } from "@/features/console/ConsoleDrawer";
 import { OverlayHost } from "@/features/overlays/OverlayHost";
 import { AppShell } from "@/features/shell/AppShell";
@@ -36,6 +37,7 @@ export function AppShellHost(): ReactNode {
   const { state, focusRegion } = useFocusState();
   const consoleLog = useConsoleLog();
   const commandRunner = useCommandRunner();
+  const repository = useRepository();
 
   useHotkeys();
   useRepositoryRefreshAction();
@@ -90,6 +92,7 @@ export function AppShellHost(): ReactNode {
         <AppShell
           layoutMode={layoutMode}
           topBar={<TopBar />}
+          topBarTitle={selectRepositoryPath(repository.snapshot, repository.signals)}
           sidebarPanels={buildSidebarPanels()}
           graph={
             <PlaceholderSurface

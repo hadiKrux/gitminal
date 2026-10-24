@@ -44,6 +44,7 @@ function ShellHarness(props: {
   layoutMode?: "full" | "sidebar-collapsed";
   width?: number;
   height?: number;
+  topBarTitle?: string;
 }): ReactNode {
   const [consoleOpen, setConsoleOpen] = useState(false);
 
@@ -54,6 +55,7 @@ function ShellHarness(props: {
       <AppShell
         layoutMode={props.layoutMode ?? "full"}
         topBar={<text> Gitminal branch main</text>}
+        topBarTitle={props.topBarTitle ?? "Gitminal"}
         sidebarPanels={PANELS}
         graph={<text>graph body</text>}
         rightPane={<text>composer body</text>}
@@ -76,12 +78,18 @@ async function renderShell(
   width: number = 120,
   layoutMode: "full" | "sidebar-collapsed" = "full",
   height: number = 40,
+  topBarTitle?: string,
 ): Promise<Awaited<ReturnType<typeof testRender>>> {
   latestFocus = undefined;
 
   return testRender(
     <ShellTestProviders>
-      <ShellHarness layoutMode={layoutMode} width={width} height={height} />
+      <ShellHarness
+        layoutMode={layoutMode}
+        width={width}
+        height={height}
+        topBarTitle={topBarTitle}
+      />
     </ShellTestProviders>,
     { width, height },
   );
@@ -181,8 +189,9 @@ describe("AppShell", () => {
     });
   });
 
-  it("moves the focus marker and border to the focused region", async () => {
+  it("moves the focus border and title color to the focused region", async () => {
     const setup = await renderShell();
+    const tokens = resolveTheme(DEFAULT_THEME_NAME).tokens;
 
     await act(async () => {
       await setup.renderOnce();
@@ -191,17 +200,25 @@ describe("AppShell", () => {
     const branchesFrame = setup.renderer.root.findDescendantById("region-branches") as
       | BoxRenderable
       | undefined;
+    const topBarFrame = setup.renderer.root.findDescendantById("region-top-bar") as
+      | BoxRenderable
+      | undefined;
 
-    expect(setup.captureCharFrame()).toMatch(/>\s+Gitminal branch main/);
+    expect(setup.captureCharFrame()).toContain("Gitminal branch main");
+    expect(topBarFrame?.title).toBe(" Gitminal ");
+    expect(topBarFrame?.borderColor.equals(RGBA.fromHex(tokens.focus))).toBe(true);
     expect(branchesFrame?.title).toBe(" Branches ");
+    expect(branchesFrame?.borderColor.equals(RGBA.fromHex(tokens.focus))).toBe(false);
 
     await pressTab(setup);
 
     const tabbedFrame = setup.captureCharFrame();
 
-    expect(tabbedFrame).toContain("> Branches");
-    expect(tabbedFrame).not.toContain("> Gitminal branch main");
-    expect(branchesFrame?.title).toBe(" > Branches ");
+    expect(tabbedFrame).toContain("Branches");
+    expect(topBarFrame?.title).toBe(" Gitminal ");
+    expect(branchesFrame?.title).toBe(" Branches ");
+    expect(branchesFrame?.focused).toBe(true);
+    expect(branchesFrame?.borderColor.equals(RGBA.fromHex(tokens.focus))).toBe(true);
 
     await pressKey(setup, "6");
 
@@ -209,15 +226,53 @@ describe("AppShell", () => {
     const graphFrame = setup.renderer.root.findDescendantById("region-graph") as
       | BoxRenderable
       | undefined;
-    const tokens = resolveTheme(DEFAULT_THEME_NAME).tokens;
 
-    expect(frame).toContain("> Commits");
-    expect(graphFrame?.title).toBe(" > Commits ");
+    expect(frame).toContain("Commits");
+    expect(graphFrame?.title).toBe(" Commits ");
     expect(graphFrame?.focused).toBe(true);
     expect(graphFrame?.borderColor.equals(RGBA.fromHex(tokens.focus))).toBe(true);
 
     await act(async () => {
       await setup.dispose();
+    });
+  });
+
+  it("shows a home-relative repository path and shortens an overlong title", async () => {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? "/home/tester";
+    const setup = await renderShell(80, "full", 24, `${home}/repos/gitminal`);
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.renderer.root.findDescendantById("region-top-bar") as
+      | BoxRenderable
+      | undefined;
+
+    expect(frame?.title).toBe(" ~/repos/gitminal ");
+    expect(setup.captureCharFrame()).toContain("~/repos/gitminal");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+
+    const longPath = `${home}/repos/${"nested-directory/".repeat(8)}gitminal`;
+    const longSetup = await renderShell(80, "full", 24, longPath);
+
+    await act(async () => {
+      await longSetup.renderOnce();
+    });
+
+    const longFrame = longSetup.renderer.root.findDescendantById("region-top-bar") as
+      | BoxRenderable
+      | undefined;
+
+    expect(longFrame?.title).toContain("...");
+    expect(longFrame?.title?.length ?? 0).toBeLessThanOrEqual(80);
+    expect(longFrame?.title?.endsWith("gitminal ")).toBeTrue();
+
+    await act(async () => {
+      await longSetup.dispose();
     });
   });
 

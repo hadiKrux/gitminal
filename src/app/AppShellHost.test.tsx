@@ -165,7 +165,7 @@ describe("AppShellHost", () => {
 
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("Gitminal");
+    expect(frame).toContain("/repo");
     expect(frame).toContain("Branches");
     expect(frame).toContain("Commit graph");
     expect(frame).toContain("Commit composer");

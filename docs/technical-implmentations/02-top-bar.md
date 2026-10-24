@@ -5,21 +5,21 @@
 Spec reference: `docs/product-spec.md` section 3 "Application shell" (lines 67-162), section 5 F-02 (lines 207-319), section 6 "Keyboard map" Top bar (lines 1539-1704), section 6.1 "Action IDs" (lines 1705-1742), section 9 "Resolved product decisions" D4, D14, and D15 (lines 1865-1889), and section 10 "Assumed defaults" (lines 1890-1908).
 Dependencies: F-01 `01-app-shell-and-focus.md` (the `top-bar` region and `nav.left` / `nav.right`), F-04 `04-remotes-panel.md` (fetch scope and remote list), F-05 `05-tags-panel.md` (`tag.push` shadowing `remote.push`), F-13 `13-console.md` (command log), F-15 `15-overlays-and-confirmations.md` (force push confirmations and error overlay), F-16 `16-repository-states.md` (detached, no upstream, upstream gone, no remote, no origin), F-17 `17-freshness-and-performance.md` (refresh after operations), F-18 `18-safety-and-platform-behavior.md` (redaction, no prompts), F-20 `20-theme-and-colors.md` (progress bar colors).
 Owned paths: `src/features/top-bar/TopBar.tsx`, `src/features/top-bar/TopBar.constants.ts`, `src/features/top-bar/TopBarStatus.tsx`, `src/features/top-bar/TopBarStatus.constants.ts`, `src/features/top-bar/SyncStateBadge.tsx`, `src/features/top-bar/SyncStateBadge.constants.ts`, `src/features/top-bar/TopBarActions.tsx`, `src/features/top-bar/MoreMenu.tsx`, `src/features/top-bar/MoreMenuLive.tsx`, `src/features/top-bar/MoreMenu.constants.ts`, `src/features/top-bar/topBar.budgets.ts`, `src/features/top-bar/topBar.budgets.types.ts`, `src/features/top-bar/topBar.controls.ts`, `src/features/top-bar/topBar.status.ts`, `src/features/top-bar/useTopBar.ts`, `src/features/top-bar/useTopBar.types.ts`, `src/features/top-bar/useTopBarAvailability.ts`, `src/features/top-bar/useTopBarCommands.ts`, `src/features/top-bar/useTopBarMenu.ts`.
-Referenced shared modules (not owned here): `src/domain/commands/commands.registry.ts`, `src/domain/commands/commands.runner.ts`, `src/domain/commands/commands.availability.ts`, `src/domain/commands/commands.reasons.ts`, `src/domain/commands/commands.remote.ts`, `src/app/hooks/useCommandRunner.ts`, `src/app/hooks/useRemoteCommands.ts`, `src/domain/repository/repository.upstream.ts`, `src/domain/repository/repository.selectors.ts`, `src/domain/git/git.remotes.ts`, `src/domain/git/git.progress.ts`, `src/domain/git/git.client.ts`, `src/ui/ProgressBar.tsx`, `src/ui/Spinner.tsx`.
+Referenced shared modules (not owned here): `src/domain/commands/commands.registry.ts`, `src/domain/commands/commands.runner.ts`, `src/domain/commands/commands.availability.ts`, `src/domain/commands/commands.reasons.ts`, `src/domain/commands/commands.remote.ts`, `src/app/hooks/useCommandRunner.ts`, `src/app/hooks/useRemoteCommands.ts`, `src/domain/repository/repository.upstream.ts`, `src/domain/repository/repository.selectors.ts`, `src/domain/git/git.remotes.ts`, `src/domain/git/git.progress.ts`, `src/domain/git/git.client.ts`, `src/features/shell/AppShell.tsx`, `src/lib/paths.ts`, `src/ui/ProgressBar.tsx`, `src/ui/Spinner.tsx`.
 
 This document follows the 14-section contract in `00-project-architecture.md` section 14. Where it and the architecture contract disagree, the architecture contract wins.
 
 ## 2. Scope and non-goals
 
-In scope: rendering the app identity, current branch or detached short hash, upstream name, ahead and behind counts, and the sync state badge; the Pull and Push buttons; the More menu with Fetch, Fetch --prune, Push force (safe), Push force (overwrite), and Push --no-verify; the `remote.*` action IDs `remote.pull`, `remote.push`, `remote.pushForceSafe`, `remote.pushForceOverwrite`, `remote.pushNoVerify`, `remote.fetch`, `remote.fetchPrune`, and `remote.more`; scoped fetch behavior; the two-phase Fetch --prune confirmation; push with no upstream auto-create; force push variants and their confirmations; detached HEAD, no-remote, and no-origin states; operation progress with an OpenTUI FrameBuffer progress bar; and transient success, warning, error, and informational status messages in the top bar middle section.
+In scope: rendering the repository path as the frame's border title, current branch or detached short hash, upstream name, ahead and behind counts, and the sync state badge; the Pull and Push buttons; the More menu with Fetch, Fetch --prune, Push force (safe), Push force (overwrite), and Push --no-verify; the `remote.*` action IDs `remote.pull`, `remote.push`, `remote.pushForceSafe`, `remote.pushForceOverwrite`, `remote.pushNoVerify`, `remote.fetch`, `remote.fetchPrune`, and `remote.more`; scoped fetch behavior; the two-phase Fetch --prune confirmation; push with no upstream auto-create; force push variants and their confirmations; detached HEAD, no-remote, and no-origin states; operation progress with an OpenTUI FrameBuffer progress bar; and transient success, warning, error, and informational status messages in the top bar middle section.
 Non-goals: the keymap format (F-19 `19-configuration-and-keybindings.md`); the remote branch list and filter (F-04 `04-remotes-panel.md`); tag push (F-05 `05-tags-panel.md`); the confirmation modal structure itself (F-15 `15-overlays-and-confirmations.md`); repository state detection primitives (F-16 `16-repository-states.md`); console rendering (F-13 `13-console.md`); footer hints and contextual disabled reasons (F-01 `01-app-shell-and-focus.md`).
 
 ## 3. OpenTUI components used
 
 | Component | Where used | Why it is the right component |
 | --- | --- | --- |
-| `<box>` | `TopBar` frame, the identity block, the middle status strip, `TopBarActions`, each `Button`, and the `MoreMenu` frame. | The only layout, border, and hit-test primitive. |
-| `<text>` | App identity "Gitminal", branch name, detached short hash plus "detached" label, upstream name, ahead and behind text, operation phase, status message, percentage, and disabled reasons. | Every string. |
+| `<box>` | The top-bar region frame and its repository path border title, the middle status strip, `TopBarActions`, each `Button`, and the `MoreMenu` frame. | The only layout, border, and hit-test primitive. |
+| `<text>` | Branch name, detached short hash plus "detached" label, upstream name, ahead and behind text, operation phase, status message, percentage, and disabled reasons. | Every string. |
 | `<span>` | The sync state badge inside `SyncStateBadge`, the ahead/behind counts, the status marker, the percentage, and the button label runs. | Inline runs inside `<text>`. |
 | `<frame-buffer>` | The one-row progress bar inside `TopBarStatus`, rendered only through the `ProgressBar` primitive. | OpenTUI's cell-level drawing surface gives an exact-width bar with theme colors and no dependence on glyph widths. |
 | `<select>` | The `MoreMenu` modal option list. | Vertical option list with built-in up/down and Enter, and `description` carrying the disabled reason. |
@@ -33,13 +33,13 @@ Hooks used: `useTerminalDimensions` for truncation and status-strip width budget
 
 Pull and Push are explicit text buttons, never icon-only, and their order is Pull then Push. They are composed from `box` plus `text` through the `ui/Button.tsx` and `ui/ButtonRow.tsx` primitives, because the strip mixes static content (branch info and the sync badge) with focusable controls, and because the focused control kind is app state that `ButtonRow` renders with `nav.left` and `nav.right`. `<tab-select>` is not used for these buttons: it cannot render the sync badge alongside the labels, and it would force a uniform-row model onto a mixed strip. `<tab-select>` remains the right component only where a horizontal selector with native Left/Right is the whole control, as in the collapsed sidebar switcher in F-01.
 
-The mockup shows up and down arrows for Push and Pull. The repo's ASCII-only rule forbids Unicode arrows, so the icons are ASCII `^` for Push and `v` for Pull from `src/theme/icons.ts`. They render as the explicit text buttons `v Pull`, `^ Push`, and `... More`; the More button reuses `ICONS.ellipsis`. In `gitminal.png` the identity is the top border title and there is one content row with `master` and the three icon buttons. The implementation deliberately uses two content rows instead: row one is the bold identity, and row two is the status strip on the left with the action buttons on the right. The bar stays two fixed rows and never wraps. This two-row deviation keeps the identity visible while the operational row carries focus, progress, and disabled reasons.
+The mockup shows up and down arrows for Push and Pull. The repo's ASCII-only rule forbids Unicode arrows, so the icons are ASCII `^` for Push and `v` for Pull from `src/theme/icons.ts`. They render as the explicit text buttons `v Pull`, `^ Push`, and `... More`; the More button reuses `ICONS.ellipsis`. In `gitminal.png` the top border carries the app identity and there is one content row with `master` and the three icon buttons. The implementation matches that arrangement but shows the local repository path instead of the fixed app name: `AppShell` owns the focusable `top-bar` region frame, and `AppShellHost` passes `selectRepositoryPath(snapshot, signals)` as the frame's `topBarTitle`, so the title renders as `+- ~/repos/gitminal ----+` in the top border. `AppShell` abbreviates a path under the home directory with `~` through `toHomeRelativePath` and shortens an overlong title from the start through `shortenPath`, keeping the final segments readable. `TopBar` supplies the single content row with the status strip on the left and the action buttons on the right. The bar never wraps. The title text stays the same in both focus states; the frame border and title color carry focus instead of a leading marker.
 
-The status strip is the middle of the second row. It is the single surface for branch information, operation progress, and transient status, and it is not focusable. When it is idle it is also a `nav.left`/`nav.right` stop for the branch info, as section 8 describes; while a message or operation is showing, the branch info stop disappears. Focus is stored as a control kind, not a position, so hiding that stop cannot move focus from Pull to Push.
+The status strip is the left of the single content row. It is the single surface for branch information, operation progress, and transient status, and it is not focusable. When it is idle it is also a `nav.left`/`nav.right` stop for the branch info, as section 8 describes; while a message or operation is showing, the branch info stop disappears. Focus is stored as a control kind, not a position, so hiding that stop cannot move focus from Pull to Push.
 
 ### 3.2 Status strip and progress bar
 
-The top bar middle section is `TopBarStatus`. It renders exactly one of three modes: branch info when idle, operation progress while a command runs, or a transient status message after a command finishes. It sits at the left of the second row, between the frame's focus marker and `TopBarActions`, with a width budget from `useTerminalDimensions`. `topBar.budgets.ts` splits the row between the strip and the disabled reasons. It reserves the actual reason text plus the focus marker, shrinks reasons first, and gives the strip a 20-cell minimum, so the branch, the sync badge, and the action labels survive at 80 and 100 columns.
+The top bar middle section is `TopBarStatus`. It renders exactly one of three modes: branch info when idle, operation progress while a command runs, or a transient status message after a command finishes. It sits at the left of the content row, before `TopBarActions`, with a width budget from `useTerminalDimensions`. `topBar.budgets.ts` splits the row between the strip and the disabled reasons. It reserves the actual reason text plus the focus marker, shrinks reasons first, and gives the strip a 20-cell minimum, so the branch, the sync badge, and the action labels survive at 80 and 100 columns.
 
 The progress bar is `ProgressBar` from `src/ui/ProgressBar.tsx`. OpenTUI 0.6.6 has no React intrinsic for `FrameBufferRenderable`, so `ProgressBar` registers OpenTUI's own renderable once with `extend({ "frame-buffer": FrameBufferRenderable })` and augments `OpenTUIComponents` for JSX typing. The registered `<frame-buffer>` is one row high and as wide as the strip budget allows, between 8 and 24 cells.
 
@@ -52,34 +52,35 @@ All icons and markers used by this feature come from `src/theme/icons.ts`; see a
 ## 4. Component tree
 
 ```text
-TopBar                          (src/features/top-bar/TopBar.tsx)
--> box (column, two fixed rows)
-   -> box (row 1: identity)
-      -> text                    "Gitminal", bold
-   -> box (row 2)
+AppShell                        (src/features/shell/AppShell.tsx)
+-> Panel (top-bar region frame, title: repository path)
+   -> box (one content row)
       -> box (grow)
-         -> TopBarStatus         (src/features/top-bar/TopBarStatus.tsx)
-            -> text (phase + percentage)     when an operation runs or a status is active
-            -> Spinner                        when an operation runs without a percentage
-            -> ProgressBar                    when an operation runs with a percentage
-               -> frame-buffer                (FrameBufferRenderable via src/ui/ProgressBar.tsx)
-            -> branch info                    when idle
-               -> text (branch name)          or short hash + "detached"
-               -> span (upstream name)        when an upstream exists
-               -> span ("ahead N")            when an upstream exists
-               -> span ("behind N")           when an upstream exists
-               -> SyncStateBadge              (src/features/top-bar/SyncStateBadge.tsx)
-      -> TopBarActions              (src/features/top-bar/TopBarActions.tsx)
-         -> ButtonRow
-            -> Button (v Pull)
-            -> Button (^ Push)
-            -> Button (... More)
-   -> MoreMenu (modal, conditionally)   (src/features/top-bar/MoreMenu.tsx)
-      -> ModalFrame
-         -> select
+         -> TopBar              (src/features/top-bar/TopBar.tsx)
+            -> box (row: status strip and actions)
+               -> box (grow)
+                  -> TopBarStatus         (src/features/top-bar/TopBarStatus.tsx)
+                     -> text (phase + percentage)     when an operation runs or a status is active
+                     -> Spinner                        when an operation runs without a percentage
+                     -> ProgressBar                    when an operation runs with a percentage
+                        -> frame-buffer                (FrameBufferRenderable via src/ui/ProgressBar.tsx)
+                     -> branch info                    when idle
+                        -> text (branch name)          or short hash + "detached"
+                        -> span (upstream name)        when an upstream exists
+                        -> span ("ahead N")            when an upstream exists
+                        -> span ("behind N")           when an upstream exists
+                        -> SyncStateBadge              (src/features/top-bar/SyncStateBadge.tsx)
+               -> TopBarActions              (src/features/top-bar/TopBarActions.tsx)
+                  -> ButtonRow
+                     -> Button (v Pull)
+                     -> Button (^ Push)
+                     -> Button (... More)
+            -> MoreMenu (modal, conditionally)   (src/features/top-bar/MoreMenu.tsx)
+               -> ModalFrame
+                  -> select
 ```
 
-`useTopBar.ts` supplies branch text, upstream text, ahead and behind counts, sync state, availability, and the focused control kind. The More menu open state lives in `OverlayProvider`, not in a local flag. `useTopBar` combines repository data with status and progress from `useStatus` to select the `TopBarStatus` mode. It reads repository data from `@/domain/repository` and never recomputes ahead/behind or upstream state itself.
+The top-bar region frame is owned by the shell. `AppShellHost` passes `selectRepositoryPath(repository.snapshot, repository.signals)` as `AppShell`'s `topBarTitle`, so the title is the work-tree root, or the bare git directory, or the launch directory, and the shell keeps the feature-to-feature import ban. The selector does not read git directly: it picks the path from the snapshot and signals of the same repository read. `useTopBar.ts` supplies branch text, upstream text, ahead and behind counts, sync state, availability, and the focused control kind. The More menu open state lives in `OverlayProvider`, not in a local flag. `useTopBar` combines repository data with status and progress from `useStatus` to select the `TopBarStatus` mode. It reads repository data from `@/domain/repository` and never recomputes ahead/behind or upstream state itself.
 
 `MoreMenuLive` rebuilds the menu options from the repository and status providers on every render, so a read that settles while the menu is open updates the visible reasons. `MoreMenu` reports only the selected command ID, never a raw key or an ambient cursor. `useTopBarCommands` resolves the explicit target (`{ kind: "none" }` for fetch and Fetch --prune, `{ kind: "branch", name: currentBranch }` for the force and no-verify variants), pre-checks availability, and opens the force confirmations through `OverlayProvider` before the command runner is invoked; an unavailable item keeps the menu open and shows its reason.
 
@@ -87,8 +88,8 @@ TopBar                          (src/features/top-bar/TopBar.tsx)
 
 | File | Responsibility |
 | --- | --- |
-| `src/features/top-bar/TopBar.tsx` | Two-row top-bar frame, app identity, and composition of `TopBarStatus`, `TopBarActions`, and the More menu overlay entry. |
-| `src/features/top-bar/TopBar.constants.ts` | Identity text, budget constants, overlay ids, and the exact force-push confirm labels. |
+| `src/features/top-bar/TopBar.tsx` | Single-row top-bar content inside the shell's top-bar frame, and composition of `TopBarStatus`, `TopBarActions`, and the More menu overlay entry. |
+| `src/features/top-bar/TopBar.constants.ts` | Budget constants, overlay ids, and the exact force-push confirm labels. |
 | `src/features/top-bar/TopBarStatus.tsx` | Renders the middle status strip from the mode selected by `useTopBar`: branch info, progress, or transient status; renders the phase, percentage, `Spinner`, and `ProgressBar`. |
 | `src/features/top-bar/TopBarStatus.constants.ts` | Spinner, phase, and separator widths used by the status strip. |
 | `src/features/top-bar/SyncStateBadge.tsx` | Renders "up to date", "ahead", "behind", "diverged", "no upstream", or "upstream gone" as a span plus a text marker. |
@@ -194,7 +195,7 @@ Focus: the `top-bar` frame is a focusable region frame with `focusedBorderColor`
 
 ## 10. Performance and bounds
 
-- The top bar is a fixed two-row block; it never scrolls and never wraps. Row one is the app identity and row two holds the status strip and the actions. The status strip shares row two and never changes the top bar height. At 80 and 100 columns the budget reserves the actual reason text plus the focus marker and keeps a 20-cell status minimum, so a short reason never hides the branch and the action strip never overflows.
+- The top bar is a fixed three-row frame: the top border carrying the repository path title, one content row, and the bottom border. It never scrolls and never wraps. The title budget is the terminal width minus the border corners and the title padding; a path under the home directory is abbreviated with `~` first and then shortened from the start so its final segments stay readable. The content row holds the status strip and the actions. The status strip shares that row and never changes the top bar height. At 80 and 100 columns the budget reserves the actual reason text plus the focus marker and keeps a 20-cell status minimum, so a short reason never hides the branch and the action strip never overflows.
 - Branch, upstream, phase, status, and ahead/behind strings truncate through `@/lib/text.ts` with a budget from `useTerminalDimensions`. Truncation never hides the current branch when idle, the sync state, or the Push button. Pure budget tests cover 80 and 100 columns with zero, one, and two disabled actions.
 - Progress updates do not trigger a repository read. `ProgressBar` redraws only when the rounded filled-cell count, width, a terminal resize, or the theme color changes, then calls `requestRender()`, and a height-only resize redraws even when the width is unchanged because the buffer was cleared. The 100 ms timer in `ProgressBar` is the deliberate throttling mechanism; `useTimeline` is used only by `Spinner`, and this deviation from the architecture's earlier `useTimeline` assignment is recorded in `00-project-architecture.md` section 6. A status timeout re-render only swaps text.
 - The progress bar is bounded to 24 cells and hidden below 8 available cells; the percentage text remains. No allocation grows with terminal width.

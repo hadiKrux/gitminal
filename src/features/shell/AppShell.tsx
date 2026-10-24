@@ -1,30 +1,36 @@
+import { useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
+import { TOP_BAR_TITLE_CHROME_WIDTH } from "@/features/shell/AppShell.constants";
 import { Footer } from "@/features/shell/Footer";
 import type { ShellLayoutMode, SidebarPanel } from "@/features/shell/focus.types";
 import { MainArea } from "@/features/shell/MainArea";
 import { Sidebar } from "@/features/shell/Sidebar";
 import { useFocusModel } from "@/features/shell/useFocusModel";
+import { shortenPath, toHomeRelativePath } from "@/lib/paths";
+import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { Panel } from "@/ui/Panel";
-import { TextMarker } from "@/ui/TextMarker";
 
 /**
  * Renders the persistent four-region shell frame.
  *
  * The shell owns the top-bar and console region frames, composes the sidebar and main-area frames,
  * and registers Tab traversal and direct region jumps through `useFocusModel`. Feature surfaces
- * arrive as props or children, so this component never imports another feature. It acquires focus
- * once on mount, on the top bar, so the first Tab enters the sidebar and the footer has a region
- * context from the first frame. The console drawer mounts only when open; its region is still
+ * arrive as props or children, so this component never imports another feature. The top-bar frame
+ * carries the repository path as its border title, abbreviating the home directory and shortening
+ * an overlong path to the width budget, matching the mockup's `+- Title ----+` frame. It acquires
+ * focus once on mount, on the top bar, so the first Tab enters the sidebar and the footer has a
+ * region context from the first frame. The console drawer mounts only when open; its region is still
  * registered so a digit jump can open and focus it.
  *
- * @param props - Feature surfaces, active layout mode, and console visibility.
+ * @param props - Feature surfaces, the top-bar border title, active layout mode, and console visibility.
  * @returns The shell frame.
  */
 export function AppShell(props: {
   layoutMode: ShellLayoutMode;
   topBar: ReactNode;
+  topBarTitle: string;
   sidebarPanels: readonly SidebarPanel[];
   graph: ReactNode;
   rightPane: ReactNode;
@@ -39,6 +45,13 @@ export function AppShell(props: {
   const topBar = useFocusRegion("top-bar");
   const consoleRegion = useFocusRegion("console");
   const tokens = useTokens();
+  const dimensions = useTerminalDimensions();
+  const titleBudget = Math.max(1, dimensions.width - TOP_BAR_TITLE_CHROME_WIDTH);
+  const topBarTitle = shortenPath(
+    toHomeRelativePath(props.topBarTitle),
+    titleBudget,
+    ICONS.ellipsis,
+  );
 
   useFocusModel({
     layoutMode: props.layoutMode,
@@ -59,10 +72,15 @@ export function AppShell(props: {
 
   return (
     <box flexDirection="column" flexGrow={1} backgroundColor={tokens.background}>
-      <Panel {...topBar.regionProps} focused={topBar.focused} height={4} flexShrink={0}>
-        <box flexDirection="row" flexGrow={1} height={2}>
-          <TextMarker focused={topBar.focused} />
-          <box flexDirection="column" flexGrow={1} height={2} marginLeft={1}>
+      <Panel
+        {...topBar.regionProps}
+        focused={topBar.focused}
+        title={topBarTitle}
+        height={3}
+        flexShrink={0}
+      >
+        <box flexDirection="row" flexGrow={1} height={1}>
+          <box flexDirection="column" flexGrow={1} height={1} marginLeft={1}>
             {props.topBar}
           </box>
         </box>

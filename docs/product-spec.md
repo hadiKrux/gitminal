@@ -93,7 +93,7 @@ The text below is a behavioral summary. The authoritative visual target is the m
 
 The visible layout has four regions:
 
-- Top bar: app identity, current branch and sync state, a center status strip for operation progress and transient status messages, and remote actions.
+- Top bar: repository path, current branch and sync state, a center status strip for operation progress and transient status messages, and remote actions.
 - Sidebar: five independently scrollable panels: Branches, Remotes, Tags, Stashes, Worktrees.
 - Main area: commit graph on the left, commit composer or commit details plus diffs on the right.
 - Footer: contextual keyboard hints and disabled reasons.
@@ -208,7 +208,7 @@ Acceptance:
 
 The top bar contains:
 
-- App identity: "Gitminal".
+- Repository path as the frame's border title: the work-tree root, the bare git directory, or the launch directory when the path is not inside a work tree. A path under the home directory is shown with a leading `~`, and an overlong path is shortened from the start so its final segments stay readable.
 - Current branch name on the left. Detached HEAD shows the short commit hash and a "detached" label.
 - Upstream branch name when one exists.
 - Ahead and behind counts when an upstream exists. Example text: "ahead 2" and "behind 1".

@@ -5,6 +5,7 @@ import {
   selectBranchDisplay,
   selectPendingCounts,
   selectRemoteFreshness,
+  selectRepositoryPath,
   selectRepositoryView,
   selectStateDisplay,
   selectSyncState,
@@ -68,6 +69,19 @@ describe("repository selectors", () => {
       untracked: 2,
       total: 6,
     });
+  });
+
+  it("shows the work-tree root, bare git directory, or launch directory as the repository path", () => {
+    expect(selectRepositoryPath(snapshot(), createRepositorySignals({ cwd: "/repo/src" }))).toBe(
+      "/repo",
+    );
+    expect(
+      selectRepositoryPath(
+        null,
+        createRepositorySignals({ cwd: "/bare", bare: true, gitDir: "/bare" }),
+      ),
+    ).toBe("/bare");
+    expect(selectRepositoryPath(null, createRepositorySignals({ cwd: "/plain" }))).toBe("/plain");
   });
 
   it("labels a branch and a detached HEAD", () => {

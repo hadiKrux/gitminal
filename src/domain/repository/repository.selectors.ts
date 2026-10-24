@@ -5,6 +5,7 @@ import type {
   RemoteFreshness,
   RepositoryFlag,
   RepositoryPrimaryState,
+  RepositorySignals,
   RepositorySnapshot,
   RepositoryStateDisplay,
   RepositoryStateSnapshot,
@@ -51,6 +52,25 @@ const FLAG_LABELS: Readonly<Record<RepositoryFlag, string>> = Object.freeze({
   "invalid-config": "invalid configuration",
   "invalid-theme": "invalid theme",
 });
+
+/**
+ * Reads the repository path shown as the top-bar title.
+ *
+ * A readable work tree shows its root even when the app was launched from a subdirectory, so the
+ * title names the repository rather than the launch folder. A bare repository has no work-tree root,
+ * so its git directory is shown. A plain directory falls back to the launch directory, so the title
+ * always names the location the app is reading.
+ *
+ * @param snapshot - Current snapshot, or null before the first read or outside a work tree.
+ * @param signals - Signals from the same read, carrying the launch and git directories.
+ * @returns The absolute path to show.
+ */
+export function selectRepositoryPath(
+  snapshot: RepositorySnapshot | null,
+  signals: RepositorySignals,
+): string {
+  return snapshot?.root ?? signals.repositoryRoot ?? signals.gitDir ?? signals.cwd;
+}
 
 /**
  * Reads the pending change counts.

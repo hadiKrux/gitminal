@@ -110,7 +110,7 @@ Status: Done
 
 Tickets: [`02-top-bar.md`](02-top-bar.md)
 
-Scope: identity, branch and upstream display, ahead and behind, sync state badge, Pull and Push buttons, the More menu, fetch and fetch --prune, force push variants, no-upstream push, progress, and transient status.
+Scope: repository path title, branch and upstream display, ahead and behind, sync state badge, Pull and Push buttons, the More menu, fetch and fetch --prune, force push variants, no-upstream push, progress, and transient status.
 
 Observable outcome: the top bar shows the real repository state and runs fetch, pull, and push with progress, confirmation, console output, and a refreshed repository.
 

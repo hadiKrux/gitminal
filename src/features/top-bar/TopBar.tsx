@@ -1,29 +1,25 @@
-import { TextAttributes } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { MoreMenuLive } from "@/features/top-bar/MoreMenuLive";
-import { TOP_BAR_IDENTITY } from "@/features/top-bar/TopBar.constants";
 import { TopBarActions } from "@/features/top-bar/TopBarActions";
 import { TopBarStatus } from "@/features/top-bar/TopBarStatus";
 import { calculateTopBarBudgets } from "@/features/top-bar/topBar.budgets";
 import { useTopBar } from "@/features/top-bar/useTopBar";
 import type { TopBarControl } from "@/features/top-bar/useTopBar.types";
-import { useTokens } from "@/theme/useTokens";
 
 /**
- * Renders the app identity, the branch, upstream, sync and status strip, and the remote actions.
+ * Renders the branch, upstream, sync and status strip, and the remote actions.
  *
- * The bar has two fixed one-row lines: the identity row and the operational row. The operational row
- * places the single status strip on the left and the Pull, Push, and More buttons on the right, so a
- * long branch or a long message truncates in the middle while the primary actions stay visible. The
- * More menu is an overlay entry owned by `OverlayProvider`; this component supplies the JSX and the
- * explicit command routing. The bar reads derived data from `useTopBar` and never recomputes
- * repository state.
+ * The app identity is the shell frame's border title, so this component renders a single content
+ * row inside that frame. The status strip sits on the left and the Pull, Push, and More buttons on
+ * the right, so a long branch or a long message truncates in the middle while the primary actions
+ * stay visible. The More menu is an overlay entry owned by `OverlayProvider`; this component
+ * supplies the JSX and the explicit command routing. The bar reads derived data from `useTopBar`
+ * and never recomputes repository state.
  *
- * @returns The two-row top bar.
+ * @returns The one-row top-bar content.
  */
 export function TopBar(): ReactNode {
-  const tokens = useTokens();
   const dimensions = useTerminalDimensions();
   const topBar = useTopBar({
     renderMoreMenu: ({ close, activate }) => (
@@ -39,28 +35,17 @@ export function TopBar(): ReactNode {
   const infoFocused = topBar.focusedKind === "info" && topBar.focusedIndex >= 0;
 
   return (
-    <box flexDirection="column" flexGrow={1}>
-      <box flexDirection="row" height={1} flexShrink={0}>
-        <text fg={tokens.text} wrapMode="none" attributes={TextAttributes.BOLD}>
-          {TOP_BAR_IDENTITY}
-        </text>
+    <box flexDirection="row" height={1} flexGrow={1}>
+      <box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
+        <TopBarStatus mode={topBar.statusMode} width={budgets.statusWidth} focused={infoFocused} />
       </box>
-      <box flexDirection="row" height={1} flexShrink={0}>
-        <box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
-          <TopBarStatus
-            mode={topBar.statusMode}
-            width={budgets.statusWidth}
-            focused={infoFocused}
-          />
-        </box>
-        <box flexDirection="row" height={1} flexShrink={0} marginRight={1}>
-          <TopBarActions
-            controls={topBar.controls}
-            focusedKind={topBar.focusedKind}
-            reasonWidth={budgets.reasonWidth}
-            onActivate={topBar.activateControl}
-          />
-        </box>
+      <box flexDirection="row" height={1} flexShrink={0} marginRight={1}>
+        <TopBarActions
+          controls={topBar.controls}
+          focusedKind={topBar.focusedKind}
+          reasonWidth={budgets.reasonWidth}
+          onActivate={topBar.activateControl}
+        />
       </box>
     </box>
   );

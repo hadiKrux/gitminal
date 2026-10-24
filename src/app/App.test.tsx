@@ -166,7 +166,7 @@ describe("App splash gate", () => {
 
     const dismissedFrame = setup.captureCharFrame();
 
-    expect(dismissedFrame).toContain("Gitminal");
+    expect(dismissedFrame).toContain("/repo");
     expect(dismissedFrame).toContain("Branches");
     expect(dismissedFrame).toContain("Commits");
     expect(dismissedFrame).toContain("Diffs");
@@ -241,7 +241,7 @@ describe("App splash gate", () => {
       await setup.renderOnce();
     });
 
-    expect(setup.captureCharFrame()).toContain("Gitminal");
+    expect(setup.captureCharFrame()).toContain("/repo");
     expect(destroySpy).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -286,7 +286,7 @@ describe("App splash gate", () => {
     });
 
     expect(destroySpy).not.toHaveBeenCalled();
-    expect(setup.captureCharFrame()).toContain("Gitminal");
+    expect(setup.captureCharFrame()).toContain("/repo");
 
     await act(async () => {
       setup.mockInput.pressKey("c");
@@ -296,7 +296,7 @@ describe("App splash gate", () => {
     });
 
     expect(destroySpy).not.toHaveBeenCalled();
-    expect(setup.captureCharFrame()).toContain("Gitminal");
+    expect(setup.captureCharFrame()).toContain("/repo");
 
     destroySpy.mockRestore();
     await act(async () => {
