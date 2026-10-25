@@ -417,7 +417,8 @@ describe("useTopBarCommands force confirmation", () => {
         await new Promise((resolve) => setTimeout(resolve, 30));
       });
 
-      expect(latestStatus?.status).toEqual({ kind: "error", message: "refresh exploded" });
+      expect(latestOverlay?.errorDetail?.message).toBe("refresh exploded");
+      expect(latestStatus?.status).toBeNull();
       expect(rejections).toHaveLength(0);
     } finally {
       process.off("unhandledRejection", listener);

@@ -37,6 +37,8 @@ export interface OverlayConfirmEntry {
   readonly description: string;
   /** Label of the primary action; never a generic "OK" or "Yes" for a destructive action. */
   readonly confirmLabel: string;
+  /** Visible warning when a destructive entry does not use an exact F-15 label. */
+  readonly labelWarning?: string;
   /** True when focus defaults to Cancel and the action can lose remote work. */
   readonly destructive: boolean;
   /** Runs only when the primary action is activated. */
@@ -45,26 +47,92 @@ export interface OverlayConfirmEntry {
   readonly initialFocusId?: string;
 }
 
-/** Every entry the overlay provider can own. At most one exists at a time. */
+/** Every modal entry the overlay provider can own. At most one exists at a time. */
 export type OverlayEntry = OverlayModalEntry | OverlayConfirmEntry;
 
+/** State owned by the overlay surface reducer. */
+export interface OverlaySurfaceState {
+  /** The single open entry, or null. */
+  readonly entry: OverlayEntry | null;
+  /** The persistent error detail, or null. */
+  readonly errorDetail: ErrorDetail | null;
+  /** Renderable id captured when the first surface opened. */
+  readonly capturedFocusId: string | null;
+  /** Renderable id waiting to be restored by the focus effect. */
+  readonly releasedFocusId: string | null;
+}
+
+/** Every transition the overlay surface supports. */
+export type OverlaySurfaceAction =
+  | {
+      readonly type: "open";
+      readonly entry: OverlayEntry;
+      readonly focusedId: string | null;
+    }
+  | { readonly type: "close" }
+  | { readonly type: "closeEntry"; readonly entryId: string }
+  | {
+      readonly type: "showError";
+      readonly detail: ErrorDetail;
+      readonly focusedId: string | null;
+    }
+  | { readonly type: "dismissError" }
+  | { readonly type: "acknowledgeRestore" };
+
 /** Input accepted by `OverlayContextValue.confirm`. */
-export type OverlayConfirmInput = Omit<OverlayConfirmEntry, "kind" | "id">;
+export type OverlayConfirmInput = Omit<OverlayConfirmEntry, "kind" | "id" | "labelWarning">;
+
+/**
+ * A redacted command failure shown by the persistent error overlay.
+ *
+ * The detail is stored after redaction and control-character sanitization, so the overlay never
+ * handles a credential or a terminal escape. The app-layer orchestrator is the only writer and
+ * sanitizes before calling `showError`; the provider stores the detail as given. A new failure
+ * replaces this value instead of stacking a second overlay. `retry` exists only when re-running the
+ * command is meaningful; its closure holds the original request, including any form values, so no
+ * duplicate input state is stored here.
+ */
+export interface ErrorDetail {
+  /** Command that failed. */
+  readonly commandId: string;
+  /** Human-readable operation label. */
+  readonly operationLabel: string;
+  /** Decisive redacted failure line. */
+  readonly message: string;
+  /** Redacted, sanitized, capped detail block rendered inside the scrollable error body. */
+  readonly details: string;
+  /** Console entry that recorded this failure, used by "Open console entry". */
+  readonly consoleEntryId: string | null;
+  /** Re-runs the failed command with its captured request; absent when retry is not meaningful. */
+  readonly retry?: () => void;
+}
 
 /** Value exposed by `OverlayProvider` and read through `useOverlay`. */
 export interface OverlayContextValue {
   /** The open entry, or null when nothing is open. */
   readonly entry: OverlayEntry | null;
-  /** True while an entry owns the keyboard and the footer modal hints. */
+  /** The current persistent error detail, or null when no failure is shown. */
+  readonly errorDetail: ErrorDetail | null;
+  /** True while an entry or an error owns the keyboard and the footer modal hints. */
   readonly isOpen: boolean;
   /** Action id that toggles the open modal, or null when it has no toggle. */
   readonly toggleActionId: string | null;
   /** Opens an entry, replacing any entry that is already open. */
   readonly open: (entry: OverlayEntry) => void;
-  /** Closes the open entry and restores the focus captured on open. */
+  /** Closes the open entry, or dismisses the error when no entry is open. */
   readonly close: () => void;
+  /**
+   * Closes one entry only when it is still the open entry.
+   *
+   * @param entryId - Entry that the caller opened when it started its work.
+   */
+  readonly closeEntry: (entryId: string) => void;
   /** Opens a confirmation entry with a provider-generated id. */
   readonly confirm: (input: OverlayConfirmInput) => void;
+  /** Shows a command failure, replacing any error already visible. */
+  readonly showError: (detail: ErrorDetail) => void;
+  /** Dismisses the visible error and restores the focus captured when it opened. */
+  readonly dismissError: () => void;
 }
 
 /** Props accepted by `OverlayProvider`. */

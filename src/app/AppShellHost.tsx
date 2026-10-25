@@ -83,6 +83,12 @@ export function AppShellHost(): ReactNode {
   });
 
   useAction("app.console", { scope: "global", owner: "app" }, () => {
+    if (consoleLog.isOpen && state.focusInsideRegion && state.activeRegion === "console") {
+      consoleLog.close();
+      returnFromConsoleFocus(state.previousRegion, focusRegion);
+      return;
+    }
+
     consoleLog.toggle();
   });
 

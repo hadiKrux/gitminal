@@ -49,8 +49,10 @@ const CLOSE_ACTION_ID = "overlay.close";
  * `resolveHotkeyAction`, looks up the handler for the resolved scope, and calls `preventDefault()`
  * only when a handler actually ran. Unhandled keys pass through to a focused input, a native list
  * widget, or OpenTUI's editing bindings untouched. While an overlay is open, the overlay inputs
- * give that overlay ownership of the keyboard, with only `overlay.close`, `app.quit`, and the same
- * overlay's toggle resolving from the global context.
+ * give that overlay ownership of the keyboard. Outside a modal text field only `overlay.close`,
+ * `app.quit`, and the same overlay's toggle resolve from the global context; inside a modal text
+ * field, `overlay.close` on `Esc`, the hardcoded `Ctrl+C` quit path, and modifier-gated
+ * text-input-safe actions may also resolve, and a plain unmodified global action never does.
  */
 export function useHotkeys(): void {
   const keymap = useKeymap();

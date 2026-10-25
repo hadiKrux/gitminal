@@ -183,6 +183,82 @@ describe("ConsoleProvider", () => {
     });
   });
 
+  it("expands a failure entry on append and leaves a success entry collapsed", async () => {
+    const setup = await renderConsole();
+
+    await act(async () => {
+      latest?.append(entry("success"));
+      latest?.append({ ...entry("failure"), status: "failure", exitCode: 1 });
+    });
+
+    expect(latest?.expandedEntryIds.has("failure")).toBe(true);
+    expect(latest?.expandedEntryIds.has("success")).toBe(false);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("replaces an existing entry in place and expands it when it becomes a failure", async () => {
+    const setup = await renderConsole();
+
+    await act(async () => {
+      latest?.append(entry("a"));
+      latest?.append(entry("b"));
+      latest?.replaceEntry({
+        ...entry("b"),
+        status: "failure",
+        exitCode: null,
+        summary: "refresh exploded",
+        decisiveError: "refresh exploded",
+      });
+    });
+
+    expect(latest?.entries.map((candidate) => candidate.id)).toEqual(["a", "b"]);
+    expect(latest?.entries[1]?.status).toBe("failure");
+    expect(latest?.entries[1]?.summary).toBe("refresh exploded");
+    expect(latest?.expandedEntryIds.has("b")).toBe(true);
+
+    await act(async () => {
+      latest?.replaceEntry(entry("missing"));
+    });
+
+    expect(latest?.entries).toHaveLength(2);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("opens the drawer and carries a pending selection request", async () => {
+    const setup = await renderConsole();
+
+    await act(async () => {
+      latest?.append(entry("a"));
+      latest?.requestEntrySelection("a");
+    });
+
+    expect(latest?.isOpen).toBe(true);
+    expect(latest?.pendingSelectionEntryId).toBe("a");
+
+    await act(async () => {
+      latest?.consumePendingSelection("a");
+    });
+
+    expect(latest?.pendingSelectionEntryId).toBeNull();
+
+    await act(async () => {
+      latest?.requestEntrySelection("a");
+      latest?.clear();
+    });
+
+    expect(latest?.pendingSelectionEntryId).toBeNull();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("owns drawer visibility", async () => {
     const setup = await renderConsole();
 

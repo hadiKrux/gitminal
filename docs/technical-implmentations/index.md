@@ -100,7 +100,7 @@ The one mutation command reachable end to end is `remote.fetch`: `AppShellHost` 
 
 Observable outcome: the app reads the current repository on launch, shows branch, upstream, ahead and behind, staged, unstaged and untracked counts, and repository state in the temporary top-bar placeholder, and pressing `f` runs a real fetch through `useCommandRunner` that produces exactly one console entry, one status, and one refresh. A fetch that reaches a remote also advances that remote's last successful fetch timestamp; a failed remote leaves it untouched. The real top bar is M5 and the console drawer is M6.
 
-Deferred: the full command registry and availability rules for every feature, progress rendering in the top bar, the graph and diff surfaces that consume the paging engines, the overlay-based error surface (`useCommandRunner` routes failures through an injectable sink that sets an error status until M6), draft-based quit confirmation (quit aborts the child and waits for it to settle, but does not yet ask about an unsaved draft), and the performance edge cases that need real data.
+Deferred: the full command registry and availability rules for every feature, progress rendering in the top bar, the graph and diff surfaces that consume the paging engines, draft-based quit confirmation (quit aborts the child and waits for it to settle, but does not yet ask about an unsaved draft), and the performance edge cases that need real data. The overlay-based error surface and the real console drawer were completed in M6.
 
 Why now: the top bar and every panel read the repository snapshot. The git client and command runner are the shared contract that all mutations use, so they belong before the first actionable feature.
 
@@ -120,15 +120,17 @@ Why now: it is the first feature that turns the repository foundation into an ob
 
 ## M6 - Overlays and console
 
-Status: Ready for dev
+Status: Done
 
 Tickets: [`15-overlays-and-confirmations.md`](15-overlays-and-confirmations.md), [`13-console.md`](13-console.md)
 
 Scope: the overlay stack, confirm and error modals, focus trapping, destructive confirmation wording, the console drawer, bounded entries, selection, copy, and clear confirmation.
 
-Observable outcome: destructive and failed commands open the correct overlay, and every command appears in the console with redacted output.
+Done: the single-entry `OverlayProvider` now owns the open entry, the persistent redacted error detail, and the focus captured when either surface opens. Opening a surface blurs the background renderable, and a settled command closes only the entry that was open when it started. `ConfirmModal` keeps Cancel as the destructive default, validates the exact shared F-15 label table at entry creation with a visible warning instead of a render crash, and exposes the exact F-15 label table. `ErrorOverlay` renders redacted, sanitized, capped details with Dismiss, Open console entry, and Retry only for retryable remote failures; a new failure replaces the visible one without stacking. While an overlay is open the `Overlay` layer blocks the background; outside a modal text field only `overlay.close`, `app.quit`, and the same modal's toggle resolve, while inside a modal text field the `Esc` close, the hardcoded `Ctrl+C` quit path, and modifier-gated text-input-safe actions may also fire. `useCommandRunner` now routes settled failures to the error overlay with the console entry link and a retry closure over the original request, updates an already-appended entry to a matching failure when the post-result refresh fails, and no longer writes a temporary error status. The real `ConsoleDrawer` replaces the M4 placeholder: singular/plural header count, follow and new-entry indicators, bounded viewport, per-entry timestamp, operation, argv, conditional cwd, exit status, duration, phase and summary, expandable stdout/stderr with the omitted-lines marker, failure rows expanded by default, keyboard selection, scrolling, and expansion through `nav.activate`, OSC 52 copy on selection, empty, running, failure, cancelled, and timed-out states, and clear confirmation through the overlay. The console joins the Tab order only while open, and captured output is sanitized for terminal control bytes before storage. The console registers only `console.clear`, `nav.*`, and `nav.activate` in the `console` scope; `app.console`, `overlay.close`, and `focus.region.console` stay in the app and shell layers.
 
-Deferred: feature-specific confirmation copy can land with each feature, and console filtering beyond the documented scope can wait.
+Deferred: feature-specific destructive confirmation copy lands with each panel ticket; text-field modal forms and their `form.submit` flow land with the features that own those forms; console search and filtering remain outside the documented scope; draft-based quit confirmation and the per-feature confirmations beyond the force-push pair remain open.
+
+Observable outcome: destructive and failed commands open the correct overlay, and every command appears in the console with redacted output.
 
 Why now: every later destructive action depends on the overlay stack, and every command result depends on the console surface.
 

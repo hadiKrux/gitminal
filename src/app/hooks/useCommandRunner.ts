@@ -1,4 +1,15 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  readBlockedResult,
+  surfaceBlocked,
+  surfaceRunnerBlocked,
+} from "@/app/hooks/commandRunner.blocked";
+import {
+  applyCommandOutcome,
+  buildErrorDetails,
+  createRetryHandler,
+  reportUnexpectedFailure,
+} from "@/app/hooks/commandRunner.report";
 import {
   abortActiveCommand,
   clearCommandExecution,
@@ -13,50 +24,65 @@ import type {
 } from "@/app/hooks/useCommandRunner.types";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useFocusState } from "@/app/hooks/useFocusState";
+import { useOverlay } from "@/app/hooks/useOverlay";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import type { RepositoryContextValue } from "@/app/providers/RepositoryProvider.types";
-import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import { getCommandDescriptor } from "@/domain/commands/commands.registry";
 import { runCommand as runDomainCommand } from "@/domain/commands/commands.runner";
 import type {
-  CommandAvailabilityReason,
   CommandRegion,
   CommandRequest,
   CommandResult,
 } from "@/domain/commands/commands.types";
 import { createConsoleEntryId, formatCommandResult } from "@/domain/console/console.format";
+import { sanitizeCommandResult } from "@/domain/console/console.sanitize";
+import type { ConsoleEntry } from "@/domain/console/console.types";
 import { redactCommandResult } from "@/domain/git/git.redact";
 
 /**
  * Runs commands through the single domain executor and applies every result effect.
  *
  * This hook is the only application caller of `commands.runner.ts`. It follows the fixed effect
- * order: availability pre-check, `beginOperation`, the runner, progress updates, redaction, exactly
- * one console append, a repository refresh on every non-blocked outcome, then `endOperation` plus a
- * success, warning, or error result. A blocked command performs none of those effects beyond the
- * transient reason. A cancelled or timed-out command is a warning, never success, and never opens
- * the error surface. Drafts and selection are never touched, so they survive every failure.
+ * order: availability pre-check, `beginOperation`, the runner, progress updates, redaction and
+ * control-character sanitization, exactly one console append, a repository refresh on every
+ * non-blocked outcome, then `endOperation` plus a success, warning, or error result. A blocked
+ * command performs none of those effects beyond the transient reason. A cancelled or timed-out
+ * command is a warning, never success, and never opens the error surface. A settled result closes
+ * only the overlay entry that was open when the command started, so an unrelated confirmation or a
+ * visible error detail stays untouched. A failure stores a redacted error detail in
+ * `OverlayProvider`, which renders the persistent error overlay. Drafts and selection are never
+ * touched, so they survive every failure, and a retryable remote failure carries a retry closure
+ * over the original request.
  *
  * Only one orchestration exists at a time. A second request while the first command still applies
  * its post-result effects returns a blocked result before `beginOperation`, so the active operation
  * progress is never replaced and the abort slot always points at the child that is actually running.
  *
- * @param options - Optional error surface; defaults to an error status.
+ * @param options - Optional error surface; defaults to the persistent error overlay.
  * @returns The command entry point and abort handle.
  */
 export function useCommandRunner(options: UseCommandRunnerOptions = {}): CommandRunnerHook {
   const repository = useRepository();
   const { setStatus, beginOperation, updateOperation, endOperation } = useStatus();
-  const { append } = useConsoleLog();
+  const { append, replaceEntry } = useConsoleLog();
   const { state: focusState } = useFocusState();
+  const overlay = useOverlay();
+  const runCommandRef = useRef<CommandRunnerHook["runCommand"] | null>(null);
 
-  /** Routes a failure through the injected sink or the default error status. */
+  /** Routes a failure to the persistent error overlay. */
   const defaultErrorSink = useCallback(
     (report: CommandFailureReport): void => {
-      setStatus({ kind: "error", message: report.message });
+      overlay.showError({
+        commandId: report.commandId,
+        operationLabel: report.operationLabel,
+        message: report.message,
+        details: report.details,
+        consoleEntryId: report.consoleEntryId,
+        retry: report.retry,
+      });
     },
-    [setStatus],
+    [overlay],
   );
 
   const errorSink = options.onError ?? defaultErrorSink;
@@ -85,6 +111,7 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
       }
 
       const controller = new AbortController();
+      const originatingEntryId = overlay.entry?.id ?? null;
       const execution = executeRequest({
         request,
         region: readRegion(),
@@ -92,11 +119,18 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
         operationLabel,
         controller,
         append,
+        replaceEntry,
         beginOperation,
         updateOperation,
         endOperation,
         errorSink,
         setStatus,
+        closeOriginatingOverlay: () => {
+          if (originatingEntryId !== null) {
+            overlay.closeEntry(originatingEntryId);
+          }
+        },
+        retry: createRetryHandler(request, runCommandRef),
       });
 
       recordCommandExecution(controller, execution);
@@ -110,12 +144,19 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
       beginOperation,
       endOperation,
       errorSink,
+      overlay.closeEntry,
+      overlay.entry?.id,
       readRegion,
+      replaceEntry,
       repository,
       setStatus,
       updateOperation,
     ],
   );
+
+  useEffect(() => {
+    runCommandRef.current = runCommand;
+  }, [runCommand]);
 
   /**
    * Aborts the current invocation and waits for every post-result effect to settle.
@@ -141,12 +182,15 @@ async function executeRequest(input: {
   readonly repository: RepositoryContextValue;
   readonly operationLabel: string;
   readonly controller: AbortController;
-  readonly append: (entry: ReturnType<typeof formatCommandResult>) => void;
+  readonly append: (entry: ConsoleEntry) => void;
+  readonly replaceEntry: (entry: ConsoleEntry) => void;
   readonly beginOperation: (label: string) => void;
   readonly updateOperation: (progress: { phase?: string; percent?: number | null }) => void;
   readonly endOperation: () => void;
   readonly errorSink: CommandStatusWriters["errorSink"];
   readonly setStatus: CommandStatusWriters["setStatus"];
+  readonly closeOriginatingOverlay: () => void;
+  readonly retry?: () => void;
 }): Promise<CommandResult> {
   const { request, region, repository, operationLabel, controller, setStatus } = input;
   const blocked = readBlockedResult({
@@ -162,6 +206,8 @@ async function executeRequest(input: {
   }
 
   input.beginOperation(operationLabel);
+
+  let appendedEntry: ConsoleEntry | null = null;
 
   try {
     const result = await runDomainCommand(request, {
@@ -187,19 +233,35 @@ async function executeRequest(input: {
 
     return await applyResult(result, {
       append: input.append,
+      closeOriginatingOverlay: input.closeOriginatingOverlay,
       endOperation: input.endOperation,
       errorSink: input.errorSink,
       operationLabel,
       refresh: repository.refresh,
       repositoryRoot: repository.snapshot?.root ?? null,
       setStatus,
+      retry: input.retry,
+      onEntryAppended: (entry) => {
+        appendedEntry = entry;
+      },
     });
   } catch (error) {
-    input.endOperation();
-
-    const message = error instanceof Error ? error.message : String(error);
-
-    setStatus({ kind: "error", message });
+    reportUnexpectedFailure(
+      {
+        request,
+        operationLabel,
+        cwd: repository.signals.cwd,
+        repositoryRoot: repository.snapshot?.root ?? null,
+        append: input.append,
+        replaceEntry: input.replaceEntry,
+        closeOriginatingOverlay: input.closeOriginatingOverlay,
+        endOperation: input.endOperation,
+        errorSink: input.errorSink,
+        retry: input.retry,
+        appendedEntry,
+      },
+      error,
+    );
 
     throw error;
   }
@@ -218,87 +280,7 @@ function readOperationLabel(commandId: string): string {
 }
 
 /**
- * Surfaces a blocked result that the runner itself rejected.
- *
- * @param result - Blocked result.
- * @param input - Request, label, working directory, and status writer.
- * @returns The blocked result.
- */
-function surfaceRunnerBlocked(
-  result: CommandResult,
-  input: {
-    readonly request: CommandRequest;
-    readonly operationLabel: string;
-    readonly cwd: string;
-    readonly setStatus: CommandStatusWriters["setStatus"];
-  },
-): CommandResult {
-  return surfaceBlocked({
-    request: input.request,
-    operationLabel: input.operationLabel,
-    cwd: input.cwd,
-    reason: result.blockedReason ?? "command-not-implemented",
-    setStatus: input.setStatus,
-  });
-}
-
-/**
- * Reads availability before a command starts.
- *
- * @param input - Request, region, repository state, label, and status writer.
- * @returns A blocked result, or null when the command may run.
- */
-function readBlockedResult(input: {
-  readonly request: CommandRequest;
-  readonly region: CommandRegion;
-  readonly repository: RepositoryContextValue;
-  readonly operationLabel: string;
-  readonly setStatus: CommandStatusWriters["setStatus"];
-}): CommandResult | null {
-  const availability = input.repository.getAvailability(
-    input.request.commandId,
-    input.request.target,
-    input.region,
-  );
-
-  if (availability.available) {
-    return null;
-  }
-
-  return surfaceBlocked({
-    request: input.request,
-    operationLabel: input.operationLabel,
-    cwd: input.repository.signals.cwd,
-    reason: availability.reason ?? "command-not-implemented",
-    setStatus: input.setStatus,
-  });
-}
-
-/**
- * Surfaces a blocked request as a transient status without starting an operation.
- *
- * @param input - Request, label, working directory, reason, and status writer.
- * @returns The blocked result.
- */
-function surfaceBlocked(input: {
-  readonly request: CommandRequest;
-  readonly operationLabel: string;
-  readonly cwd: string;
-  readonly reason: CommandAvailabilityReason;
-  readonly setStatus: CommandStatusWriters["setStatus"];
-}): CommandResult {
-  input.setStatus({ kind: "warning", message: describeCommandReason(input.reason) });
-
-  return createBlockedResult(
-    input.request.commandId,
-    input.operationLabel,
-    input.cwd,
-    input.reason,
-  );
-}
-
-/**
- * Redacts, logs, refreshes, and reports one executed result.
+ * Redacts, sanitizes, logs, refreshes, and reports one executed result.
  *
  * @param result - Raw result returned by the runner.
  * @param context - Console, status, refresh, and error collaborators.
@@ -307,16 +289,19 @@ function surfaceBlocked(input: {
 async function applyResult(
   result: CommandResult,
   context: {
-    readonly append: (entry: ReturnType<typeof formatCommandResult>) => void;
+    readonly append: (entry: ConsoleEntry) => void;
+    readonly closeOriginatingOverlay: () => void;
     readonly endOperation: () => void;
     readonly errorSink: CommandStatusWriters["errorSink"];
     readonly operationLabel: string;
+    readonly onEntryAppended: (entry: ConsoleEntry) => void;
     readonly refresh: () => Promise<unknown>;
     readonly repositoryRoot: string | null;
     readonly setStatus: CommandStatusWriters["setStatus"];
+    readonly retry?: () => void;
   },
 ): Promise<CommandResult> {
-  const redacted = redactCommandResult(result);
+  const redacted = sanitizeCommandResult(redactCommandResult(result));
   const entry = formatCommandResult(redacted, {
     id: createConsoleEntryId(),
     at: Date.now(),
@@ -324,107 +309,17 @@ async function applyResult(
   });
 
   context.append(entry);
+  context.onEntryAppended(entry);
   await context.refresh();
   context.endOperation();
-  applyOutcome(redacted, context.operationLabel, entry.decisiveError ?? entry.summary, {
+  context.closeOriginatingOverlay();
+  applyCommandOutcome(redacted, context.operationLabel, entry.decisiveError ?? entry.summary, {
     errorSink: context.errorSink,
     setStatus: context.setStatus,
+    consoleEntryId: entry.id,
+    details: buildErrorDetails(redacted),
+    retry: context.retry,
   });
 
   return redacted;
-}
-
-/**
- * Applies the status or error effect for a settled result.
- *
- * Cancellation and timeout are warnings. A successful result with warnings, such as a missing
- * upstream ref in a scoped Fetch, becomes a warning that names the affected branch instead of a
- * success message; it never reaches the error sink.
- *
- * @param result - Redacted result.
- * @param operationLabel - Human-readable label.
- * @param message - Decisive message for the error sink.
- * @param status - Status writers for the warning, success, and error outcomes.
- */
-function applyOutcome(
-  result: CommandResult,
-  operationLabel: string,
-  message: string,
-  status: CommandStatusWriters,
-): void {
-  if (result.cancelled === true) {
-    status.setStatus({ kind: "warning", message: "cancelled" });
-
-    return;
-  }
-
-  if (result.timedOut === true) {
-    status.setStatus({ kind: "warning", message: readTimeoutMessage(result.timedOutAfterMs) });
-
-    return;
-  }
-
-  if (result.status === "success") {
-    const warning = result.warnings?.join("; ");
-
-    if (warning !== undefined && warning.length > 0) {
-      status.setStatus({ kind: "warning", message: warning });
-
-      return;
-    }
-
-    status.setStatus({ kind: "success", message: `${operationLabel} completed` });
-
-    return;
-  }
-
-  status.errorSink({
-    commandId: result.commandId,
-    operationLabel,
-    message,
-    result,
-  });
-}
-
-/**
- * Builds the warning text for a timed-out command.
- *
- * The timeout duration is part of the execution contract, so it is rendered when the client reported
- * one and falls back to the short form only when the duration is unknown.
- *
- * @param timedOutAfterMs - Timeout that expired, or null when unknown.
- * @returns The warning message.
- */
-function readTimeoutMessage(timedOutAfterMs: number | null | undefined): string {
-  if (timedOutAfterMs === null || timedOutAfterMs === undefined) {
-    return "timed out";
-  }
-
-  return `timed out after ${Math.round(timedOutAfterMs / 1000)} seconds`;
-}
-
-/**
- * Builds a blocked result without invoking the runner.
- *
- * @param commandId - Requested command id.
- * @param operationLabel - Human-readable label.
- * @param cwd - Working directory the command would have used.
- * @param reason - Machine-readable blocked reason.
- * @returns A blocked result with no steps.
- */
-function createBlockedResult(
-  commandId: string,
-  operationLabel: string,
-  cwd: string,
-  reason: CommandAvailabilityReason,
-): CommandResult {
-  return {
-    commandId,
-    status: "blocked",
-    operationLabel,
-    steps: [],
-    cwd,
-    progress: [],
-    blockedReason: reason,
-  };
 }

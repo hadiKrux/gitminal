@@ -30,8 +30,9 @@ export function useFocusModel(options: FocusModelOptions): FocusModel {
   const { focusRegion, state } = useFocusState();
   const [pendingTarget, setPendingTarget] = useState<RegionId | null>(null);
   const tabOrder = useMemo(
-    () => resolveEffectiveTabOrder(options.layoutMode, options.activeSidebarPanel),
-    [options.layoutMode, options.activeSidebarPanel],
+    () =>
+      resolveEffectiveTabOrder(options.layoutMode, options.activeSidebarPanel, options.consoleOpen),
+    [options.activeSidebarPanel, options.consoleOpen, options.layoutMode],
   );
 
   /** Opens the console first when needed, then focuses the target region. */

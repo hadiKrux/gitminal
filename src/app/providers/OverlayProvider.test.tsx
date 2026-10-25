@@ -14,12 +14,18 @@ let latestOverlay: OverlayContextValue | undefined;
  * @returns The probe content.
  */
 function OverlayProbe(): ReactNode {
-  latestOverlay = useOverlay();
+  const overlay = useOverlay();
+  const entry = overlay.entry;
+
+  latestOverlay = overlay;
 
   return (
-    <box id="background-target" focusable height={1}>
-      <text>background</text>
-    </box>
+    <>
+      <box id="background-target" focusable height={1}>
+        <text>background</text>
+      </box>
+      {entry?.kind === "modal" ? entry.render({ close: overlay.close }) : null}
+    </>
   );
 }
 
@@ -174,6 +180,183 @@ describe("OverlayProvider", () => {
     });
   });
 
+  it("closes only the requested entry and keeps an unrelated one open", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.first",
+        render: () => <text>first modal</text>,
+      });
+    });
+
+    await act(async () => {
+      latestOverlay?.closeEntry("test.other");
+    });
+
+    expect(latestOverlay?.entry?.id).toBe("test.first");
+
+    await act(async () => {
+      latestOverlay?.closeEntry("test.first");
+    });
+
+    expect(latestOverlay?.entry).toBeNull();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("warns instead of throwing when a destructive label is not exact", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      latestOverlay?.confirm({
+        title: "Delete branch",
+        description: "feature/x will be deleted.",
+        confirmLabel: "OK",
+        destructive: true,
+        onConfirm: () => {},
+      });
+    });
+
+    const entry = latestOverlay?.entry;
+
+    expect(entry?.kind).toBe("confirm");
+
+    if (entry?.kind === "confirm") {
+      expect(entry.labelWarning).toContain("F-15");
+    }
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("blurs the background renderable when a surface opens", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("background-target");
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.modal",
+        render: () => <text>no focusable content</text>,
+      });
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).not.toBe("background-target");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("does not blur an open modal when a stale showError callback fires", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    const staleShowError = latestOverlay?.showError;
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.modal",
+        render: () => (
+          <>
+            <box id="modal-field" focusable height={1}>
+              <text>field one</text>
+            </box>
+            <box id="modal-field-2" focusable height={1}>
+              <text>field two</text>
+            </box>
+          </>
+        ),
+      });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      setup.renderer.root.findDescendantById("modal-field-2")?.focus();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("modal-field-2");
+
+    await act(async () => {
+      staleShowError?.({
+        commandId: "remote.fetch",
+        operationLabel: "Fetch",
+        message: "fatal: queued",
+        details: "fatal: queued",
+        consoleEntryId: null,
+      });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("modal-field-2");
+    expect(latestOverlay?.errorDetail?.message).toBe("fatal: queued");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps the error detail visible when focus moves elsewhere", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    await act(async () => {
+      latestOverlay?.showError({
+        commandId: "remote.fetch",
+        operationLabel: "Fetch",
+        message: "fatal: nope",
+        details: "fatal: nope",
+        consoleEntryId: null,
+      });
+    });
+
+    expect(setup.renderer.currentFocusedRenderable).toBeNull();
+
+    await focusBackground(setup);
+
+    expect(latestOverlay?.errorDetail?.message).toBe("fatal: nope");
+    expect(latestOverlay?.isOpen).toBe(true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("builds a confirmation entry with a generated id and the supplied shape", async () => {
     const setup = await renderOverlay();
 
@@ -209,6 +392,116 @@ describe("OverlayProvider", () => {
 
     expect(confirmations).toBe(1);
     expect(latestOverlay?.toggleActionId).toBeNull();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("replaces a visible error instead of stacking and dismisses it", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const first = {
+      commandId: "remote.fetch",
+      operationLabel: "Fetch",
+      message: "fatal: first",
+      details: "fatal: first",
+      consoleEntryId: "entry-1",
+    };
+    const second = {
+      commandId: "remote.pull",
+      operationLabel: "Pull",
+      message: "fatal: second",
+      details: "fatal: second",
+      consoleEntryId: "entry-2",
+      retry: () => {},
+    };
+
+    await act(async () => {
+      latestOverlay?.showError(first);
+    });
+
+    expect(latestOverlay?.errorDetail?.message).toBe("fatal: first");
+    expect(latestOverlay?.isOpen).toBe(true);
+
+    await act(async () => {
+      latestOverlay?.showError(second);
+    });
+
+    expect(latestOverlay?.errorDetail?.message).toBe("fatal: second");
+    expect(latestOverlay?.errorDetail?.retry).toBeFunction();
+    expect(latestOverlay?.entry).toBeNull();
+
+    await act(async () => {
+      latestOverlay?.dismissError();
+    });
+
+    expect(latestOverlay?.errorDetail).toBeNull();
+    expect(latestOverlay?.isOpen).toBe(false);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("captures focus when an error opens and restores it when dismissed", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("background-target");
+
+    await act(async () => {
+      latestOverlay?.showError({
+        commandId: "remote.fetch",
+        operationLabel: "Fetch",
+        message: "fatal: nope",
+        details: "fatal: nope",
+        consoleEntryId: null,
+      });
+    });
+
+    await act(async () => {
+      latestOverlay?.dismissError();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("background-target");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("closes an error through close when no modal entry is open", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      latestOverlay?.showError({
+        commandId: "remote.fetch",
+        operationLabel: "Fetch",
+        message: "fatal: nope",
+        details: "fatal: nope",
+        consoleEntryId: null,
+      });
+    });
+
+    await act(async () => {
+      latestOverlay?.close();
+    });
+
+    expect(latestOverlay?.errorDetail).toBeNull();
+    expect(latestOverlay?.isOpen).toBe(false);
 
     await act(async () => {
       await setup.dispose();

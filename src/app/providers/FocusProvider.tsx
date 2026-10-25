@@ -101,11 +101,9 @@ export function FocusProvider(props: { children?: ReactNode }): ReactNode {
     [renderer],
   );
 
-  /** Focuses a region's frame through its stable renderable id. */
+  /** Focuses a region's frame through its stable renderable id and reports whether it mounted. */
   const focusRegion = useCallback(
-    (regionId: RegionId): void => {
-      focusRenderable(regionFrameId(regionId));
-    },
+    (regionId: RegionId): boolean => focusRenderable(regionFrameId(regionId)),
     [focusRenderable],
   );
 

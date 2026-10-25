@@ -8,8 +8,8 @@ import type {
   CommandResult,
   CommandTarget,
 } from "@/domain/commands/commands.types";
+import { CONFIRM_LABELS } from "@/domain/commands/confirm.labels";
 import { PUSH_AUTO_CREATE_REMOTE } from "@/domain/git/git.remotes";
-import { FORCE_OVERWRITE_LABEL, FORCE_SAFE_LABEL } from "@/features/top-bar/TopBar.constants";
 import { resolveCommandTarget } from "@/features/top-bar/topBar.controls";
 import type { TopBarCommands, TopBarCommandsInput } from "@/features/top-bar/useTopBar.types";
 
@@ -100,8 +100,8 @@ export function useTopBarCommands(input: TopBarCommandsInput): TopBarCommands {
           }
         })
         .catch((error: unknown) => {
-          // `useCommandRunner` owns the error status and has already set it before this promise
-          // rejects. The catch exists only to consume the rejection so it cannot become an
+          // `useCommandRunner` owns the error overlay and has already stored its detail before this
+          // promise rejects. The catch exists only to consume the rejection so it cannot become an
           // unhandled promise rejection; it must not replace the orchestrator's message.
           void error;
         });
@@ -132,13 +132,13 @@ export function useTopBarCommands(input: TopBarCommandsInput): TopBarCommands {
       const destructive = commandId === OVERWRITE_COMMAND;
 
       overlay.confirm({
-        title: destructive ? FORCE_OVERWRITE_LABEL : FORCE_SAFE_LABEL,
+        title: destructive ? CONFIRM_LABELS.overwriteRemote : CONFIRM_LABELS.forcePushSafely,
         description: buildForcePushDescription({
           destructive,
           branch: captured.branch,
           upstream: captured.upstreamRef,
         }),
-        confirmLabel: destructive ? FORCE_OVERWRITE_LABEL : FORCE_SAFE_LABEL,
+        confirmLabel: destructive ? CONFIRM_LABELS.overwriteRemote : CONFIRM_LABELS.forcePushSafely,
         destructive,
         onConfirm: () => {
           confirmForcePush(captured, latestInputRef.current, {

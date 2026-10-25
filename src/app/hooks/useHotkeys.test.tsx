@@ -120,6 +120,14 @@ describe("resolveHotkeyAction", () => {
         overlayToggleActionId: "app.palette",
       }),
     ).toEqual({ actionId: "app.palette", scope: "global" });
+    expect(resolve(key("`", { ctrl: true }), { overlayOpen: true })).toBeNull();
+    expect(resolve(key("t"), { overlayOpen: true })).toBeNull();
+    expect(
+      resolve(key("p", { ctrl: true }), {
+        overlayOpen: true,
+        overlayToggleActionId: "app.palette",
+      }),
+    ).toEqual({ actionId: "app.palette", scope: "global" });
   });
 
   it("does not let plain global actions fire from a modal text field", () => {

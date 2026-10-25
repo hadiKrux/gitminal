@@ -8,6 +8,7 @@
   - `src/domain/git/git.client.ts`
   - `src/domain/git/git.errors.ts`
   - `src/domain/git/git.redact.ts`
+  - `src/domain/console/console.sanitize.ts`
   - `src/domain/commands/commands.runner.ts`
   - `src/domain/commands/commands.availability.ts`
   - `src/features/overlays/ConfirmModal.tsx`
@@ -19,7 +20,7 @@
 
 Consumed paths (not owned):
 - `src/index.tsx` (renderer creation with `exitOnCtrlC: false`, owned by F-01 bootstrap).
-- `src/app/hooks/useCommandRunner.ts` (app-layer orchestrator, owned by F-17). F-18 defines the contract it must satisfy: it is the only caller of the runner and is responsible for refresh, console, status, and error routing.
+- `src/app/hooks/useCommandRunner.ts` (app-layer orchestrator, owned by F-17), `src/app/hooks/commandRunner.blocked.ts` (availability and blocked-result reporting), and `src/app/hooks/commandRunner.report.ts` (settled-outcome reporting, unexpected-failure reporting, and retry policy). F-18 defines the contract they must satisfy: `useCommandRunner` is the only caller of the runner and is responsible for refresh, console, status, and error routing.
 - `src/app/AppShellHost.tsx` (the single `app.quit` handler, owned by F-01). F-18 defines the abort-before-teardown sequence it must perform.
 - `src/ui/ModalFrame.tsx` (the presentational modal primitive, owned by the shared UI catalog in `00-project-architecture.md` section 7).
 
@@ -77,7 +78,7 @@ Destructive flows call `ConfirmModal` with a named target and an action-specific
 
 ## 6. State model
 
-- `OverlayProvider` (provider state): the single open overlay entry (a feature modal or a confirmation with its exact label and destructiveness) and the focus captured when it opened. Opening another entry replaces the first instead of stacking. It never stores success or informational messages; those are `StatusProvider` state. The persistent error detail remains M6.
+- `OverlayProvider` (provider state): the single open overlay entry (a feature modal or a confirmation with its exact label and destructiveness) and the focus captured when it opened. Opening another entry replaces the first instead of stacking. It never stores success or informational messages; those are `StatusProvider` state. The persistent error detail landed in M6.
 - `RepositoryProvider` (provider state): the current snapshot, which is only replaced on a successful read after a mutation. The mutation latch lives in `commands.runner.ts`; `StatusProvider` holds its UI projection.
 - `commands.runner.ts` (domain state): the module-level write latch that enforces one mutation at a time. `StatusProvider` reflects it as the running-operation flag; the runner is the authority and the provider is the UI projection.
 - `git.client.ts` (per-invocation state): the child process handle, its timeout timer, and the `AbortSignal` subscription for one invocation. It holds no repository or UI state and exposes no persistent global.
@@ -101,11 +102,12 @@ action ID or command ID + explicit CommandTarget
       (cancelled or timedOut when applicable)
    -> useCommandRunner applies effects:
         git.redact on every step's stdout, stderr, and argv before storing or rendering
+        console.sanitize removes ESC sequences, C0/DEL/C1, bidi embeddings/isolates, and U+00AD, U+061C, U+200B, U+200E, U+200F, U+2060, U+FEFF in the same pass, preserving ZWNJ and ZWJ
         RepositoryProvider.refresh() on success, failure, cancellation, and timeout
         ConsoleProvider entry + StatusProvider status or ErrorOverlay
 ```
 
-Redaction runs in `git.redact.ts` before any console or overlay rendering, covering credential-bearing URLs, authorization headers, and environment values. `useCommandRunner` applies it to the `CommandResult` before storing or rendering output. Availability reasons are machine-readable strings produced by `getAvailability` in `commands.availability.ts` and read by the palette, footer, buttons, and confirmations. Every request carries an explicit `CommandTarget`; no handler reads another feature's cursor. Reads (`app.refresh`, watcher, and focus refresh) call `RepositoryProvider.refresh()` directly and never enter this flow.
+Redaction runs in `git.redact.ts` before any console or overlay rendering, covering credential-bearing URLs, authorization headers, and environment values. `useCommandRunner` applies it to the `CommandResult` before storing or rendering output, and applies it to a caught exception message before that message becomes the error detail. `console.sanitize.ts` then removes ESC sequences, C0 and C1 controls, DEL, bidi embeddings and isolates (U+202A-U+202E, U+2066-U+2069), and the invisible marks U+00AD, U+061C, U+200B, U+200E, U+200F, U+2060, and U+FEFF before capping or storing, because captured git and hook output is rendered directly into terminal cells. ZWNJ (U+200C) and ZWJ (U+200D) are preserved because they are legitimate in Persian, Arabic, Indic, and emoji text. argv, cwd, and warnings are also flattened to one row, while stdout, stderr, and error messages keep newlines and tabs. Availability reasons are machine-readable strings produced by `getAvailability` in `commands.availability.ts` and read by the palette, footer, buttons, and confirmations. Every request carries an explicit `CommandTarget`; no handler reads another feature's cursor. Reads (`app.refresh`, watcher, and focus refresh) call `RepositoryProvider.refresh()` directly and never enter this flow.
 
 ### 7.1 Git execution contract
 
@@ -142,7 +144,7 @@ On abort the client sends `SIGTERM`, waits two seconds, then sends `SIGKILL`, wa
 
 Network operations pass `--progress`: `git fetch --progress`, `git pull --progress --no-edit`, `git push --progress`, plus tag push and remote branch delete. `--no-edit` prevents pull from opening an editor for a merge message. Stderr is streamed through `git.progress.ts` and forwarded to `StatusProvider`; commands without a meaningful percentage emit phase-only events.
 
-Quit is part of this contract and never relies on the renderer default. The renderer is created with `exitOnCtrlC: false`, so `Ctrl+C` arrives as a key and dispatches `app.quit` instead of the renderer's default exit. The quit handler, not the renderer, decides whether confirmation is required. The target contract opens the confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is already open. M4 implements the operation half: the handler aborts the in-flight command through the `AbortSignal` owned by `useCommandRunner`, waits for it to settle, and only then calls `renderer.destroy()`. Draft-based confirmation is deferred to M6 with the overlay entry and is recorded as a contract deviation in `00-project-architecture.md`. The client performs the `SIGTERM`-then-`SIGKILL` sequence, and the renderer is destroyed only after the child has exited or been killed, so the terminal is restored after git has stopped writing to it.
+Quit is part of this contract and never relies on the renderer default. The renderer is created with `exitOnCtrlC: false`, so `Ctrl+C` arrives as a key and dispatches `app.quit` instead of the renderer's default exit. The quit handler, not the renderer, decides whether confirmation is required. The target contract opens the confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is already open. M4 implements the operation half: the handler aborts the in-flight command through the `AbortSignal` owned by `useCommandRunner`, waits for it to settle, and only then calls `renderer.destroy()`. Draft-based confirmation remains deferred beyond M6 and is recorded as a contract deviation in `00-project-architecture.md`. The client performs the `SIGTERM`-then-`SIGKILL` sequence, and the renderer is destroyed only after the child has exited or been killed, so the terminal is restored after git has stopped writing to it.
 
 ### 7.2 Integration test harness
 
@@ -160,7 +162,7 @@ Action IDs and command IDs are distinct (architecture section 8.1). An action ID
 
 Bindings use action IDs only:
 
-- `app.quit`: quit path, with confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is open. M4 aborts and settles the running child before destroying the renderer; draft confirmation lands with the M6 overlay entry.
+- `app.quit`: quit path, with confirmation when `DraftProvider.hasUnsavedDraft` is true, an operation is running, or a confirmation is open. The handler aborts and settles the running child before destroying the renderer; draft confirmation remains deferred.
 - `overlay.close`: `Esc` cancels a confirmation; the destructive option is never the default focus.
 - `nav.activate`: confirms the focused modal button; `focus.next` and `focus.previous` move between `ModalActions`.
 - `form.submit`: `Ctrl/Cmd+Enter` submits a multiline form; single-line forms keep native `Enter`.
@@ -197,7 +199,7 @@ Invariants, each with the enforcing module and a required test:
 | No automatic stash, reset, checkout, clean, or prune | `commands.registry.ts`, `commands.availability.ts` (no such commands) | `commands.availability.test.ts` asserts absence |
 | No credential storage or prompts | `git.client.ts` (prompt-disabling environment) | `git.client.test.ts` asserts environment flags and no TTY prompt |
 | Argument-array execution | `git.client.ts` | `git.client.test.ts` asserts argv array and no shell |
-| Redaction in console and overlays | `git.redact.ts` | `git.redact.test.ts` table of URL, header, and environment cases |
+| Redaction in console and overlays | `git.redact.ts` plus `console.sanitize.ts` | `git.redact.test.ts` table of URL, header, and environment cases; `console.sanitize.test.ts` covers ESC, C0, DEL, C1, bidi embeddings/isolates, the invisible-mark set, ZWNJ/ZWJ preservation, single-line argv/cwd/warnings, and idempotence; `useCommandRunner.test.tsx` covers a credential-bearing thrown error and the settled error details |
 | Drafts and staged files survive failures | feature view state plus `useCommandRunner` (the runner returns a result and never mutates UI state) | `useComposer.test.ts` asserts draft preserved on failure; `useCommandRunner.test.tsx` asserts no draft or provider state is cleared |
 | One mutation at a time | `commands.runner.ts` write latch; `useCommandRunner` surfaces the blocked result | `commands.runner.test.ts` asserts blocked second write with reason; `useCommandRunner.test.tsx` asserts no refresh, console append, or error overlay for a blocked result |
 | Deletes never remove reachable commits | per-feature delete handlers (branch, tag, stash, worktree) | `branch.delete.test.ts` asserts only the named ref is deleted |
@@ -245,7 +247,7 @@ Platform invariants:
 
 ## 13. Tests to add
 
-Colocated per architecture section 5: `git.client.test.ts` (argv, no shell, prompt environment, `git.path`, `stdio: ["ignore", "pipe", "pipe"]`, 10-second/30-second/120-second timeout selection, `AbortSignal` cancellation, `SIGTERM` then `SIGKILL` after two seconds, `--progress` on network commands, `--no-edit` on pull, truncation flags), `git.redact.test.ts`, `git.errors.test.ts` (classification), `commands.runner.test.ts` (serialization, blocked reason, pure execution), `src/app/hooks/useCommandRunner.test.tsx` (refresh on success and failure, one console entry, error routing, no refresh/console/error effects for a blocked result, no overlay for success, a second command blocked during the post-result refresh, timeout duration text), `commands.availability.test.ts` (detached HEAD, no upstream, no remote, empty repository, operation in progress), `commands.registry.test.ts` (remote commands use the global handler scope; destructive intents map to mutation commands with action IDs and explicit targets; `nav.*` is not a palette command and `focus.region.*` is), `useAction.test.tsx` (duplicate `(actionId, scope)` registration rejected; one global owner for `app.quit` and `remote.*`), `OverlayHost.test.tsx` (named target, Cancel-first, keyed confirmation focus), `ModalActions.test.tsx`, `DeleteBranchModal.test.tsx` (scope default), `TextMarker.test.tsx` (glyph plus text), plus `keymap.parse.test.ts` and `theme.capability.test.ts` for the platform fallbacks.
+Colocated per architecture section 5: `git.client.test.ts` (argv, no shell, prompt environment, `git.path`, `stdio: ["ignore", "pipe", "pipe"]`, 10-second/30-second/120-second timeout selection, `AbortSignal` cancellation, `SIGTERM` then `SIGKILL` after two seconds, `--progress` on network commands, `--no-edit` on pull, truncation flags), `git.redact.test.ts`, `git.errors.test.ts` (classification), `commands.runner.test.ts` (serialization, blocked reason, pure execution), `src/app/hooks/useCommandRunner.test.tsx` (refresh on success and failure, one console entry, error routing, no refresh/console/error effects for a blocked result, no overlay for success, a second command blocked during the post-result refresh, timeout duration text), `src/app/hooks/commandRunner.report.test.ts` (thrown summary flattening, capped thrown details, and post-result replacement with the `Refresh after <label>` operation), `commands.availability.test.ts` (detached HEAD, no upstream, no remote, empty repository, operation in progress), `commands.registry.test.ts` (remote commands use the global handler scope; destructive intents map to mutation commands with action IDs and explicit targets; `nav.*` is not a palette command and `focus.region.*` is), `useAction.test.tsx` (duplicate `(actionId, scope)` registration rejected; one global owner for `app.quit` and `remote.*`), `OverlayHost.test.tsx` (named target, Cancel-first, keyed confirmation focus), `ModalActions.test.tsx`, `DeleteBranchModal.test.tsx` (scope default), `TextMarker.test.tsx` (glyph plus text), plus `keymap.parse.test.ts` and `theme.capability.test.ts` for the platform fallbacks.
 
 Integration tests are `*.integration.test.ts` files run with `bun test:integration`. They spawn the system git only through `src/test/git.fixture.ts`, which creates and removes the temporary repository, and they exercise the production `git.client.ts` contract, including the two-second abort escalation. `bun test` is the unit suite and never spawns a process.
 

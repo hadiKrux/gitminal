@@ -143,6 +143,15 @@ describe("formatCommandResult", () => {
     expect(JSON.stringify(entry)).not.toContain("secret");
     expect(entry.steps[0]?.argv.join(" ")).toContain("[redacted]");
   });
+
+  it("flattens warnings that reach the summary row", () => {
+    const entry = formatCommandResult(result({ warnings: ["upstream\nnot\tfound"] }), {
+      id: "entry-1",
+      at: 100,
+    });
+
+    expect(entry.summary).toBe("1 step completed; upstream not found");
+  });
 });
 
 describe("formatRefreshEntry", () => {
@@ -178,5 +187,32 @@ describe("formatRefreshEntry", () => {
 
     expect(entry.status).toBe("failure");
     expect(entry.decisiveError).toBe("status read failed");
+  });
+
+  it("flattens a refresh message onto one summary row", () => {
+    const entry = formatRefreshEntry({
+      id: "refresh-1",
+      at: 100,
+      ok: false,
+      message: "status\nread\tfailed",
+      durationMs: 20,
+    });
+
+    expect(entry.summary).toBe("status read failed");
+    expect(entry.decisiveError).toBe("status read failed");
+  });
+
+  it("flattens a refresh cwd onto one row", () => {
+    const entry = formatRefreshEntry({
+      id: "refresh-1",
+      at: 100,
+      ok: true,
+      message: "Repository refreshed",
+      durationMs: 20,
+      repositoryRoot: "/repo",
+      cwd: "/repo\nworktree\tpath",
+    });
+
+    expect(entry.cwd).toBe("/repo worktree path");
   });
 });

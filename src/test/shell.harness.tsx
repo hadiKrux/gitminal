@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
+import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
 import { OverlayProvider } from "@/app/providers/OverlayProvider";
@@ -27,7 +28,9 @@ export function ShellTestProviders(props: {
         <KeymapProvider platform={props.platform ?? "linux"}>
           <FocusProvider>
             <OverlayProvider>
-              <StatusProvider>{props.children}</StatusProvider>
+              <StatusProvider>
+                <ConsoleProvider>{props.children}</ConsoleProvider>
+              </StatusProvider>
             </OverlayProvider>
           </FocusProvider>
         </KeymapProvider>

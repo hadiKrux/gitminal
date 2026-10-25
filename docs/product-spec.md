@@ -132,6 +132,7 @@ This precedence resolves overlaps such as `p` meaning Pull in the top bar or com
 - The footer still shows contextual disabled reasons, such as "message required", and modal keys. It does not duplicate operation progress or transient success messages.
 - Success messages appear in the top bar status strip and, when relevant, in the console. Failures open a persistent error overlay, appear in the top bar status strip while the overlay is open, and also appear in the console.
 - The footer never wraps. The app hides the least important hints first and keeps Help available.
+- Self-evident keys are documented in Help and the command palette instead of the footer: Tab and Shift+Tab traversal, Left and Right movement between controls, quit, the console toggle, the More menu trigger, and Esc cancel. The footer keeps the focused region's actions and the global hints whose usefulness changes with context, such as pull, fetch, refresh, and theme.
 - Direct region jumps (`1`-`9`) are documented in Help and the command palette, not in the footer, so nine jump hints never crowd out the context hints.
 
 ### Mouse
@@ -998,13 +999,14 @@ Behavior:
 
 - Every mutating operation is logged. Read operations are logged when they are user-visible or fail, and may be grouped to avoid noise from routine refreshes.
 - The console follows new entries while scrolled to the bottom. Scrolling up pauses follow mode and shows a "new entries" indicator.
-- Up and Down, or `j` and `k`, scroll. PageUp and PageDown move by a screen. `g` and `G` jump to the oldest and newest entry.
+- Up and Down, or `j` and `k`, scroll. PageUp and PageDown move by the entries that fill one screen. `g` and `G` jump to the oldest and newest entry.
+- `Enter` expands or collapses the selected entry's output.
 - `c` clears the console after confirmation.
 - `Esc` closes the console.
 - The console keeps a bounded session history, at least 200 entries.
-- Credentials in URLs, authorization headers, and environment values are redacted before display.
+- Credentials in URLs, authorization headers, and environment values are redacted before display, and terminal control bytes in captured output are sanitized before storage.
 - Errors in the app link to the corresponding console entry.
-- The console can remain open while the user works in other regions. Focus moves there with Tab or a click.
+- The console can remain open while the user works in other regions. Focus moves there with Tab or a click; the console joins the Tab cycle only while it is open.
 
 Acceptance:
 
@@ -1053,7 +1055,7 @@ Rules:
 
 - Destructive confirmations default focus to Cancel.
 - Confirm buttons use specific labels: "Discard changes", "Delete local branch", "Delete local and remote branch", "Drop stash", "Delete tag", "Delete worktree", "Force push safely", "Overwrite remote".
-- Simple "OK" and "Yes" labels are not used for destructive actions.
+- Simple "OK" and "Yes" labels never confirm a destructive action; a destructive confirmation whose label is not one of the documented labels cannot be confirmed.
 - Destructive confirmations state the exact scope and consequence.
 - Text input modals validate inline and keep the modal open on error.
 - Enter submits single-line forms. Multiline fields use `Ctrl/Cmd+Enter` to submit.
@@ -1689,6 +1691,7 @@ These jumps are a spatial map in screen order, not a second copy of the Tab cycl
 | `Up` / `Down`, `j` / `k` | Scroll |
 | `PageUp` / `PageDown` | Page |
 | `g` / `G` | Oldest / newest |
+| `Enter` | Expand or collapse the selected entry |
 | `c` | Clear, with confirmation |
 | `Esc` | Close |
 
@@ -1729,7 +1732,7 @@ These IDs are stable and are the only names accepted in `config.json` and `keybi
 
 Notes:
 
-- `nav.activate` performs the primary action for the focused item: checkout, select, confirm, run, or open details. `diff.toggle` shadows it in the Diff panel to expand or collapse a file.
+- `nav.activate` performs the primary action for the focused item: checkout, select, confirm, run, open details, or expand or collapse the selected console entry. `diff.toggle` shadows it in the Diff panel to expand or collapse a file.
 - `overlay.close` closes modals, the console, the palette, and help.
 - `app.reloadConfig` has no default key and is always available from the command palette.
 - `focus.region.topBar` has no default key. The other direct focus actions default to `1`-`9` in screen order. A direct focus action never runs a region action, and it stays available while a git operation is running.

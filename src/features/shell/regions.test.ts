@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { RegionId } from "@/features/shell/focus.types";
 import {
   cursorKey,
   FOCUS_ACTION_BY_REGION,
@@ -29,7 +30,7 @@ describe("region catalogue", () => {
     ]);
   });
 
-  it("uses the product spec Tab order without the console", () => {
+  it("uses the product spec Tab order with the console appended while it is open", () => {
     expect(TAB_ORDER).toEqual([
       "top-bar",
       "branches",
@@ -87,29 +88,43 @@ describe("resolveLayoutMode", () => {
 
 describe("resolveEffectiveTabOrder", () => {
   it("keeps every region visible in full and narrow layouts", () => {
-    expect(resolveEffectiveTabOrder("full", 0)).toEqual(TAB_ORDER);
-    expect(resolveEffectiveTabOrder("narrow", 3)).toEqual(TAB_ORDER);
+    expect(resolveEffectiveTabOrder("full", 0, false)).toEqual(TAB_ORDER);
+    expect(resolveEffectiveTabOrder("narrow", 3, false)).toEqual(TAB_ORDER);
+  });
+
+  it("appends the console to the cycle only while the drawer is open", () => {
+    expect(resolveEffectiveTabOrder("full", 0, true)).toEqual([...TAB_ORDER, "console"]);
+    expect(resolveEffectiveTabOrder("narrow", 2, true)).toEqual([...TAB_ORDER, "console"]);
+    expect(resolveEffectiveTabOrder("full", 0, false)).not.toContain("console");
   });
 
   it("skips the hidden sidebar panels in the collapsed layout", () => {
-    expect(resolveEffectiveTabOrder("sidebar-collapsed", 2)).toEqual([
+    expect(resolveEffectiveTabOrder("sidebar-collapsed", 2, false)).toEqual([
       "top-bar",
       "tags",
       "graph",
       "right-pane",
       "diff",
     ]);
+    expect(resolveEffectiveTabOrder("sidebar-collapsed", 2, true)).toEqual([
+      "top-bar",
+      "tags",
+      "graph",
+      "right-pane",
+      "diff",
+      "console",
+    ]);
   });
 
   it("clamps an invalid collapsed index to the nearest valid panel", () => {
-    expect(resolveEffectiveTabOrder("sidebar-collapsed", 99)).toEqual([
+    expect(resolveEffectiveTabOrder("sidebar-collapsed", 99, false)).toEqual([
       "top-bar",
       "worktrees",
       "graph",
       "right-pane",
       "diff",
     ]);
-    expect(resolveEffectiveTabOrder("sidebar-collapsed", -1)).toEqual([
+    expect(resolveEffectiveTabOrder("sidebar-collapsed", -1, false)).toEqual([
       "top-bar",
       "branches",
       "graph",
@@ -123,6 +138,14 @@ describe("resolveAdjacentRegion", () => {
   it("wraps in both directions", () => {
     expect(resolveAdjacentRegion(TAB_ORDER, "diff", 1)).toBe("top-bar");
     expect(resolveAdjacentRegion(TAB_ORDER, "top-bar", -1)).toBe("diff");
+  });
+
+  it("enters and leaves the console while it is in the effective order", () => {
+    const order: readonly RegionId[] = [...TAB_ORDER, "console"];
+
+    expect(resolveAdjacentRegion(order, "diff", 1)).toBe("console");
+    expect(resolveAdjacentRegion(order, "console", 1)).toBe("top-bar");
+    expect(resolveAdjacentRegion(order, "console", -1)).toBe("diff");
   });
 
   it("enters at the first or last region when nothing is focused", () => {

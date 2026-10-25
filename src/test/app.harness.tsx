@@ -26,6 +26,7 @@ export function AppTestProviders(props: {
   readonly cwd?: string;
   readonly platform?: KeymapPlatform;
   readonly now?: () => number;
+  readonly initialFollowMode?: boolean;
 }): ReactNode {
   return (
     <ConfigProvider>
@@ -40,7 +41,9 @@ export function AppTestProviders(props: {
             <FocusProvider>
               <OverlayProvider>
                 <StatusProvider>
-                  <ConsoleProvider>{props.children}</ConsoleProvider>
+                  <ConsoleProvider initialFollowMode={props.initialFollowMode}>
+                    {props.children}
+                  </ConsoleProvider>
                 </StatusProvider>
               </OverlayProvider>
             </FocusProvider>

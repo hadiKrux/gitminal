@@ -81,8 +81,8 @@ export interface FocusState {
 export interface FocusContextValue {
   /** The derived focus projection. */
   readonly state: FocusState;
-  /** Focuses the frame of one region, if it is mounted. */
-  readonly focusRegion: (regionId: RegionId) => void;
+  /** Focuses the frame of one region and reports whether the frame was mounted. */
+  readonly focusRegion: (regionId: RegionId) => boolean;
   /** Focuses a renderable by id and reports whether it was found. */
   readonly focusRenderable: (id: string) => boolean;
   /** Restores a captured renderable, falling back to its previous region frame. */
@@ -120,8 +120,8 @@ export interface FocusModel {
   readonly focusNext: () => void;
   /** Moves focus to the previous visible region, wrapping at the start. */
   readonly focusPrevious: () => void;
-  /** Focuses one region directly. */
-  readonly focusRegion: (regionId: RegionId) => void;
+  /** Focuses one region directly and reports whether its frame was mounted. */
+  readonly focusRegion: (regionId: RegionId) => boolean;
 }
 
 /** Result returned by `useFocusRegion`. */

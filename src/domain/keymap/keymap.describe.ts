@@ -224,19 +224,16 @@ function isShadowedByContext(
 /** Drop priorities for named global actions; lower values survive shrinking widths longer. */
 const GLOBAL_HINT_PRIORITIES: Readonly<Record<string, number>> = Object.freeze({
   "app.help": 0,
-  "app.quit": 2,
-  "app.console": 3,
   "app.palette": 3,
   "app.refresh": 3,
-  "focus.next": 4,
-  "focus.previous": 4,
 });
 
 /**
  * Assigns a footer drop priority to an action.
  *
- * Help is kept longest, then context actions, quit, the common shell actions, focus traversal, and
- * finally ordinary globals and navigation. Lower values survive shrinking widths longer.
+ * Help is kept longest, then context actions, the common shell actions, the remaining globals, and
+ * finally navigation. Lower values survive shrinking widths longer. Self-evident actions are
+ * filtered out by the footer before ranking, so they never reach this function.
  *
  * @param actionId - Action being ranked.
  * @param scope - Context that supplied the action.

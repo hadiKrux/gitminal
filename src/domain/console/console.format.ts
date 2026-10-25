@@ -1,6 +1,7 @@
 import type { CommandResult, CommandStepResult } from "@/domain/commands/commands.types";
 import { isSamePath } from "@/lib/paths";
 import { capConsoleOutput } from "./console.buffer";
+import { sanitizeConsoleLine } from "./console.sanitize";
 import type {
   ConsoleEntry,
   ConsoleEntryStatus,
@@ -67,6 +68,8 @@ export function formatCommandResult(
  * @returns The console entry.
  */
 export function formatRefreshEntry(input: RefreshConsoleEntryInput): ConsoleEntry {
+  const message = sanitizeConsoleLine(input.message);
+
   return {
     id: input.id,
     at: input.at,
@@ -80,8 +83,8 @@ export function formatRefreshEntry(input: RefreshConsoleEntryInput): ConsoleEntr
     phase: null,
     cancelled: false,
     timedOut: false,
-    summary: input.message,
-    decisiveError: input.ok ? null : input.message,
+    summary: message,
+    decisiveError: input.ok ? null : message,
   };
 }
 
@@ -141,7 +144,7 @@ function readSummary(
   }
 
   if (status === "timed-out") {
-    return "timed out";
+    return readTimeoutSummary(result.timedOutAfterMs);
   }
 
   if (status === "failure") {
@@ -154,7 +157,7 @@ function readSummary(
       : result.steps.length === 1
         ? "1 step completed"
         : `${result.steps.length} steps completed`;
-  const warnings = result.warnings?.join("; ");
+  const warnings = result.warnings?.map(sanitizeConsoleLine).join("; ");
 
   return warnings === undefined || warnings.length === 0 ? summary : `${summary}; ${warnings}`;
 }
@@ -209,11 +212,25 @@ function readDecisiveLine(stderr: string): string | null {
 }
 
 /**
+ * Reads the timed-out summary line.
+ *
+ * @param timedOutAfterMs - Timeout that expired, or null when the client did not report one.
+ * @returns The timed-out summary text.
+ */
+function readTimeoutSummary(timedOutAfterMs: number | null | undefined): string {
+  if (timedOutAfterMs === null || timedOutAfterMs === undefined) {
+    return "timed out";
+  }
+
+  return `timed out after ${Math.round(timedOutAfterMs / 1000)} seconds`;
+}
+
+/**
  * Reads the working directory to display.
  *
  * @param cwd - Directory the command ran in.
  * @param repositoryRoot - Repository root, or null when no root read is available.
- * @returns Null when the directory is the root, otherwise the directory.
+ * @returns Null when the directory is the root, otherwise the sanitized single-line directory.
  */
 function readDisplayCwd(cwd: string | null, repositoryRoot: string | null): string | null {
   if (cwd === null || cwd.length === 0) {
@@ -221,8 +238,8 @@ function readDisplayCwd(cwd: string | null, repositoryRoot: string | null): stri
   }
 
   if (repositoryRoot === null) {
-    return cwd;
+    return sanitizeConsoleLine(cwd);
   }
 
-  return isSamePath(cwd, repositoryRoot) ? null : cwd;
+  return isSamePath(cwd, repositoryRoot) ? null : sanitizeConsoleLine(cwd);
 }

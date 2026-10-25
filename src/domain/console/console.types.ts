@@ -25,6 +25,14 @@ export interface ConsoleStepEntry {
   readonly stderr: ConsoleOutputBlock;
 }
 
+/** Visible detail lines of one console entry. */
+export interface ConsoleEntryDetail {
+  /** Progress phase rendered above the summary, or null when none was reported. */
+  readonly phase: string | null;
+  /** Summary rendered under the command, or null when the status already names the outcome. */
+  readonly summary: string | null;
+}
+
 /** One bounded console history entry. */
 export interface ConsoleEntry {
   /** Stable entry id, used by expansion and error links. */
@@ -75,6 +83,22 @@ export interface FormatCommandResultOptions {
   readonly repositoryRoot?: string | null;
   /** Output caps. */
   readonly limits?: Partial<ConsoleCapLimits>;
+}
+
+/** Input for one PageUp or PageDown step calculation. */
+export interface ConsolePageStepInput {
+  /** Current bounded history. */
+  readonly entries: readonly ConsoleEntry[];
+  /** Selected entry index, or `-1` when nothing is selected. */
+  readonly currentIndex: number;
+  /** `1` for PageDown, `-1` for PageUp. */
+  readonly direction: 1 | -1;
+  /** Visible log viewport height in terminal rows. */
+  readonly viewportHeight: number;
+  /** Rows inside the viewport that an entry does not occupy, such as the running spinner row. */
+  readonly reservedRows?: number;
+  /** Reports whether an entry's output panes are visible. */
+  readonly isExpanded: (entryId: string) => boolean;
 }
 
 /** Input for one manual refresh console entry. */

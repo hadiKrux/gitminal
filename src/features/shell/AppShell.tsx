@@ -1,7 +1,12 @@
 import { useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
-import { TOP_BAR_TITLE_CHROME_WIDTH } from "@/features/shell/AppShell.constants";
+import {
+  CONSOLE_DRAWER_HEIGHT_DIVISOR,
+  CONSOLE_DRAWER_MAX_HEIGHT,
+  CONSOLE_DRAWER_MIN_HEIGHT,
+  TOP_BAR_TITLE_CHROME_WIDTH,
+} from "@/features/shell/AppShell.constants";
 import { Footer } from "@/features/shell/Footer";
 import type { ShellLayoutMode, SidebarPanel } from "@/features/shell/focus.types";
 import { MainArea } from "@/features/shell/MainArea";
@@ -47,6 +52,13 @@ export function AppShell(props: {
   const tokens = useTokens();
   const dimensions = useTerminalDimensions();
   const titleBudget = Math.max(1, dimensions.width - TOP_BAR_TITLE_CHROME_WIDTH);
+  const consoleHeight = Math.max(
+    CONSOLE_DRAWER_MIN_HEIGHT,
+    Math.min(
+      CONSOLE_DRAWER_MAX_HEIGHT,
+      Math.floor(dimensions.height / CONSOLE_DRAWER_HEIGHT_DIVISOR),
+    ),
+  );
   const topBarTitle = shortenPath(
     toHomeRelativePath(props.topBarTitle),
     titleBudget,
@@ -101,12 +113,10 @@ export function AppShell(props: {
           {...consoleRegion.regionProps}
           focused={consoleRegion.focused}
           title="Console"
-          height={6}
+          height={consoleHeight}
           flexShrink={0}
         >
-          <scrollbox flexGrow={1} focusable={false} viewportCulling>
-            {props.console}
-          </scrollbox>
+          {props.console}
         </Panel>
       ) : null}
 

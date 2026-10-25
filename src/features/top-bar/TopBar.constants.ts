@@ -31,9 +31,3 @@ export const MORE_MENU_OVERLAY_ID = "remote.more";
 
 /** Action id that toggles the More menu while it is open. */
 export const MORE_MENU_TOGGLE_ACTION_ID = "remote.more";
-
-/** Exact confirm label for the safe force push. */
-export const FORCE_SAFE_LABEL = "Force push safely";
-
-/** Exact confirm label for the overwriting force push. */
-export const FORCE_OVERWRITE_LABEL = "Overwrite remote";

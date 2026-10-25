@@ -8,21 +8,26 @@ export interface CommandFailureReport {
   readonly operationLabel: string;
   /** Decisive redacted error line. */
   readonly message: string;
-  /** Redacted result, available for the overlay's detailed view and console link. */
-  readonly result: CommandResult;
+  /** Redacted, capped detail block for the error overlay. */
+  readonly details: string;
+  /** Console entry that recorded the failure, or null when it could not be recorded. */
+  readonly consoleEntryId: string | null;
+  /** Re-runs the failed command with its captured request, when retry is meaningful. */
+  readonly retry?: () => void;
 }
 
 /**
  * Sink for a command failure.
  *
- * M6 replaces the default implementation with `OverlayProvider.showError`. Until then the default
- * sets an error status, which keeps the failure visible without building the overlay stack early.
+ * The default implementation is `OverlayProvider.showError`, so a failure opens the persistent error
+ * overlay instead of a temporary error status. A caller may inject its own sink for a test or a
+ * specialized surface.
  */
 export type CommandErrorSink = (report: CommandFailureReport) => void;
 
 /** Options accepted by `useCommandRunner`. */
 export interface UseCommandRunnerOptions {
-  /** Injected error surface. Defaults to an error status. */
+  /** Injected error surface. Defaults to the persistent error overlay. */
   readonly onError?: CommandErrorSink;
 }
 

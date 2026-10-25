@@ -9,8 +9,11 @@ const CONSOLE_OUTPUT_LIMITS: ConsoleCapLimits = Object.freeze({
   maxBytes: 16 * 1024,
 });
 
-/** Marker inserted where lines were removed. */
-const OMITTED_MARKER = "... {count} lines omitted ...";
+/** Marker template inserted where lines were removed. */
+const OMITTED_MARKER_TEMPLATE = "... {count} lines omitted ...";
+
+/** Pattern for the counted marker line that the capped output owns. */
+const OMITTED_MARKER_PATTERN = /^\.\.\. (\d+) lines omitted \.\.\.$/;
 
 /**
  * Appends one entry to a bounded console history.
@@ -69,13 +72,42 @@ export function capConsoleOutput(
     };
   }
 
-  const marker = OMITTED_MARKER.replace("{count}", String(omittedLines));
-
   return {
-    text: [...byteBounded.head, marker, ...byteBounded.tail].join("\n"),
+    text: [...byteBounded.head, formatConsoleOmittedMarker(omittedLines), ...byteBounded.tail].join(
+      "\n",
+    ),
     omittedLines,
     totalLines: lines.length,
   };
+}
+
+/**
+ * Formats the counted marker line that separates the retained head and tail.
+ *
+ * @param omittedLines - Number of lines removed from the middle.
+ * @returns The marker line.
+ */
+export function formatConsoleOmittedMarker(omittedLines: number): string {
+  return OMITTED_MARKER_TEMPLATE.replace("{count}", String(omittedLines));
+}
+
+/**
+ * Parses a counted omitted-lines marker.
+ *
+ * The domain owns both the format and its parse rule, so a feature reads the marker through this
+ * helper instead of repeating the private text shape.
+ *
+ * @param line - Candidate line from a capped output block.
+ * @returns The omitted-line count, or null when the line is not a marker.
+ */
+export function parseConsoleOmittedMarker(line: string): number | null {
+  const match = OMITTED_MARKER_PATTERN.exec(line);
+
+  if (match === null) {
+    return null;
+  }
+
+  return Number(match[1]);
 }
 
 /**

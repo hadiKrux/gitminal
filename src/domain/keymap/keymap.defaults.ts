@@ -342,6 +342,7 @@ export const ACTION_CATALOGUE = [
       "worktrees",
       "graph",
       "right-pane",
+      "console",
       "overlay",
     ],
     defaults: ["enter"],

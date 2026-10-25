@@ -6,6 +6,7 @@ import {
   subscribeActionRegistry,
 } from "@/app/hooks/useAction";
 import type { ActionScope } from "@/app/hooks/useAction.types";
+import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useKeymap } from "@/app/hooks/useKeymap";
 import { useOptionalRepository } from "@/app/hooks/useOptionalRepository";
@@ -15,20 +16,20 @@ import type { CommandTarget } from "@/domain/commands/commands.types";
 import { ACTION_BY_ID } from "@/domain/keymap/keymap.defaults";
 import { describeContextHints, formatBinding } from "@/domain/keymap/keymap.describe";
 import type { KeymapContext, ResolvedKeymap } from "@/domain/keymap/keymap.types";
-import { MODAL_HINT_ACTIONS } from "@/features/shell/Footer.constants";
-import { useTokens } from "@/theme/useTokens";
+import { HIDDEN_CONTEXT_HINT_ACTIONS, MODAL_HINT_ACTIONS } from "@/features/shell/Footer.constants";
 import { HintBar } from "@/ui/HintBar";
 
 /**
  * Renders the contextual footer hint bar.
  *
  * Hints come from the resolved keymap for the focused region plus globals, minus actions whose
- * global key is shadowed by the focused context. A `remote.*` hint is shown only when the same
- * target-aware availability the top bar uses reports it available; other actions fall back to
- * handler presence, so a placeholder surface never advertises a feature that is not mounted. The
- * footer therefore agrees with the top bar in detached HEAD, no-remote, and no-upstream states.
- * When focus leaves every region, the footer falls back to the global hints instead of keeping the
- * last region's context.
+ * global key is shadowed by the focused context and minus self-evident actions such as Tab
+ * traversal, arrow movement, quit, the console toggle, the More menu trigger, and Esc cancel, which
+ * Help documents instead. A `remote.*` hint is shown only when the same target-aware availability
+ * the top bar uses reports it available; other actions fall back to handler presence, so a
+ * placeholder surface never advertises a feature that is not mounted. The footer therefore agrees
+ * with the top bar in detached HEAD, no-remote, and no-upstream states. When focus leaves every
+ * region, the footer falls back to the global hints instead of keeping the last region's context.
  *
  * Modal hints come from `StatusProvider.hintMode`, which `OverlayHost` sets while an overlay entry
  * exists. Hints are priority ordered and dropped as the width shrinks.
@@ -41,7 +42,7 @@ export function Footer(): ReactNode {
   const { state } = useFocusState();
   const { hintMode, operation } = useStatus();
   const repository = useOptionalRepository();
-  const tokens = useTokens();
+  const consoleLog = useConsoleLog();
   const registryVersion = useSyncExternalStore(
     subscribeActionRegistry,
     getActionRegistryVersion,
@@ -51,13 +52,17 @@ export function Footer(): ReactNode {
     (actionId: string, scope: ActionScope): boolean => {
       void registryVersion;
 
+      if (actionId === "console.clear") {
+        return consoleLog.entries.length > 0;
+      }
+
       if (actionId.startsWith("remote.") && repository !== null) {
         return readRemoteHintAvailability(actionId, repository, operation !== null);
       }
 
       return hasRegisteredAction(actionId, scope);
     },
-    [operation, registryVersion, repository],
+    [consoleLog.entries.length, operation, registryVersion, repository],
   );
 
   const hints = useMemo(() => {
@@ -69,14 +74,16 @@ export function Footer(): ReactNode {
       ? (state.activeRegion ?? "global")
       : "global";
 
-    return describeContextHints(keymap, context, { isAvailable }).map((hint) => ({
-      key: hint.keys[0] ?? "",
-      label: hint.label,
-    }));
+    return describeContextHints(keymap, context, { isAvailable })
+      .filter((hint) => !HIDDEN_CONTEXT_HINT_ACTIONS.has(hint.actionId))
+      .map((hint) => ({
+        key: hint.keys[0] ?? "",
+        label: hint.label,
+      }));
   }, [hintMode, isAvailable, keymap, state.activeRegion, state.focusInsideRegion]);
 
   return (
-    <box height={1} flexShrink={0} backgroundColor={tokens.surface}>
+    <box height={1} flexShrink={0}>
       <HintBar hints={hints} maxWidth={width} />
     </box>
   );

@@ -3,6 +3,8 @@ import {
   appendConsoleEntry,
   CONSOLE_ENTRY_LIMIT,
   capConsoleOutput,
+  formatConsoleOmittedMarker,
+  parseConsoleOmittedMarker,
   retainExpandedEntryIds,
 } from "@/domain/console/console.buffer";
 import type { ConsoleEntry } from "@/domain/console/console.types";
@@ -90,6 +92,18 @@ describe("capConsoleOutput", () => {
 
   it("handles empty output", () => {
     expect(capConsoleOutput("")).toEqual({ text: "", omittedLines: 0, totalLines: 0 });
+  });
+});
+
+describe("console omitted marker", () => {
+  it("round-trips the domain-owned marker format", () => {
+    expect(formatConsoleOmittedMarker(14)).toBe("... 14 lines omitted ...");
+    expect(parseConsoleOmittedMarker("... 14 lines omitted ...")).toBe(14);
+  });
+
+  it("rejects a line that is not a marker", () => {
+    expect(parseConsoleOmittedMarker("line 14")).toBeNull();
+    expect(parseConsoleOmittedMarker("... many lines omitted ...")).toBeNull();
   });
 });
 

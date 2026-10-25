@@ -3,8 +3,10 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useEffect } from "react";
 import { resetActionRegistry, useAction } from "@/app/hooks/useAction";
 import type { ActionRegistrationOptions } from "@/app/hooks/useAction.types";
+import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useStatus } from "@/app/hooks/useStatus";
+import type { ConsoleEntry } from "@/domain/console/console.types";
 import type { GitClient } from "@/domain/git/git.types";
 import { Footer } from "@/features/shell/Footer";
 import type { RegionId } from "@/features/shell/focus.types";
@@ -41,6 +43,40 @@ function ModalModeProbe(): ReactNode {
 
 /** Starts an operation from a test. */
 let startOperation: () => void = () => {};
+
+/**
+ * Appends one console entry on mount.
+ *
+ * @returns Nothing visible.
+ */
+function ConsoleEntrySeed(): ReactNode {
+  const log = useConsoleLog();
+  const { append } = log;
+
+  useEffect(() => {
+    append(CONSOLE_SEED_ENTRY);
+  }, [append]);
+
+  return null;
+}
+
+/** One minimal console entry for footer availability tests. */
+const CONSOLE_SEED_ENTRY: ConsoleEntry = {
+  id: "footer-entry",
+  at: 0,
+  commandId: "remote.fetch",
+  operationLabel: "Fetch",
+  steps: [],
+  cwd: null,
+  status: "success",
+  exitCode: 0,
+  durationMs: 1,
+  phase: null,
+  cancelled: false,
+  timedOut: false,
+  summary: "completed",
+  decisiveError: null,
+};
 
 /**
  * Captures the status operation starter.
@@ -235,11 +271,13 @@ beforeEach(() => {
 });
 
 describe("Footer", () => {
-  it("shows hints for the focused region and the global actions", async () => {
+  it("shows hints for the focused region and hides self-evident globals", async () => {
     const setup = await renderFooter(
       <FooterHarness region="branches">
         <Registration actionId="branch.create" options={{ scope: "branches" }} />
         <Registration actionId="app.quit" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.console" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="focus.next" options={{ scope: "global", owner: "shell" }} />
         <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
       </FooterHarness>,
     );
@@ -252,8 +290,10 @@ describe("Footer", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("n New branch");
-    expect(frame).toContain("q Quit");
     expect(frame).toContain("? Help");
+    expect(frame).not.toContain("Quit");
+    expect(frame).not.toContain("Toggle console");
+    expect(frame).not.toContain("Next region");
 
     await act(async () => {
       await setup.dispose();
@@ -314,10 +354,11 @@ describe("Footer", () => {
     const layout = (
       <FooterHarness region="graph">
         <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.palette" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.refresh" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.themePicker" options={{ scope: "global", owner: "app" }} />
         <Registration actionId="app.quit" options={{ scope: "global", owner: "app" }} />
         <Registration actionId="app.console" options={{ scope: "global", owner: "app" }} />
-        <Registration actionId="focus.next" options={{ scope: "global", owner: "shell" }} />
-        <Registration actionId="focus.previous" options={{ scope: "global", owner: "shell" }} />
       </FooterHarness>
     );
     const wide = await renderFooter(layout, 80);
@@ -329,8 +370,11 @@ describe("Footer", () => {
     const wideFrame = wide.captureCharFrame();
 
     expect(wideFrame).toContain("? Help");
-    expect(wideFrame).toContain("q Quit");
-    expect(wideFrame).toContain("Toggle console");
+    expect(wideFrame).toContain("Command palette");
+    expect(wideFrame).toContain("Refresh");
+    expect(wideFrame).toContain("Theme picker");
+    expect(wideFrame).not.toContain("Quit");
+    expect(wideFrame).not.toContain("Toggle console");
 
     await act(async () => {
       await wide.dispose();
@@ -347,7 +391,7 @@ describe("Footer", () => {
     const narrowFrame = narrow.captureCharFrame();
 
     expect(narrowFrame).toContain("? Help");
-    expect(narrowFrame).not.toContain("Quit");
+    expect(narrowFrame).not.toContain("Refresh");
 
     await act(async () => {
       await narrow.dispose();
@@ -371,6 +415,37 @@ describe("Footer", () => {
 
     expect(frame).toContain("? Help");
     expect(frame).not.toContain("Focus commit graph");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("never advertises self-evident movement, More, or Esc hints in a context", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="top-bar">
+        <Registration actionId="nav.left" options={{ scope: "top-bar" }} />
+        <Registration actionId="nav.right" options={{ scope: "top-bar" }} />
+        <Registration actionId="nav.activate" options={{ scope: "top-bar" }} />
+        <Registration actionId="remote.more" options={{ scope: "global", owner: "top-bar" }} />
+        <Registration actionId="overlay.close" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "top-bar");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Enter Activate");
+    expect(frame).toContain("? Help");
+    expect(frame).not.toContain("Move left");
+    expect(frame).not.toContain("Move right");
+    expect(frame).not.toContain("More remote actions");
+    expect(frame).not.toContain("Close or cancel");
 
     await act(async () => {
       await setup.dispose();
@@ -435,6 +510,49 @@ describe("Footer", () => {
 
     await act(async () => {
       await setup.dispose();
+    });
+  });
+
+  it("advertises console keys in the footer and hides Clear while the console is empty", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="console">
+        <Registration actionId="nav.up" options={{ scope: "console" }} />
+        <Registration actionId="nav.activate" options={{ scope: "console" }} />
+        <Registration actionId="console.clear" options={{ scope: "console" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "console");
+
+    const emptyFrame = setup.captureCharFrame();
+
+    expect(emptyFrame).toContain("Move up");
+    expect(emptyFrame).toContain("Activate");
+    expect(emptyFrame).not.toContain("Clear console");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+
+    const seeded = await renderFooter(
+      <FooterHarness region="console">
+        <ConsoleEntrySeed />
+        <Registration actionId="console.clear" options={{ scope: "console" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await seeded.renderOnce();
+    });
+    await focusRegion(seeded, "console");
+
+    expect(seeded.captureCharFrame()).toContain("Clear console");
+
+    await act(async () => {
+      await seeded.dispose();
     });
   });
 

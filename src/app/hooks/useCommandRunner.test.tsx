@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
+import { createRetryHandler } from "@/app/hooks/commandRunner.report";
 import {
   isCommandOrchestrationActive,
   recordCommandExecution,
@@ -10,12 +11,15 @@ import { resolveActionHandler } from "@/app/hooks/useAction";
 import { useCommandRunner } from "@/app/hooks/useCommandRunner";
 import type { CommandFailureReport, CommandRunnerHook } from "@/app/hooks/useCommandRunner.types";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
+import { useOverlay } from "@/app/hooks/useOverlay";
 import { useRepository, useRepositoryRefreshAction } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
 import type { ConsoleContextValue } from "@/app/providers/ConsoleProvider.types";
 import { FocusProvider } from "@/app/providers/FocusProvider";
+import { OverlayProvider } from "@/app/providers/OverlayProvider";
+import type { OverlayContextValue } from "@/app/providers/OverlayProvider.types";
 import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
@@ -35,6 +39,9 @@ let latestStatus: StatusContextValue | undefined;
 
 /** Latest console context captured by the probe. */
 let latestConsole: ConsoleContextValue | undefined;
+
+/** Latest overlay context captured by the probe. */
+let latestOverlay: OverlayContextValue | undefined;
 
 /** Error reports captured by the injected sink. */
 let errorReports: CommandFailureReport[] = [];
@@ -168,6 +175,7 @@ function registerOutcome(commandId: string, outcome: CommandExecutionOutcome): (
 function RunnerProbe(props: { withDefaultSink?: boolean }): ReactNode {
   latestStatus = useStatus();
   latestConsole = useConsoleLog();
+  latestOverlay = useOverlay();
   useRepository();
   useRepositoryRefreshAction();
 
@@ -200,6 +208,7 @@ async function renderRunner(
   latestRunner = undefined;
   latestStatus = undefined;
   latestConsole = undefined;
+  latestOverlay = undefined;
   errorReports = [];
   handlerCalls = 0;
 
@@ -218,11 +227,13 @@ async function renderRunner(
           now={() => 0}
         >
           <FocusProvider>
-            <StatusProvider>
-              <ConsoleProvider>
-                <RunnerProbe withDefaultSink={options.withDefaultSink} />
-              </ConsoleProvider>
-            </StatusProvider>
+            <OverlayProvider>
+              <StatusProvider>
+                <ConsoleProvider>
+                  <RunnerProbe withDefaultSink={options.withDefaultSink} />
+                </ConsoleProvider>
+              </StatusProvider>
+            </OverlayProvider>
           </FocusProvider>
         </RepositoryProvider>
       </ConfigProvider>,
@@ -281,6 +292,27 @@ async function waitForInitialRead(
   }
 }
 
+/**
+ * Waits until the console probe has at least the requested number of entries.
+ *
+ * @param setup - Renderer setup.
+ * @param count - Minimum entry count.
+ * @returns A promise resolved after the count is reached or the deadline expires.
+ */
+async function waitForConsoleEntries(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  count: number,
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+
+  while ((latestConsole?.entries.length ?? 0) < count && Date.now() < deadline) {
+    await act(async () => {
+      await setup.renderOnce();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+  }
+}
+
 /** The fetch command request used by the success and failure cases. */
 const FETCH_REQUEST: CommandRequest = { commandId: "remote.fetch", target: { kind: "none" } };
 
@@ -311,12 +343,96 @@ describe("useCommandRunner", () => {
     });
 
     expect(outcome?.status).toBe("success");
+    expect(latestOverlay?.entry).toBeNull();
+    expect(latestOverlay?.errorDetail).toBeNull();
     expect(fake.statusReads()).toBe(statusBefore + 1);
     expect(latestConsole?.entries).toHaveLength(1);
     expect(latestConsole?.entries[0]?.status).toBe("success");
     expect(latestStatus?.status).toEqual({ kind: "success", message: "Fetch completed" });
     expect(latestStatus?.operation).toBeNull();
     expect(errorReports).toHaveLength(0);
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("closes only the overlay entry that was open when the command started", async () => {
+    const cleanup = registerOutcome("remote.fetch", { steps: [okStep()] });
+    const { setup, fake } = await renderRunner();
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      latestOverlay?.confirm({
+        title: "Clear console",
+        description: "Clear the session history.",
+        confirmLabel: "Clear console",
+        destructive: false,
+        onConfirm: () => {},
+      });
+    });
+
+    const originatingId = latestOverlay?.entry?.id;
+
+    await act(async () => {
+      await latestRunner?.runCommand(FETCH_REQUEST);
+    });
+
+    expect(originatingId).toBeDefined();
+    expect(latestOverlay?.entry).toBeNull();
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("leaves an unrelated overlay open when a command settles", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cleanup = registerCommandHandler({
+      commandId: "remote.fetch",
+      operationLabel: "Fetch",
+      handler: async () => {
+        await gate;
+
+        return { steps: [okStep()] };
+      },
+    });
+    const { setup, fake } = await renderRunner();
+
+    await waitForInitialRead(setup, fake);
+
+    let running: Promise<unknown> | undefined;
+
+    await act(async () => {
+      running = latestRunner?.runCommand(FETCH_REQUEST);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    await act(async () => {
+      latestOverlay?.confirm({
+        title: "Clear console",
+        description: "Clear the session history.",
+        confirmLabel: "Clear console",
+        destructive: false,
+        onConfirm: () => {},
+      });
+    });
+
+    const unrelatedId = latestOverlay?.entry?.id;
+
+    await act(async () => {
+      release();
+      await running;
+    });
+
+    expect(unrelatedId).toBeDefined();
+    expect(latestOverlay?.entry?.id).toBe(unrelatedId);
 
     cleanup();
     await act(async () => {
@@ -623,7 +739,7 @@ describe("useCommandRunner", () => {
     });
   });
 
-  it("sets an error status with the default sink", async () => {
+  it("opens the persistent error overlay with the default sink", async () => {
     const cleanup = registerOutcome("remote.fetch", {
       steps: [okStep({ exitCode: 1, stderr: "fatal: nope" })],
     });
@@ -635,7 +751,317 @@ describe("useCommandRunner", () => {
       await latestRunner?.runCommand(FETCH_REQUEST);
     });
 
-    expect(latestStatus?.status).toEqual({ kind: "error", message: "fatal: nope" });
+    expect(latestStatus?.status).toBeNull();
+    expect(latestOverlay?.errorDetail?.commandId).toBe("remote.fetch");
+    expect(latestOverlay?.errorDetail?.message).toBe("fatal: nope");
+    expect(latestOverlay?.errorDetail?.details).toContain("fatal: nope");
+    expect(latestOverlay?.errorDetail?.consoleEntryId).toBe(latestConsole?.entries[0]?.id ?? null);
+    expect(latestOverlay?.errorDetail?.retry).toBeFunction();
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("re-runs the original request when the error overlay retries", async () => {
+    const requests: CommandRequest[] = [];
+    const cleanup = registerCommandHandler({
+      commandId: "remote.fetch",
+      operationLabel: "Fetch",
+      handler: async ({ request }) => {
+        requests.push(request);
+
+        return requests.length === 1
+          ? { steps: [okStep({ exitCode: 1, stderr: "fatal: network down" })] }
+          : { steps: [okStep()] };
+      },
+    });
+    const { setup, fake } = await renderRunner({ withDefaultSink: true });
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      await latestRunner?.runCommand({
+        ...FETCH_REQUEST,
+        formValues: { branch: "main" },
+      });
+    });
+
+    expect(latestOverlay?.errorDetail?.retry).toBeFunction();
+
+    await act(async () => {
+      latestOverlay?.errorDetail?.retry?.();
+    });
+
+    const deadline = Date.now() + 2_000;
+
+    while (requests.length < 2 && Date.now() < deadline) {
+      await act(async () => {
+        await setup.renderOnce();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.formValues).toEqual({ branch: "main" });
+    expect(latestConsole?.entries).toHaveLength(2);
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("redacts and sanitizes a thrown error before it reaches the error detail", async () => {
+    const cleanup = registerCommandHandler({
+      commandId: "remote.fetch",
+      operationLabel: "Fetch",
+      handler: async () => {
+        throw new Error(
+          "fatal: unable to access https://user:secret@example.com/repo.git\u001b[31m\rboom",
+        );
+      },
+    });
+    const { setup, fake } = await renderRunner({ withDefaultSink: true });
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      await latestRunner?.runCommand(FETCH_REQUEST).catch(() => {});
+    });
+
+    const detail = latestOverlay?.errorDetail;
+
+    expect(detail?.message).toContain("[redacted]");
+    expect(detail?.details).toContain("[redacted]");
+    expect(detail?.message).not.toContain("secret");
+    expect(detail?.details).not.toContain("secret");
+    expect(detail?.details).not.toContain("\u001b");
+    expect(detail?.details).not.toContain("\r");
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("links a thrown error to exactly one console entry", async () => {
+    const cleanup = registerCommandHandler({
+      commandId: "remote.fetch",
+      operationLabel: "Fetch",
+      handler: async () => {
+        throw new Error("fatal: handler exploded");
+      },
+    });
+    const { setup, fake } = await renderRunner({ withDefaultSink: true });
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      await latestRunner?.runCommand(FETCH_REQUEST).catch(() => {});
+    });
+
+    expect(latestConsole?.entries).toHaveLength(1);
+    expect(latestConsole?.entries[0]?.status).toBe("failure");
+    expect(latestOverlay?.errorDetail?.consoleEntryId).toBe(latestConsole?.entries[0]?.id ?? null);
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("redacts credentials in the settled failure details", async () => {
+    const cleanup = registerOutcome("remote.fetch", {
+      steps: [
+        okStep({
+          exitCode: 128,
+          stderr: "fatal: unable to access https://user:secret@example.com/repo.git",
+        }),
+      ],
+    });
+    const { setup, fake } = await renderRunner({ withDefaultSink: true });
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      await latestRunner?.runCommand(FETCH_REQUEST);
+    });
+
+    const details = latestOverlay?.errorDetail?.details ?? "";
+
+    expect(details).toContain("[redacted]");
+    expect(details).not.toContain("secret");
+    expect(latestOverlay?.errorDetail?.consoleEntryId).toBe(latestConsole?.entries[0]?.id ?? null);
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("reuses the appended entry when the post-result refresh rejects", async () => {
+    const cleanup = registerOutcome("remote.fetch", { steps: [okStep()] });
+    let rejectRefresh = false;
+    const { setup, fake } = await renderRunner({
+      withDefaultSink: true,
+      wrapClient: (client) => ({
+        gitPath: client.gitPath,
+        invoke: async (options) => {
+          if (rejectRefresh && options.args[0] === "status") {
+            throw new Error("refresh exploded");
+          }
+
+          return await client.invoke(options);
+        },
+      }),
+    });
+
+    await waitForInitialRead(setup, fake);
+    rejectRefresh = true;
+
+    await act(async () => {
+      await latestRunner?.runCommand(FETCH_REQUEST).catch(() => {});
+    });
+
+    const [entry] = latestConsole?.entries ?? [];
+
+    expect(latestConsole?.entries).toHaveLength(1);
+    expect(entry).toMatchObject({
+      status: "failure",
+      operationLabel: "Refresh after Fetch",
+      summary: "refresh exploded",
+      decisiveError: "refresh exploded",
+    });
+    expect(latestOverlay?.errorDetail).toMatchObject({
+      operationLabel: "Refresh after Fetch",
+      message: "refresh exploded",
+      consoleEntryId: entry?.id,
+    });
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps the error overlay when a retry refresh rejects", async () => {
+    const requests: CommandRequest[] = [];
+    const cleanup = registerCommandHandler({
+      commandId: "remote.fetch",
+      operationLabel: "Fetch",
+      handler: async ({ request }) => {
+        requests.push(request);
+
+        return requests.length === 1
+          ? { steps: [okStep({ exitCode: 1, stderr: "fatal: network down" })] }
+          : { steps: [okStep()] };
+      },
+    });
+    let rejectRefresh = false;
+    const { setup, fake } = await renderRunner({
+      withDefaultSink: true,
+      wrapClient: (client) => ({
+        gitPath: client.gitPath,
+        invoke: async (options) => {
+          if (rejectRefresh && options.args[0] === "status") {
+            throw new Error("refresh exploded");
+          }
+
+          return await client.invoke(options);
+        },
+      }),
+    });
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      await latestRunner?.runCommand(FETCH_REQUEST);
+    });
+
+    rejectRefresh = true;
+
+    await act(async () => {
+      latestOverlay?.errorDetail?.retry?.();
+    });
+    await waitForConsoleEntries(setup, 2);
+
+    expect(requests).toHaveLength(2);
+    expect(latestConsole?.entries).toHaveLength(2);
+    expect(latestOverlay?.errorDetail?.message).toContain("refresh exploded");
+    expect(latestOverlay?.errorDetail?.consoleEntryId).toBe(latestConsole?.entries[1]?.id ?? null);
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it.each([
+    ["remote.fetch", true],
+    ["remote.fetchPrune", true],
+    ["remote.pull", true],
+    ["remote.push", true],
+    ["remote.pushNoVerify", true],
+    ["remote.pushForceSafe", false],
+    ["remote.pushForceOverwrite", false],
+    ["branch.delete", false],
+    ["diff.discard", false],
+    ["stash.pop", false],
+  ])("offers retry only for a safe remote command: %s", (commandId, retryable) => {
+    const retry = createRetryHandler({ commandId, target: { kind: "none" } }, { current: null });
+
+    if (retryable) {
+      expect(retry).toBeFunction();
+      return;
+    }
+
+    expect(retry).toBeUndefined();
+  });
+
+  it("consumes a rejected retry instead of leaving an unhandled rejection", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    const retry = createRetryHandler(FETCH_REQUEST, {
+      current: async () => {
+        throw new Error("refresh exploded");
+      },
+    });
+
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      retry?.();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+
+    expect(retry).toBeFunction();
+    expect(unhandled).toHaveLength(0);
+  });
+
+  it("caps the error detail and marks the omitted middle", async () => {
+    const stderr = Array.from({ length: 120 }, (_, index) => `line ${index}`).join("\n");
+    const cleanup = registerOutcome("remote.fetch", {
+      steps: [okStep({ exitCode: 1, stderr })],
+    });
+    const { setup, fake } = await renderRunner({ withDefaultSink: true });
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      await latestRunner?.runCommand(FETCH_REQUEST);
+    });
+
+    const details = latestOverlay?.errorDetail?.details ?? "";
+
+    expect(details).toContain("lines omitted");
+    expect(details).toContain("line 0");
+    expect(details).toContain("line 119");
 
     cleanup();
     await act(async () => {

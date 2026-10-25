@@ -29,7 +29,7 @@ export const SIDEBAR_REGION_IDS: readonly SidebarRegionId[] = Object.freeze([
   "worktrees",
 ]);
 
-/** Tab traversal order from the product spec. The console is reached by its toggle and digit only. */
+/** Tab traversal order from the product spec. The console joins while its drawer is open. */
 export const TAB_ORDER: readonly RegionId[] = Object.freeze([
   "top-bar",
   "branches",
@@ -189,25 +189,30 @@ export function resolveLayoutMode(width: number, height: number): LayoutMode {
 /**
  * Builds the Tab order for a layout mode.
  *
- * The console is never in the Tab cycle. In the collapsed layout only the selected sidebar panel
- * stays visible, so the other four panels are skipped.
+ * The console joins the end of the cycle only while its drawer is open, because the console region
+ * unmounts when the drawer closes. In the collapsed layout only the selected sidebar panel stays
+ * visible, so the other four panels are skipped.
  *
  * @param layoutMode - Current shell layout mode.
  * @param activeSidebarPanel - Selected sidebar panel index for the collapsed layout.
+ * @param consoleOpen - Whether the console drawer is open.
  * @returns The visible regions in traversal order.
  */
 export function resolveEffectiveTabOrder(
   layoutMode: ShellLayoutMode,
   activeSidebarPanel: number,
+  consoleOpen: boolean,
 ): readonly RegionId[] {
+  const order: readonly RegionId[] = consoleOpen ? [...TAB_ORDER, "console"] : TAB_ORDER;
+
   if (layoutMode !== "sidebar-collapsed") {
-    return TAB_ORDER;
+    return order;
   }
 
   const activePanel =
     SIDEBAR_REGION_IDS[clampPanelIndex(activeSidebarPanel)] ?? SIDEBAR_REGION_IDS[0];
 
-  return TAB_ORDER.filter((regionId) => !isSidebarRegion(regionId) || regionId === activePanel);
+  return order.filter((regionId) => !isSidebarRegion(regionId) || regionId === activePanel);
 }
 
 /**

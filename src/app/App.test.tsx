@@ -6,9 +6,11 @@ import { APP_VERSION } from "@/app/app.constants";
 import { resetCommandOrchestration } from "@/app/hooks/commandRunner.state";
 import { resetActionRegistry } from "@/app/hooks/useAction";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
+import { useOverlay } from "@/app/hooks/useOverlay";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import type { ConsoleContextValue } from "@/app/providers/ConsoleProvider.types";
+import type { OverlayContextValue } from "@/app/providers/OverlayProvider.types";
 import type { RepositoryContextValue } from "@/app/providers/RepositoryProvider.types";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
 import { resetCommandRunner } from "@/domain/commands/commands.runner";
@@ -53,6 +55,9 @@ let latestStatus: StatusContextValue | undefined;
 /** Latest repository context captured by the app-level probe. */
 let latestRepository: RepositoryContextValue | undefined;
 
+/** Latest overlay context captured by the app-level probe. */
+let latestOverlay: OverlayContextValue | undefined;
+
 /** Status messages observed while the app-level probe was mounted. */
 let statusMessages: string[] = [];
 
@@ -65,11 +70,13 @@ function AppProbe(): ReactNode {
   const consoleLog = useConsoleLog();
   const status = useStatus();
   const repository = useRepository();
+  const overlay = useOverlay();
   const message = status.status?.message ?? null;
 
   latestConsole = consoleLog;
   latestStatus = status;
   latestRepository = repository;
+  latestOverlay = overlay;
   useRepository();
 
   useEffect(() => {
@@ -126,6 +133,7 @@ beforeEach(() => {
   latestConsole = undefined;
   latestStatus = undefined;
   latestRepository = undefined;
+  latestOverlay = undefined;
   statusMessages = [];
 });
 
@@ -474,7 +482,9 @@ describe("App splash gate", () => {
     });
 
     expect(latestConsole?.entries).toHaveLength(1);
-    expect(latestStatus?.status?.kind).toBe("error");
+    expect(latestStatus?.status).toBeNull();
+    expect(latestOverlay?.errorDetail?.message).toBe("fatal: could not resolve host: example.com");
+    expect(latestOverlay?.errorDetail?.consoleEntryId).toBe(latestConsole?.entries[0]?.id ?? null);
     expect(latestRepository?.remoteChecks.origin?.lastSuccessfulFetchAt).toBeNull();
 
     await act(async () => {

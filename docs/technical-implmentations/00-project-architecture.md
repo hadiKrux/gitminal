@@ -139,6 +139,7 @@ gitminal/
         KeymapProvider.types.ts
         OverlayProvider.tsx
         OverlayProvider.types.ts
+        OverlayProvider.state.ts
         StatusProvider.tsx
         StatusProvider.types.ts
         ConsoleProvider.tsx
@@ -150,6 +151,8 @@ gitminal/
         useAction.types.ts
         useCommandRunner.ts
         useCommandRunner.types.ts
+        commandRunner.blocked.ts
+        commandRunner.report.ts
         commandRunner.state.ts
         useFocusRegion.ts
         useFocusState.ts
@@ -185,6 +188,7 @@ gitminal/
         useRepositoryWatcher.types.ts
         useConsoleLog.ts
         useTerminalSize.ts
+        useOverlaySurfaceState.ts
     features/
       splash/
         SplashScreen.tsx
@@ -292,9 +296,18 @@ gitminal/
         useCommandPalette.ts
       console/
         ConsoleDrawer.tsx
+        ConsoleDrawer.constants.ts
         ConsoleEntryRow.tsx
+        ConsoleEntryRow.constants.ts
         ConsoleOutput.tsx
+        ConsoleOutputBlock.tsx
+        ConsoleOutput.constants.ts
         useConsole.ts
+        useConsoleActions.ts
+        useConsole.constants.ts
+        useConsoleCursor.ts
+        useConsoleFollowSync.ts
+        useConsole.types.ts
       help/
         HelpModal.tsx
         HelpSection.tsx
@@ -305,7 +318,14 @@ gitminal/
         ConfirmModal.tsx
         ConfirmModal.constants.ts
         ErrorOverlay.tsx
+        ErrorOverlay.constants.ts
+        ErrorOverlay.types.ts
+        OverlayEntrySurface.tsx
+        OverlayEntrySurface.types.ts
+        OverlayFocus.tsx
         OverlayHost.tsx
+        useOverlayHostActions.ts
+        useOverlayHostActions.types.ts
       theme-picker/
         ThemePicker.tsx
         ThemeRow.tsx
@@ -391,6 +411,7 @@ gitminal/
         commands.fetch.types.ts
         commands.remote.ts
         commands.remote.types.ts
+        confirm.labels.ts
       graph/
         graph.types.ts
         graph.paginate.ts
@@ -423,7 +444,10 @@ gitminal/
       console/
         console.types.ts
         console.buffer.ts
+        console.constants.ts
         console.format.ts
+        console.rows.ts
+        console.sanitize.ts
       update/
         update.check.ts
         update.types.ts
@@ -460,7 +484,7 @@ Rules for this tree:
 - `src/test/` holds test-only harness code. `git.fixture.ts` creates, seeds, and removes temporary repositories for integration tests; no production module imports it, and the boundary check rejects a `src/test/**` import outside a colocated test file or another `src/test/**` module.
 - `scripts/` holds the section 12 developer checks only. It is tooling, not a feature folder, so the feature naming rule does not apply.
 - `AppShellHost.tsx` is the composition root. Feature components never import one another; they receive cross-feature data through providers, commands, or selectors.
-- The M4 temporary surfaces are `features/console/ConsoleDrawer.tsx` and `features/shell/PlaceholderSurface.tsx`. M6 replaces the console drawer; `AppShellHost` only swaps the surfaces it supplies, and each placeholder is documented as temporary in its own file. M5 replaced the temporary top bar with the real one.
+- The M4 temporary surfaces were `features/console/ConsoleDrawer.tsx` and `features/shell/PlaceholderSurface.tsx`. M6 replaced the console drawer; `AppShellHost` only swaps the surfaces it supplies, and each placeholder is documented as temporary in its own file. M5 replaced the temporary top bar with the real one.
 
 ## 5. File naming rules
 
@@ -593,7 +617,7 @@ Consumers, all of which read from `ICONS`:
 - `src/ui/ListRow.tsx` and `src/ui/SectionHeader.tsx` render selection and expansion markers.
 - `src/features/graph/GraphLanes.tsx` renders lane cells from `graphLanes`.
 - `src/features/diff/DiffFileRow.tsx` renders file status letters.
-- `src/features/console/ConsoleOutput.tsx` renders `omittedLines`.
+- `src/features/console/ConsoleOutput.tsx` and `ConsoleOutputBlock.tsx` render `omittedLines`.
 
 Tests: `src/theme/icons.test.ts` asserts that every required group and key from section 6.1 is present, that every value is printable ASCII, and that array values are non-empty and frozen.
 
@@ -647,7 +671,7 @@ Direct region jumps use the digits `1`-`9` in screen order: `1`-`5` are the five
 - OpenTUI native focus is the authority. `renderer.currentFocusedRenderable` decides which renderable receives keys.
 - `FocusProvider` subscribes to `renderer` events `focused_renderable` and `focused_editor`. It derives `activeRegion` from the focused renderable's nearest ancestor region frame (`region-<regionId>`), derives `textInputFocused` from `currentFocusedEditor !== null`, and derives `nativeListFocused` from the focused renderable being a `SelectRenderable` or `TabSelectRenderable`. If focus is outside every region, such as in an overlay, `activeRegion` keeps its last value while the overlay owns keys. It stores `previousRegion`, `focusedRenderableId`, `previousFocusedRenderableId`, and the per-region cursor map. It exposes `focusRegion(regionId)`, `focusRenderable(id)`, and `restoreFocus(id)`. It does not expose a writable `activeRegion` or a manual text-input flag.
 - `useFocusRegion(regionId)` returns `{ focused, focus(), regionProps, getCursor, setCursor }`. `regionProps` sets a stable id `region-<regionId>`, `focusable`, and `focusedBorderColor` on the region frame. `focused` is true when the focused renderable is the region frame or a descendant, including a text input inside it. It is false while focus is in an overlay.
-- `useFocusModel` owns Tab and Shift+Tab traversal in the spec order, the `focus.region.*` direct jumps, skips regions hidden by responsive fallbacks, and calls `focusRegion(next)` instead of writing focus state directly.
+- `useFocusModel` owns Tab and Shift+Tab traversal in the spec order, the `focus.region.*` direct jumps, skips regions hidden by responsive fallbacks, appends the `console` region to the cycle only while the drawer is open, and calls `focusRegion(next)` instead of writing focus state directly.
 - A text input or other widget that must be focused programmatically has a stable id and is focused with `focusRenderable(id)`. `focusRegion` is only for a region frame. Examples are `graph.search` focusing the search input and `commit.focus` focusing the composer textarea.
 - Text input mode applies when `currentFocusedEditor` is not null. `Esc` leaves the input without clearing its value and normally returns focus to the owning region frame; a feature may consume the first `Esc` for a documented cancel or clear or define a different return target (the composer returns to the textarea's region), but the next `Esc` must leave the input. `Tab` and `Shift+Tab` follow the field type first: in a multiline `<textarea>`, `Tab` inserts the indent unit at the cursor and `Shift+Tab` removes up to one indent unit from the start of the current line, and neither moves focus, including inside an overlay; in a single-line `<input>`, they move to the next or previous region in the shell, or to the next or previous field or footer action inside an overlay. The textarea indent unit is `TEXT_INDENT_UNIT` (two spaces) in `src/lib/text.ts`, and replaces the selection when one exists. A textarea exposes `insertText` through its ref so the handler can insert the indent before calling `preventDefault()`.
 - Input modes are part of keymap resolution, not exceptions handled ad hoc by features. Every focused editor resolves to one of three modes: `field` (plain single-line or multiline editing), `search` (a single-line search over a result list), or `form` (a modal or shell form with fields and footer actions). The mode is a pure function of the focused editor's registered `InputMode` metadata.
@@ -728,9 +752,9 @@ Providers, outermost to innermost:
 4. `RepositoryProvider`: repository snapshot, the right-pane selection union (`pending`, `commit`, `stash`, `worktree`, or `diffFile`), and the refresh cycle. Source: `@/domain/repository` and `@/domain/git`. It does not own row expansion.
 5. `DraftProvider`: the composer draft string and `hasUnsavedDraft`. The shell's quit handler and the composer both read this provider; the composer does not duplicate it, and no feature imports another feature to answer the unsaved-work question. The footer reads the repository through `useOptionalRepository`, which returns null outside a provider so shell-only tests do not need the repository stack.
 6. `FocusProvider`: a projection of OpenTUI native focus, `previousRegion`, and the per-region cursor map. It is not a second focus authority.
-7. `OverlayProvider`: one open overlay entry at a time (a feature modal or a destructive/non-destructive confirmation) plus the focus captured when it opened. Opening a second entry replaces the first instead of stacking. The persistent error detail and the error overlay remain M6. Success and informational messages are not overlays.
+7. `OverlayProvider`: one open overlay entry at a time (a feature modal or a destructive/non-destructive confirmation) plus the focus captured when it opened. Opening a second entry replaces the first instead of stacking. The persistent error detail and the error overlay landed in M6. Success and informational messages are not overlays.
 8. `StatusProvider`: transient status, footer hint mode, operation progress. It is the only surface for success and informational messages. Success and informational messages auto-dismiss after a short timeout; warning and error messages stay until another status replaces them or `clearStatus` removes them.
-9. `ConsoleProvider`: drawer visibility, bounded command log, follow mode, new-entry count, and expanded entry ids.
+9. `ConsoleProvider`: drawer visibility, bounded command log, follow mode, new-entry count, expanded entry ids, and the pending cross-surface selection request (`pendingSelectionEntryId`).
 
 Data flow for a mutation:
 
@@ -763,7 +787,7 @@ Rules:
 
 - `src/domain/git/git.client.ts` is the only module that spawns processes. It uses an argument array, `git.path` from config, `cwd` at the repository root, no shell, and stdin ignored.
 - Credential and editor prompts are disabled through an explicit environment matrix. The client sets `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ASKPASS=""`, `SSH_ASKPASS=""`, `SSH_ASKPASS_REQUIRE=never`, `GIT_EDITOR=true`, `GIT_SEQUENCE_EDITOR=true`, `GIT_PAGER=cat`, `PAGER=cat`, `GIT_MERGE_AUTOEDIT=no`, and `LC_ALL=C`. It sets `GIT_SSH_COMMAND=ssh -o BatchMode=yes` only when the user has not configured `GIT_SSH_COMMAND` or `core.sshCommand`; a user-configured SSH command wins. The `core.sshCommand` probe caches only a conclusive answer, and a cancelled, timed-out, spawn-failed, or generic git failure is retried instead of overriding a configured command. A missing credential or network failure fails visibly and is logged; the app never hangs on a prompt.
-- Every invocation has a timeout and a cancellation signal. Defaults are 10 seconds for local reads, 30 seconds for local writes, and 120 seconds for network operations. `git.client.ts` accepts an `AbortSignal`; on abort it sends `SIGTERM`, waits two seconds, then sends `SIGKILL`, and returns a cancelled result. Timeouts use the same path and are reported as "timed out after N seconds". A terminated child settles on its `exit` event; a normal exit waits for `close` only during a bounded 100 ms flush grace, so a backgrounded descendant that inherits the output pipes cannot defeat the timeout or delay quit. Once a normal exit is recorded the invocation timeout is cleared, so a late timeout or abort cannot rewrite a completed command as timed out or cancelled. Quit aborts the in-flight command through the orchestrator, waits for it to settle, and destroys the renderer only after the child has exited or been killed. M4 deviation: draft-based quit confirmation is deferred to M6 with the overlay stack, so `app.quit` always aborts immediately; the abort-before-destroy order is implemented.
+- Every invocation has a timeout and a cancellation signal. Defaults are 10 seconds for local reads, 30 seconds for local writes, and 120 seconds for network operations. `git.client.ts` accepts an `AbortSignal`; on abort it sends `SIGTERM`, waits two seconds, then sends `SIGKILL`, and returns a cancelled result. Timeouts use the same path and are reported as "timed out after N seconds". A terminated child settles on its `exit` event; a normal exit waits for `close` only during a bounded 100 ms flush grace, so a backgrounded descendant that inherits the output pipes cannot defeat the timeout or delay quit. Once a normal exit is recorded the invocation timeout is cleared, so a late timeout or abort cannot rewrite a completed command as timed out or cancelled. Quit aborts the in-flight command through the orchestrator, waits for it to settle, and destroys the renderer only after the child has exited or been killed. M4 deviation: draft-based quit confirmation remains deferred beyond the M6 overlay work, so `app.quit` always aborts immediately; the abort-before-destroy order is implemented.
 - Writes are serialized inside `commands.runner.ts`. Index-touching reads (`status`, `diff`, `log --raw`) are serialized against writes by `git.client.ts`, so a status read never observes a half-applied mutation. A second write while one is running returns a blocked result with a reason. The runner holds no provider state; the blocked reason and the running flag are projected to the UI through the orchestrator and `StatusProvider`.
 - `commands.runner.ts` executes only. It returns a `CommandResult` with the operation label, the ordered `steps` (each with argv, exit status, duration, stdout, and stderr), cwd, progress phases, and the cancelled or timed-out flag. A composite operation such as create-with-checkout, delete-local-and-remote, or a grouped prune records one step per git invocation so the console can show each command. A step marked `nonFatal` does not make the result a failure: the documented case is a scoped Fetch whose configured upstream no longer exists on the remote, where the step stays in the console, the result stays a success, and `warnings` names the affected branch so the orchestrator shows a warning status instead of the error surface. A handler that refuses its scope before working returns `blockedReason`, which the runner turns into a blocked result with no steps. A handler that contacts remotes may also return `remoteResults`, a per-remote success list; `useRemoteCommands` records `RepositoryProvider.recordRemoteCheck(remote, "fetch", succeeded)` for each entry, so a completed fetch advances that remote's last successful fetch timestamp and a failed remote leaves it untouched. A Fetch --prune handler also returns `prunedUpstreamRefs` and `unknownUpstreamRefs`; the wrapper folds both lists into repository evidence and performs one refresh before returning, so the orchestrator's own refresh sees the new upstream classification without one full read per ref. A run whose every remote group failed and that fetched or pruned nothing sets `failed: true`, so a total failure reaches the error surface while a partial failure stays a success with warnings. The runner never refreshes the repository, appends a console entry, sets a status, or opens an overlay. `src/app/hooks/useCommandRunner.ts` applies those effects after the result.
 - The scoped Fetch runs one invocation per upstream ref with `git fetch --progress -- <remote> +refs/heads/<branch>:refs/remotes/<remote>/<branch>`. The forced-update prefix keeps the remote-tracking ref a mirror of the remote after an amend, rebase, or force-push, and the destination is never a local branch. A missing remote ref is classified per step as `nonFatal`; a scope with no upstream refs is blocked. The scope is read from the tab-separated `%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref)` atoms and grouped by the exact remote name, so a remote whose name contains `/` is never split at the first slash.
@@ -828,17 +852,19 @@ type CommandRunOptions = {
 2. `StatusProvider.beginOperation` before invoking the runner.
 3. Invoke `commands.runner.ts` with the captured values and an `AbortSignal` owned by `useCommandRunner`. The runner re-checks availability and serialization as the authority; if it returns a blocked result, call `endOperation`, surface the reason, and skip refresh, console, and error effects.
 4. `StatusProvider.updateOperation` for each progress event.
-5. `git.redact.ts` on every step's stdout, stderr, and argv, plus cwd.
+5. `git.redact.ts` on every step's stdout, stderr, and argv, plus cwd, followed by the pure control-character sanitizer in `console.sanitize.ts`; argv, cwd, and warnings use its single-line mode, while stdout, stderr, and error messages keep newlines and tabs.
 6. `console.format.ts` then `useConsoleLog` to append exactly one entry.
 7. `RepositoryProvider.refresh()` after success and failure. A cancelled or timed-out result refreshes so the UI reflects any partial local change.
 8. `StatusProvider.endOperation` plus a success or warning status, or `OverlayProvider.showError` on failure. A cancelled result sets a warning status "cancelled"; a timed-out result sets "timed out after N seconds" when the client reported the duration. Neither opens the error overlay. A requested mutation returns `operation-in-progress` before `beginOperation` while an orchestration still owns the post-result refresh, console, and status effects.
+
+A settled result closes only the overlay entry that was open when the command started, through `OverlayProvider.closeEntry(entryId)`. An unrelated confirmation opened while the command runs, or a visible error detail, is left untouched. A caught exception is redacted and sanitized before it reaches the error detail, and it appends exactly one console entry that the overlay links to. When the exception follows an already-appended result entry, for example a rejected post-result refresh, that entry is replaced in place with a failure carrying the same summary, and the overlay reports the distinct operation `Refresh after <command>`, so the title, linked entry status, and summary agree. A thrown entry summary and decisive error are single-line, while the overlay message keeps newlines; both thrown and settled detail blocks are capped with the shared console rule. The retry closure consumes a rejected re-run because the error detail is already stored, so an unhandled rejection cannot terminate the TUI.
 
 A read path (`app.refresh`, watcher, focus refresh) never enters this flow. It calls `RepositoryProvider.refresh()` directly.
 
 M4 deviations, recorded here per the last rule in this document:
 
-- The error overlay is not built until M6. `useCommandRunner` routes failures through an injectable error sink whose default sets an error status, so the effect order and redaction are implemented while the overlay surface waits.
-- Draft-based quit confirmation is not built until M6. `app.quit` aborts the in-flight command and waits for it to settle before `renderer.destroy()`; it does not yet ask about `DraftProvider.hasUnsavedDraft`.
+- The error overlay landed in M6. `useCommandRunner` routes settled failures to `OverlayProvider.showError` with redacted, sanitized details, the console entry link, and a retry closure for retryable remote commands; Retry re-runs the original request, including its form values.
+- Draft-based quit confirmation remains deferred beyond M6. `app.quit` aborts the in-flight command and waits for it to settle before `renderer.destroy()`; it does not yet ask about `DraftProvider.hasUnsavedDraft`.
 - M4 wired the first real mutation through the orchestrator: `remote.fetch` executes upstream-scoped `git fetch --progress` on the network class. M5 adds `remote.pull`, `remote.push`, `remote.pushForceSafe`, `remote.pushForceOverwrite`, `remote.pushNoVerify`, and `remote.fetchPrune` through the same registry, runner, and orchestrator path; the M5 top bar replaces the temporary trigger, not the path. Fetch and Fetch --prune are blocked with `no-local-upstreams` when the repository read resolves no local upstream, and a configured upstream whose remote ref is gone is a non-fatal warning that names the branch rather than a command failure. Pull requires a configured upstream, plain push and push --no-verify auto-create `origin/<branch>` when none exists, and the force variants require an existing upstream. Fetch --prune confirms remote absence with `git ls-remote --heads -- <remote>` before any `git update-ref -d`, and a failed, timed-out, or truncated check leaves its refs unknown instead of deleted. Push and its variants read the current branch from git, fail on a mismatch with the captured target, and use an explicit configured-upstream remote and `refs/heads/<branch>:refs/heads/<upstream.branch>` refspec. The configured upstream remote and branch come from `%(upstream:remotename)` and `%(upstream:remoteref)`, and Fetch and Fetch --prune group the same atoms by the exact remote name, so a slash-named remote is never split. `commands.remote.ts` stays above the file-review threshold as documented M5 debt; the extraction target is `commands.prune.ts` for the prune orchestration and, if useful, `commands.remote.push.ts` for the push and upstream readers, when a fourth composite remote command lands or before the v1 freeze.
 - Repository reads expose an explicit `failureKind`. Cancelled, timed-out, auth-network, and unknown failures keep the previous snapshot and record a redacted `lastRefreshError`; only a genuine not-a-repository classification produces `not-a-repository`, and only a genuine missing-git or permission failure produces those environment states.
 
@@ -944,10 +970,10 @@ Ticket index: [`index.md`](index.md). Recommended build order: [`index.md`](inde
 | `12-command-palette.md` | F-12 Command palette | `features/palette`, `domain/commands` |
 | `13-console.md` | F-13 Console | `features/console`, `domain/console`, `app/providers/ConsoleProvider.tsx` |
 | `14-help.md` | F-14 Help | `features/help` |
-| `15-overlays-and-confirmations.md` | F-15 Overlays and confirmations | `features/overlays`, `app/providers/OverlayProvider.tsx` |
+| `15-overlays-and-confirmations.md` | F-15 Overlays and confirmations | `features/overlays`, `app/providers/OverlayProvider.tsx`, `app/providers/OverlayProvider.state.ts`, `app/hooks/useOverlaySurfaceState.ts`, `domain/commands/confirm.labels.ts` |
 | `16-repository-states.md` | F-16 Repository states | `domain/repository/repository.states.ts` |
 | `17-freshness-and-performance.md` | F-17 Freshness and performance | `app/providers/RepositoryProvider.tsx`, `app/hooks/useRepositoryRefresh.ts`, `app/hooks/useRepositoryRuntime.ts`, `app/hooks/useRepositoryStore.ts`, `app/hooks/useRepositoryAvailability.ts`, `app/hooks/useRepositoryInitialRead.ts`, `app/hooks/useRepositoryStoreWatcher.ts`, `app/hooks/useInFlightTask.ts`, `app/hooks/useRemoteCommands.ts`, `app/hooks/useRemoteCommands.types.ts`, `domain/git/git.client.ts`, `domain/git/git.watcher.ts`, `domain/git/git.progress.ts`, `domain/git/git.remotes.ts`, `domain/git/git.remotes.types.ts`, `domain/graph/graph.paginate.ts`, `domain/graph/graph.search.ts`, `domain/diff/diff.limits.ts`, `domain/repository/repository.read.ts`, `domain/commands/commands.runner.ts`, `domain/commands/commands.reasons.ts`, `domain/commands/commands.steps.ts`, `domain/commands/commands.fetch.ts`, `domain/commands/commands.remote.ts`, `domain/commands/commands.remote.types.ts` |
-| `18-safety-and-platform-behavior.md` | F-18 Safety and platform behavior | `domain/git/git.errors.ts`, `domain/git/git.redact.ts`, `app/hooks/useCommandRunner.ts` |
+| `18-safety-and-platform-behavior.md` | F-18 Safety and platform behavior | `domain/git/git.errors.ts`, `domain/git/git.redact.ts`, `domain/console/console.sanitize.ts`, `app/hooks/useCommandRunner.ts`, `app/hooks/commandRunner.report.ts` |
 | `19-configuration-and-keybindings.md` | F-19 Configuration and keybindings | `domain/config`, `domain/keymap`, `app/providers/ConfigProvider.tsx`, `app/providers/ConfigProvider.types.ts`, `app/providers/KeymapProvider.tsx`, `app/providers/KeymapProvider.types.ts` |
 | `20-theme-and-colors.md` | F-20 Theme and colors | `features/theme-picker`, `domain/theme`, `theme`, `app/providers/ThemeProvider.tsx`, `app/providers/ThemeProvider.types.ts`, `app/hooks/useTheme.ts` |
 | `21-startup-splash.md` | F-21 Startup splash and update check | `features/splash`, `features/splash/SplashScreen.constants.ts`, `features/splash/SplashUpdateNotice.tsx`, `domain/update`, `app/App.tsx`, `app/SplashGate.tsx`, `app/quit.key.ts`, `lib/semver.ts`, `lib/semver.types.ts` |

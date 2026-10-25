@@ -1,12 +1,18 @@
 import { type ReactNode, useCallback, useState } from "react";
 import { useAction } from "@/app/hooks/useAction";
 import {
+  CONFIRM_LABEL_DISABLED_REASON,
+  readConfirmLabelWarning,
+} from "@/domain/commands/confirm.labels";
+import {
   CONFIRM_CANCEL_ID,
   CONFIRM_CANCEL_LABEL,
   CONFIRM_MODAL_FRAME_ID,
   CONFIRM_MODAL_WIDTH,
   CONFIRM_PRIMARY_ID,
 } from "@/features/overlays/ConfirmModal.constants";
+import { ICONS } from "@/theme/icons";
+import { useTokens } from "@/theme/useTokens";
 import type { ButtonProps } from "@/ui/Button.types";
 import { ModalActions } from "@/ui/ModalActions";
 import { ModalFrame } from "@/ui/ModalFrame";
@@ -23,21 +29,29 @@ import { ModalFrame } from "@/ui/ModalFrame";
  * The overlay-scope handlers are registered by this component because it owns both the focused
  * action index and the confirmation lifecycle. The overlay host mounts it only for confirm entries,
  * so no other overlay content can register a competing overlay-scope handler, and switching entries
- * cannot create a duplicate `(actionId, scope)` registration.
+ * cannot create a duplicate `(actionId, scope)` registration. A destructive confirmation that passes
+ * a label outside the exact F-15 table renders a visible warning and disables the primary action with
+ * a short reason, so the generic action can never run; no exception is thrown during render.
  *
- * @param props - Entry title, description, exact confirm label, destructiveness, and callbacks.
+ * @param props - Entry title, description, exact confirm label, label warning, destructiveness, and callbacks.
  * @returns The confirmation modal.
  */
 export function ConfirmModal(props: {
   readonly title: string;
   readonly description: string;
   readonly confirmLabel: string;
+  readonly labelWarning?: string;
   readonly destructive: boolean;
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
 }): ReactNode {
+  const tokens = useTokens();
   const [focusedIndex, setFocusedIndex] = useState(() => (props.destructive ? 0 : 1));
-  const actions = buildActions(props, focusedIndex);
+  const warning =
+    props.labelWarning ?? readConfirmLabelWarning(props.destructive, props.confirmLabel);
+  const blockedReason =
+    props.destructive && warning !== null ? CONFIRM_LABEL_DISABLED_REASON : null;
+  const actions = buildActions(props, focusedIndex, blockedReason);
 
   /** Focuses the previous footer action. */
   const moveLeft = useCallback((): void => {
@@ -67,6 +81,11 @@ export function ConfirmModal(props: {
       description={props.description}
       width={CONFIRM_MODAL_WIDTH}
     >
+      {warning === null ? null : (
+        <text fg={tokens.warning} wrapMode="none">
+          {`${ICONS.warning} ${warning}`}
+        </text>
+      )}
       <box flexGrow={1} />
       <ModalActions actions={actions} />
     </ModalFrame>
@@ -78,6 +97,7 @@ export function ConfirmModal(props: {
  *
  * @param props - Confirmation props supplying the labels and callbacks.
  * @param focusedIndex - Currently focused action.
+ * @param blockedReason - Reason the primary action is disabled, or null when it can run.
  * @returns Cancel and primary actions with their focus flags.
  */
 function buildActions(
@@ -87,6 +107,7 @@ function buildActions(
     readonly onCancel: () => void;
   },
   focusedIndex: number,
+  blockedReason: string | null,
 ): readonly ButtonProps[] {
   return [
     {
@@ -99,7 +120,9 @@ function buildActions(
       id: CONFIRM_PRIMARY_ID,
       label: props.confirmLabel,
       focused: focusedIndex === 1,
-      onPress: props.onConfirm,
+      disabled: blockedReason !== null,
+      reason: blockedReason ?? undefined,
+      onPress: blockedReason === null ? props.onConfirm : undefined,
     },
   ];
 }
