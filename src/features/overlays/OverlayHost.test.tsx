@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import { type CapturedFrame, type CapturedSpan, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { resetActionRegistry, useAction } from "@/app/hooks/useAction";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useStatus } from "@/app/hooks/useStatus";
+import { DEFAULT_THEME_NAME, THEME_FLAVORS } from "@/domain/theme/theme.catppuccin";
 import { OverlayHost } from "@/features/overlays/OverlayHost";
 import { ShellTestProviders } from "@/test/shell.harness";
 import { ModalActions } from "@/ui/ModalActions";
@@ -127,6 +129,54 @@ async function pressKey(
   await renderOnce(setup);
 }
 
+/**
+ * Finds the last captured span whose text contains the given text.
+ *
+ * The footer action is rendered after the modal title, and both may use the same label, so the
+ * last match is the button.
+ *
+ * @param frame - Captured frame with colored spans.
+ * @param text - Text the span must contain.
+ * @returns The matching span.
+ * @throws When no span matches.
+ */
+function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
+  let found: CapturedSpan | undefined;
+
+  for (const line of frame.lines) {
+    for (const span of line.spans) {
+      if (span.text.includes(text)) {
+        found = span;
+      }
+    }
+  }
+
+  if (found === undefined) {
+    throw new Error(`No captured span contains ${text}`);
+  }
+
+  return found;
+}
+
+/**
+ * Asserts a modal action's focus state through its background token.
+ *
+ * @param setup - Renderer setup.
+ * @param text - Action label.
+ * @param focused - Whether the action should render the focused background.
+ */
+function expectActionFocused(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  text: string,
+  focused: boolean,
+): void {
+  const tokens = THEME_FLAVORS[DEFAULT_THEME_NAME].tokens;
+  const expected = focused ? tokens.selection : tokens.border;
+  const span = findSpanContaining(setup.captureSpans(), text);
+
+  expect(span.bg.equals(RGBA.fromHex(expected))).toBe(true);
+}
+
 beforeEach(() => {
   resetActionRegistry();
 });
@@ -223,7 +273,7 @@ describe("OverlayHost", () => {
 
     expect(frame).toContain("Overwrite remote");
     expect(frame).toContain("main -> origin/main");
-    expect(frame).toContain("> Cancel");
+    expectActionFocused(setup, "Cancel", true);
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("confirm-modal");
 
     await pressKey(setup, "enter");
@@ -257,10 +307,10 @@ describe("OverlayHost", () => {
     });
     await renderOnce(setup);
 
-    expect(setup.captureCharFrame()).toContain("> Force push safely");
+    expectActionFocused(setup, "Force push safely", true);
 
     await pressKey(setup, "left");
-    expect(setup.captureCharFrame()).toContain("> Cancel");
+    expectActionFocused(setup, "Cancel", true);
 
     await pressKey(setup, "enter");
     expect(confirmations).toBe(0);
@@ -305,7 +355,7 @@ describe("OverlayHost", () => {
     });
     await renderOnce(setup);
 
-    expect(setup.captureCharFrame()).toContain("> Cancel");
+    expectActionFocused(setup, "Cancel", true);
 
     await act(async () => {
       latestOverlay?.confirm({
@@ -318,7 +368,8 @@ describe("OverlayHost", () => {
     });
     await renderOnce(setup);
 
-    expect(setup.captureCharFrame()).toContain("> Force push safely");
+    expectActionFocused(setup, "Cancel", false);
+    expectActionFocused(setup, "Force push safely", true);
 
     await act(async () => {
       latestOverlay?.confirm({
@@ -331,7 +382,7 @@ describe("OverlayHost", () => {
     });
     await renderOnce(setup);
 
-    expect(setup.captureCharFrame()).toContain("> Cancel");
+    expectActionFocused(setup, "Cancel", true);
 
     await act(async () => {
       await setup.dispose();

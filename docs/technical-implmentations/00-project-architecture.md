@@ -317,6 +317,7 @@ gitminal/
       ListRow.tsx
       ScrollableList.tsx
       Button.tsx
+      Button.constants.ts
       Button.types.ts
       ButtonRow.tsx
       Badge.tsx
@@ -607,7 +608,7 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | `ListView` | `<scrollbox>` + `<ListRow>` children | Virtualized custom-row list. |
 | `ListRow` | `<box>` + `<text>` + `<span>` | Row with marker, columns, actions. Marker from `ICONS` in `@/theme/icons`. |
 | `ScrollableList` | `<scrollbox>` | Plain scroll container. |
-| `Button` | `<box>` + `<text>` | Text button with focused style and mouse activation. Not natively focusable: the owning feature keeps the focused control index. |
+| `Button` | `<box>` + `<text>` | Filled text or icon-only button with a raised background, one cell of horizontal padding, a focused background and bold label, and mouse activation. Never adds a text marker. Not natively focusable: the owning feature keeps the focused control index. |
 | `ButtonRow` | `<box>` + `Button` children | Horizontal action group with a small gap; presentational only. |
 | `Badge` | `<span>` | Ref, status, and tag badges. Label from `ICONS`. |
 | `StatusBadge` | `<span>` + `<text>` | Sync and operation status. Marker from `ICONS`. |

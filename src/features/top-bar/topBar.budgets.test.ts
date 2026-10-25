@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
+  TOP_BAR_ACTION_BUTTONS_WIDTH,
   TOP_BAR_ACTION_GAPS_WIDTH,
-  TOP_BAR_ACTION_LABELS_WIDTH,
   TOP_BAR_CHROME_WIDTH,
-  TOP_BAR_FOCUS_MARKER_WIDTH,
+  TOP_BAR_REASON_MIN_WIDTH,
   TOP_BAR_STATUS_MIN_WIDTH,
 } from "@/features/top-bar/TopBar.constants";
 import { calculateTopBarBudgets } from "@/features/top-bar/topBar.budgets";
@@ -37,13 +37,7 @@ function consumedWidth(
     0,
   );
 
-  return (
-    statusWidth +
-    TOP_BAR_ACTION_LABELS_WIDTH +
-    TOP_BAR_ACTION_GAPS_WIDTH +
-    TOP_BAR_FOCUS_MARKER_WIDTH +
-    renderedReasons
-  );
+  return statusWidth + TOP_BAR_ACTION_BUTTONS_WIDTH + TOP_BAR_ACTION_GAPS_WIDTH + renderedReasons;
 }
 
 describe("calculateTopBarBudgets", () => {
@@ -76,21 +70,25 @@ describe("calculateTopBarBudgets", () => {
       expect(budgets.reasonWidth).toBe(9);
       expect(budgets.statusWidth).toBeGreaterThanOrEqual(TOP_BAR_STATUS_MIN_WIDTH);
       // A 4-character branch plus the sync badge and its separator must fit.
-      expect(budgets.statusWidth).toBeGreaterThanOrEqual(4 + 1 + 10 + TOP_BAR_FOCUS_MARKER_WIDTH);
+      expect(budgets.statusWidth).toBeGreaterThanOrEqual(4 + 1 + 10);
       expect(consumedWidth(reasons, budgets.statusWidth, budgets.reasonWidth)).toBeLessThanOrEqual(
         terminalWidth - TOP_BAR_CHROME_WIDTH,
       );
     });
 
-    it(`shrinks two maximum reasons instead of overflowing at ${terminalWidth}`, () => {
+    it(`fits two maximum reasons without overflowing at ${terminalWidth}`, () => {
       const reasons = [reason(28), reason(28)];
       const budgets = calculateTopBarBudgets(terminalWidth, reasons);
 
-      expect(budgets.reasonWidth).toBeLessThan(28);
-      expect(budgets.statusWidth).toBe(TOP_BAR_STATUS_MIN_WIDTH);
+      expect(budgets.reasonWidth).toBeGreaterThanOrEqual(TOP_BAR_REASON_MIN_WIDTH);
+      expect(budgets.statusWidth).toBeGreaterThanOrEqual(TOP_BAR_STATUS_MIN_WIDTH);
       expect(consumedWidth(reasons, budgets.statusWidth, budgets.reasonWidth)).toBeLessThanOrEqual(
         terminalWidth - TOP_BAR_CHROME_WIDTH,
       );
+
+      if (terminalWidth === 80) {
+        expect(budgets.reasonWidth).toBeLessThan(28);
+      }
     });
   }
 });

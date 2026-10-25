@@ -6,14 +6,16 @@ import type { ButtonProps } from "@/ui/Button.types";
 import { ButtonRow } from "@/ui/ButtonRow";
 
 /**
- * Renders the Pull, Push, and More action strip.
+ * Renders the Pull, Push, and More icon-only action strip.
  *
  * The controls arrive in `nav.left`/`nav.right` order, and the idle info control is skipped because
- * it is not an action. Disabled actions stay visible and render their exact availability reason,
- * shortened only when the width budget requires it; the labels are never dropped. Focus is matched
- * by control kind, not by position, so a hidden idle stop cannot mark the wrong action. A mouse press
- * activates the control through the same index the keyboard uses, so the owning feature keeps a
- * single focused-control model.
+ * it is not an action. Each action renders only its icon; its label stays in the control model for
+ * availability, tests, the footer, help, and the palette. Padded filled buttons with a focused
+ * background replace the text labels. Disabled actions stay visible and render their exact
+ * availability reason, shortened only when the width budget requires it; the reasons are never
+ * dropped. Focus is matched by control kind, not by position, so a hidden idle stop cannot mark the
+ * wrong action. A mouse press activates the control through the same index the keyboard uses, so the
+ * owning feature keeps a single focused-control model.
  *
  * @param props - Controls, focused kind, per-reason width, and the activation callback.
  * @returns The right-aligned action strip.
@@ -37,6 +39,7 @@ export function TopBarActions(props: {
       id: `top-bar-action-${control.kind}`,
       label: control.label,
       icon: control.icon,
+      iconOnly: true,
       focused: control.kind === props.focusedKind,
       disabled,
       reason: disabled ? readReason(control.reason, props.reasonWidth) : undefined,

@@ -1,11 +1,18 @@
+import { ICONS } from "@/theme/icons";
+import { BUTTON_HORIZONTAL_PADDING } from "@/ui/Button.constants";
+
 /** Space taken by the panel border, the content marker, and the content margin, in cells. */
 export const TOP_BAR_CHROME_WIDTH = 6;
 
-/** Width of the focus marker and its separating space on a focused control. */
-export const TOP_BAR_FOCUS_MARKER_WIDTH = 2;
+/** Number of icon actions in the top-bar strip. */
+const TOP_BAR_ACTION_COUNT = 3;
 
-/** Width of the three action labels without icons or reasons, in cells. */
-export const TOP_BAR_ACTION_LABELS_WIDTH = 20;
+/** Width of the three icons without padding. */
+const TOP_BAR_ICONS_WIDTH = ICONS.pull.length + ICONS.push.length + ICONS.ellipsis.length;
+
+/** Width of the three filled icon buttons, including their one-cell horizontal padding. */
+export const TOP_BAR_ACTION_BUTTONS_WIDTH =
+  TOP_BAR_ICONS_WIDTH + TOP_BAR_ACTION_COUNT * BUTTON_HORIZONTAL_PADDING * 2;
 
 /** Space taken by the two one-cell gaps between the three actions. */
 export const TOP_BAR_ACTION_GAPS_WIDTH = 2;

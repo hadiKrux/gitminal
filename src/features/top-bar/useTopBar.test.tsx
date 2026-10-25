@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { type CapturedFrame, type CapturedSpan, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import {
@@ -26,6 +27,7 @@ import {
   detectRepositoryState,
 } from "@/domain/repository/repository.states";
 import type { RepositorySignals } from "@/domain/repository/repository.types";
+import { DEFAULT_THEME_NAME, THEME_FLAVORS } from "@/domain/theme/theme.catppuccin";
 import { TopBar } from "@/features/top-bar/TopBar";
 import { TopBarActions } from "@/features/top-bar/TopBarActions";
 import { TopBarStatus } from "@/features/top-bar/TopBarStatus";
@@ -289,6 +291,41 @@ async function pressKey(
   });
 }
 
+/**
+ * Finds the first captured span whose text contains the given text.
+ *
+ * @param frame - Captured frame with colored spans.
+ * @param text - Text the span must contain.
+ * @returns The matching span.
+ * @throws When no span matches.
+ */
+function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
+  for (const line of frame.lines) {
+    for (const span of line.spans) {
+      if (span.text.includes(text)) {
+        return span;
+      }
+    }
+  }
+
+  throw new Error(`No captured span contains ${text}`);
+}
+
+/**
+ * Asserts a button's focus state through its background token.
+ *
+ * @param frame - Captured frame with colored spans.
+ * @param text - Button label text.
+ * @param focused - Whether the button should render the focused background.
+ */
+function expectButtonFocused(frame: CapturedFrame, text: string, focused: boolean): void {
+  const tokens = THEME_FLAVORS[DEFAULT_THEME_NAME].tokens;
+  const expected = focused ? tokens.selection : tokens.border;
+  const span = findSpanContaining(frame, text);
+
+  expect(span.bg.equals(RGBA.fromHex(expected))).toBe(true);
+}
+
 beforeEach(() => {
   resetActionRegistry();
   resetCommandOrchestration();
@@ -482,8 +519,8 @@ describe("rendered top-bar budgets", () => {
       expect(frame, `${width}`).toContain("main");
       expect(frame, `${width}`).toContain("upstream go");
       expect(frame, `${width}`).toContain("no upstream");
-      expect(frame, `${width}`).toContain("v Pull");
-      expect(frame, `${width}`).toContain("^ Push");
+      expect(frame, `${width}`).toContain(ICONS.pull);
+      expect(frame, `${width}`).toContain(ICONS.push);
 
       await act(async () => {
         await setup.dispose();
@@ -563,16 +600,19 @@ describe("useTopBar", () => {
     await waitForBranch(setup);
     await focusTopBar(setup);
 
-    expect(setup.captureCharFrame()).toContain("> main");
+    expect(setup.captureCharFrame()).toContain(`${ICONS.focus} main`);
+    expectButtonFocused(setup.captureSpans(), ICONS.pull, false);
 
     await pressKey(setup, "right");
-    expect(setup.captureCharFrame()).toContain("> v Pull");
+    expect(setup.captureCharFrame()).not.toContain(`${ICONS.focus} main`);
+    expectButtonFocused(setup.captureSpans(), ICONS.pull, true);
+    expectButtonFocused(setup.captureSpans(), ICONS.push, false);
 
     await pressKey(setup, "right");
-    expect(setup.captureCharFrame()).toContain("> ^ Push");
+    expectButtonFocused(setup.captureSpans(), ICONS.push, true);
 
     await pressKey(setup, "right");
-    expect(setup.captureCharFrame()).toContain("> ... More");
+    expectButtonFocused(setup.captureSpans(), ICONS.ellipsis, true);
 
     await act(async () => {
       await setup.dispose();
@@ -589,7 +629,7 @@ describe("useTopBar", () => {
     await pressKey(setup, "right");
     await pressKey(setup, "right");
 
-    expect(setup.captureCharFrame()).toContain("> ... More");
+    expectButtonFocused(setup.captureSpans(), ICONS.ellipsis, true);
 
     await act(async () => {
       latestStatus?.beginOperation("Fetch");
@@ -600,7 +640,7 @@ describe("useTopBar", () => {
 
     await pressKey(setup, "left");
 
-    expect(setup.captureCharFrame()).toContain("> ^ Push");
+    expectButtonFocused(setup.captureSpans(), ICONS.push, true);
 
     await act(async () => {
       await setup.dispose();
@@ -614,7 +654,7 @@ describe("useTopBar", () => {
     await focusTopBar(setup);
     await pressKey(setup, "right");
 
-    expect(setup.captureCharFrame()).toContain("> v Pull");
+    expectButtonFocused(setup.captureSpans(), ICONS.pull, true);
 
     await act(async () => {
       latestStatus?.beginOperation("Fetch");
@@ -623,8 +663,8 @@ describe("useTopBar", () => {
       await setup.renderOnce();
     });
 
-    expect(setup.captureCharFrame()).toContain("> v Pull");
-    expect(setup.captureCharFrame()).not.toContain("> ^ Push");
+    expectButtonFocused(setup.captureSpans(), ICONS.pull, true);
+    expectButtonFocused(setup.captureSpans(), ICONS.push, false);
 
     await act(async () => {
       latestStatus?.endOperation();
@@ -633,7 +673,7 @@ describe("useTopBar", () => {
       await setup.renderOnce();
     });
 
-    expect(setup.captureCharFrame()).toContain("> v Pull");
+    expectButtonFocused(setup.captureSpans(), ICONS.pull, true);
 
     await act(async () => {
       await setup.dispose();
@@ -646,7 +686,7 @@ describe("useTopBar", () => {
     await waitForBranch(setup);
     await focusTopBar(setup);
 
-    expect(setup.captureCharFrame()).toContain("> main");
+    expect(setup.captureCharFrame()).toContain(`${ICONS.focus} main`);
 
     await act(async () => {
       latestStatus?.beginOperation("Fetch");
@@ -657,10 +697,10 @@ describe("useTopBar", () => {
 
     await pressKey(setup, "enter");
 
-    const frame = setup.captureCharFrame();
+    const frame = setup.captureSpans();
 
-    expect(frame).not.toContain("> v Pull");
-    expect(frame).not.toContain("> ^ Push");
+    expectButtonFocused(frame, ICONS.pull, false);
+    expectButtonFocused(frame, ICONS.push, false);
 
     await act(async () => {
       latestStatus?.endOperation();
@@ -697,11 +737,11 @@ describe("useTopBar", () => {
     await waitForBranch(setup);
     await focusTopBar(setup);
 
-    expect(setup.captureCharFrame()).toContain("> main");
+    expect(setup.captureCharFrame()).toContain(`${ICONS.focus} main`);
 
     await pressKey(setup, "right");
 
-    expect(setup.captureCharFrame()).not.toContain("> main");
+    expect(setup.captureCharFrame()).not.toContain(`${ICONS.focus} main`);
 
     await act(async () => {
       await setup.dispose();

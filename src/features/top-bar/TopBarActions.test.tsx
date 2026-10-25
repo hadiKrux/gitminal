@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import { type CapturedFrame, type CapturedSpan, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
+import { DEFAULT_THEME_NAME, THEME_FLAVORS } from "@/domain/theme/theme.catppuccin";
 import { TopBarActions } from "@/features/top-bar/TopBarActions";
 import type { TopBarControl, TopBarControlKind } from "@/features/top-bar/useTopBar.types";
 import { ShellTestProviders } from "@/test/shell.harness";
@@ -82,17 +84,72 @@ async function captureActions(
   return frame;
 }
 
+/**
+ * Renders the action strip and captures its colored spans.
+ *
+ * @param focusedKind - Focused control kind.
+ * @returns The captured frame with its colored spans.
+ */
+async function captureActionSpans(focusedKind: TopBarControlKind): Promise<CapturedFrame> {
+  const setup = await renderActions(ENABLED_CONTROLS, focusedKind);
+
+  await act(async () => {
+    await setup.renderOnce();
+  });
+
+  const frame = setup.captureSpans();
+
+  await act(async () => {
+    await setup.dispose();
+  });
+
+  return frame;
+}
+
+/**
+ * Finds the first captured span whose text contains the given text.
+ *
+ * @param frame - Captured frame with colored spans.
+ * @param text - Text the span must contain.
+ * @returns The matching span.
+ * @throws When no span matches.
+ */
+function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
+  for (const line of frame.lines) {
+    for (const span of line.spans) {
+      if (span.text.includes(text)) {
+        return span;
+      }
+    }
+  }
+
+  throw new Error(`No captured span contains ${text}`);
+}
+
+/**
+ * Reads the visible text of a captured frame.
+ *
+ * @param frame - Captured frame with colored spans.
+ * @returns The text of every span, line by line.
+ */
+function readFrameText(frame: CapturedFrame): string {
+  return frame.lines.map((line) => line.spans.map((span) => span.text).join("")).join("\n");
+}
+
 describe("TopBarActions", () => {
-  it("renders Pull, then Push, then More as explicit text buttons", async () => {
+  it("renders Pull, then Push, then More as icon-only buttons", async () => {
     const frame = await captureActions();
 
-    const pullIndex = frame.indexOf(`${ICONS.pull} Pull`);
-    const pushIndex = frame.indexOf(`${ICONS.push} Push`);
-    const moreIndex = frame.indexOf(`${ICONS.ellipsis} More`);
+    const pullIndex = frame.indexOf(ICONS.pull);
+    const pushIndex = frame.indexOf(ICONS.push);
+    const moreIndex = frame.indexOf(ICONS.ellipsis);
 
     expect(pullIndex).toBeGreaterThanOrEqual(0);
     expect(pushIndex).toBeGreaterThan(pullIndex);
     expect(moreIndex).toBeGreaterThan(pushIndex);
+    expect(frame).not.toContain("Pull");
+    expect(frame).not.toContain("Push");
+    expect(frame).not.toContain("More");
   });
 
   it("keeps disabled actions visible and renders their reason", async () => {
@@ -103,9 +160,9 @@ describe("TopBarActions", () => {
       control("more", "More", ICONS.ellipsis),
     ]);
 
-    expect(frame).toContain(`${ICONS.pull} Pull detached HEAD`);
-    expect(frame).toContain(`${ICONS.push} Push no remote`);
-    expect(frame).toContain(`${ICONS.ellipsis} More`);
+    expect(frame).toContain(`${ICONS.pull} detached HEAD`);
+    expect(frame).toContain(`${ICONS.push} no remote`);
+    expect(frame).toContain(ICONS.ellipsis);
   });
 
   it("truncates a long reason before dropping an action", async () => {
@@ -126,20 +183,27 @@ describe("TopBarActions", () => {
       8,
     );
 
-    expect(frame).toContain(`${ICONS.pull} Pull upstr${ICONS.ellipsis}`);
-    expect(frame).toContain(`${ICONS.push} Push`);
-    expect(frame).toContain(`${ICONS.ellipsis} More`);
+    expect(frame).toContain(`${ICONS.pull} upstr${ICONS.ellipsis}`);
+    expect(frame).toContain(ICONS.push);
+    expect(frame).toContain(ICONS.ellipsis);
   });
 
-  it("moves the focus marker with the focused control kind", async () => {
-    const pullFocused = await captureActions(ENABLED_CONTROLS, "pull");
+  it("moves the focused background with the focused control kind and never adds a marker", async () => {
+    const tokens = THEME_FLAVORS[DEFAULT_THEME_NAME].tokens;
+    const pullFocused = await captureActionSpans("pull");
 
-    expect(pullFocused).toContain(`${ICONS.focus} ${ICONS.pull} Pull`);
-    expect(pullFocused).not.toContain(`${ICONS.focus} ${ICONS.push} Push`);
+    const pullSpan = findSpanContaining(pullFocused, ICONS.pull);
+    const pushSpan = findSpanContaining(pullFocused, ICONS.push);
 
-    const moreFocused = await captureActions(ENABLED_CONTROLS, "more");
+    expect(pullSpan.bg.equals(RGBA.fromHex(tokens.selection))).toBe(true);
+    expect(pushSpan.bg.equals(RGBA.fromHex(tokens.border))).toBe(true);
+    expect(readFrameText(pullFocused)).not.toContain(ICONS.focus);
 
-    expect(moreFocused).toContain(`${ICONS.focus} ${ICONS.ellipsis} More`);
-    expect(moreFocused).not.toContain(`${ICONS.focus} ${ICONS.pull} Pull`);
+    const moreFocused = await captureActionSpans("more");
+    const moreSpan = findSpanContaining(moreFocused, ICONS.ellipsis);
+    const unfocusedPullSpan = findSpanContaining(moreFocused, ICONS.pull);
+
+    expect(moreSpan.bg.equals(RGBA.fromHex(tokens.selection))).toBe(true);
+    expect(unfocusedPullSpan.bg.equals(RGBA.fromHex(tokens.border))).toBe(true);
   });
 });

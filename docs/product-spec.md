@@ -218,7 +218,7 @@ The top bar contains:
 - More button.
 - A center status strip between the branch block and the buttons. When idle it shows the branch and sync state. During a git operation it shows the phase and progress. Transient success, warning, error, and informational messages also appear there.
 
-Pull and Push are explicit text buttons with icons, not icon-only controls. Their order is Pull then Push.
+Pull and Push are icon-only buttons, and the More button is icon-only too. Their order is Pull then Push then More. Their labels remain available to the action registry, footer, help, and palette.
 
 #### Pull
 

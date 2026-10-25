@@ -62,7 +62,7 @@ MainArea                            (src/features/shell/MainArea.tsx)
      FormField                      (label + textarea + inline error text)
        textarea                     (message, placeholder "Commit message...")
      ButtonRow
-       Button (More)
+       Button (More, icon only)
        Button (Commit, or "Nothing to commit")
      Spinner                        (while committing)
 ```

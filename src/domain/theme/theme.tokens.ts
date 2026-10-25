@@ -64,9 +64,9 @@ export const THEME_TOKEN_TARGETS: readonly ThemeTokenTarget[] = [
   },
   {
     token: "border",
-    target: "inactive box borders and separators",
-    prop: "borderColor",
-    purpose: "Inactive borders and separators",
+    target: "inactive box borders, separators, and idle Button fill",
+    prop: "borderColor and backgroundColor",
+    purpose: "Inactive borders, separators, and idle button fill",
   },
   {
     token: "focus",
@@ -94,15 +94,15 @@ export const THEME_TOKEN_TARGETS: readonly ThemeTokenTarget[] = [
   },
   {
     token: "selection",
-    target: "selected box row and selected native select option",
+    target: "selected box row, selected native select option, and focused Button",
     prop: "backgroundColor",
-    purpose: "Selected row and selected option background",
+    purpose: "Selected row, selected option, and focused button background",
   },
   {
     token: "accent",
-    target: "Button, ref badges, ProgressBar fill",
-    prop: "backgroundColor and fg",
-    purpose: "Primary buttons and ref badges",
+    target: "ref badges and ProgressBar fill",
+    prop: "fg and FrameBuffer fill color",
+    purpose: "Ref badges and progress fill",
   },
   {
     token: "success",

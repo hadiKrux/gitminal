@@ -6,6 +6,8 @@ export interface ButtonProps {
   readonly label: string;
   /** Optional leading marker from `ICONS`. */
   readonly icon?: string;
+  /** Whether to render only the icon and omit the label text. */
+  readonly iconOnly?: boolean;
   /** Whether the control is the focused index of its owning feature. */
   readonly focused?: boolean;
   /** Whether the control cannot be activated. */
