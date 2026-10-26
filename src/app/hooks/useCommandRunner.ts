@@ -22,6 +22,7 @@ import type {
   CommandStatusWriters,
   UseCommandRunnerOptions,
 } from "@/app/hooks/useCommandRunner.types";
+import { useConfig } from "@/app/hooks/useConfig";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useOverlay } from "@/app/hooks/useOverlay";
@@ -38,6 +39,7 @@ import type {
   CommandRequest,
   CommandResult,
 } from "@/domain/commands/commands.types";
+import type { RemoteFetchScope } from "@/domain/config/config.types";
 import { createConsoleEntryId, formatCommandResult } from "@/domain/console/console.format";
 import { sanitizeCommandResult } from "@/domain/console/console.sanitize";
 import type { ConsoleEntry } from "@/domain/console/console.types";
@@ -68,6 +70,7 @@ import { isReadOnlySelection } from "@/domain/repository/repository.selectors";
  */
 export function useCommandRunner(options: UseCommandRunnerOptions = {}): CommandRunnerHook {
   const repository = useRepository();
+  const { config } = useConfig();
   const { setStatus, beginOperation, updateOperation, endOperation } = useStatus();
   const { append, replaceEntry } = useConsoleLog();
   const { state: focusState } = useFocusState();
@@ -120,6 +123,7 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
         request,
         region: readRegion(),
         repository,
+        fetchScope: config.remote.fetchScope,
         operationLabel,
         controller,
         append,
@@ -150,6 +154,7 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
       errorSink,
       overlay.closeEntry,
       overlay.entry?.id,
+      config.remote.fetchScope,
       readRegion,
       replaceEntry,
       repository,
@@ -184,6 +189,7 @@ async function executeRequest(input: {
   readonly request: CommandRequest;
   readonly region: CommandRegion;
   readonly repository: RepositoryContextValue;
+  readonly fetchScope: RemoteFetchScope;
   readonly operationLabel: string;
   readonly controller: AbortController;
   readonly append: (entry: ConsoleEntry) => void;
@@ -220,6 +226,8 @@ async function executeRequest(input: {
       target: request.target,
       region,
       readOnly: isReadOnlySelection(repository.selection),
+      fetchScope: input.fetchScope,
+      currentBranchHasUpstream: repository.signals.upstream !== null,
       signal: controller.signal,
       onProgress: (progress) => input.updateOperation(progress),
       client: repository.gitClient,

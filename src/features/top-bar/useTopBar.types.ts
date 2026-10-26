@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { StatusKind } from "@/app/hooks/useStatus";
 import type { CommandAvailability, CommandTarget } from "@/domain/commands/commands.types";
+import type { RemoteFetchScope } from "@/domain/config/config.types";
 import type { SyncState } from "@/domain/repository/repository.types";
 
 /** Availability reader bound to the current repository state. */
@@ -15,6 +16,8 @@ export interface TopBarCommandsInput {
   readonly branch: string;
   /** Configured upstream ref, or null. */
   readonly upstreamRef: string | null;
+  /** Effective `config.remote.fetchScope`, captured into every fetch request. */
+  readonly fetchScope: RemoteFetchScope;
   /** Availability reader bound to the current repository state. */
   readonly getAvailability: TopBarAvailabilityReader;
 }

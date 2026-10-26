@@ -10,18 +10,24 @@ import {
   getActionRegistryVersion,
   hasRegisteredAction,
   resetActionRegistry,
+  resolveActionHandler,
 } from "@/app/hooks/useAction";
+import { useConfig } from "@/app/hooks/useConfig";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useStatus } from "@/app/hooks/useStatus";
 import { getAvailability } from "@/domain/commands/commands.availability";
-import { registerCommandHandler } from "@/domain/commands/commands.runner";
+import { registerCommandHandler, resetCommandRunner } from "@/domain/commands/commands.runner";
 import type {
   CommandAvailability,
   CommandOperation,
+  CommandRequest,
   CommandTarget,
 } from "@/domain/commands/commands.types";
+import { DEFAULT_CONFIG } from "@/domain/config/config.defaults";
+import type { ConfigFilePaths, RemoteFetchScope } from "@/domain/config/config.types";
+import type { GitClient } from "@/domain/git/git.types";
 import {
   createRepositorySignals,
   detectRepositoryState,
@@ -39,7 +45,7 @@ import {
 } from "@/features/top-bar/topBar.controls";
 import type { TopBarControl, TopBarStatusMode } from "@/features/top-bar/useTopBar.types";
 import { buildForcePushDescription } from "@/features/top-bar/useTopBarCommands";
-import { AppTestProviders } from "@/test/app.harness";
+import { AppTestProviders, type ConfigSnapshot, type ConfigSource } from "@/test/app.harness";
 import { createFakeGitClient } from "@/test/git.fake";
 import { ShellTestProviders } from "@/test/shell.harness";
 import { ICONS } from "@/theme/icons";
@@ -49,6 +55,16 @@ let latestStatus: ReturnType<typeof useStatus> | undefined;
 
 /** Latest overlay context captured by the probe. */
 let latestOverlay: ReturnType<typeof useOverlay> | undefined;
+
+/** Latest configuration context captured by the probe. */
+let latestConfig: ReturnType<typeof useConfig> | undefined;
+
+/** Resolved paths used by the fetch-scope configuration snapshots. */
+const FETCH_SCOPE_PATHS: ConfigFilePaths = Object.freeze({
+  config: "/cfg/config.json",
+  keybindings: "/cfg/keybindings.json",
+  theme: "/cfg/theme.json",
+});
 
 /** The global remote actions the top bar owns. */
 const REMOTE_ACTIONS: readonly string[] = [
@@ -200,6 +216,7 @@ function Harness(): ReactNode {
 
   latestStatus = useStatus();
   latestOverlay = useOverlay();
+  latestConfig = useConfig();
   useHotkeys();
 
   return (
@@ -210,16 +227,59 @@ function Harness(): ReactNode {
 }
 
 /**
+ * Builds one configuration snapshot with a chosen fetch scope.
+ *
+ * @param scope - Effective `remote.fetchScope`.
+ * @returns The configuration snapshot.
+ */
+function buildFetchScopeSnapshot(scope: RemoteFetchScope): ConfigSnapshot {
+  return {
+    status: "missing",
+    config: { ...DEFAULT_CONFIG, remote: { fetchScope: scope } },
+    paths: FETCH_SCOPE_PATHS,
+    files: [],
+    warnings: [],
+    keybindingsFile: {},
+    themeOverrides: null,
+  };
+}
+
+/**
+ * Builds a source that reloads to one fetch scope.
+ *
+ * @param scope - Effective `remote.fetchScope` after the reload.
+ * @returns The configuration source.
+ */
+function buildFetchScopeSource(scope: RemoteFetchScope): ConfigSource {
+  return {
+    paths: FETCH_SCOPE_PATHS,
+    load: async (): Promise<ConfigSnapshot> => buildFetchScopeSnapshot(scope),
+  };
+}
+
+/**
  * Renders the top bar inside the provider stack it needs.
  *
+ * @param client - Git client, when a scenario needs its own reads.
+ * @param configSnapshot - Startup configuration snapshot.
+ * @param configSource - Reload source, when the scenario reloads configuration.
  * @returns The renderer setup.
  */
-async function renderTopBar(): Promise<Awaited<ReturnType<typeof testRender>>> {
+async function renderTopBar(
+  client?: GitClient,
+  configSnapshot?: ConfigSnapshot,
+  configSource?: ConfigSource,
+): Promise<Awaited<ReturnType<typeof testRender>>> {
   latestStatus = undefined;
   latestOverlay = undefined;
+  latestConfig = undefined;
 
   return testRender(
-    <AppTestProviders gitClient={createFakeGitClient().client}>
+    <AppTestProviders
+      gitClient={client ?? createFakeGitClient().client}
+      configSnapshot={configSnapshot}
+      configSource={configSource}
+    >
       <box flexDirection="column" width={120} height={8}>
         <Harness />
       </box>
@@ -332,10 +392,12 @@ function expectButtonFocused(frame: CapturedFrame, text: string, focused: boolea
 
 beforeEach(() => {
   resetActionRegistry();
+  resetCommandRunner();
   resetCommandOrchestration();
 });
 
 afterEach(() => {
+  resetCommandRunner();
   resetCommandOrchestration();
 });
 
@@ -502,6 +564,104 @@ describe("buildTopBarMoreOptions", () => {
       expect(option.description.length, option.commandId).toBeGreaterThan(0);
     }
   });
+});
+
+describe("top-bar fetch scope", () => {
+  it("sends the same fetch request from the top bar and the palette after reload", async () => {
+    const requests: CommandRequest[] = [];
+    const cleanup = registerCommandHandler({
+      commandId: "remote.fetch",
+      operationLabel: "Fetch",
+      handler: async (context) => {
+        requests.push(context.request);
+
+        return { steps: [] };
+      },
+    });
+    const setup = await renderTopBar(
+      createFakeGitClient().client,
+      buildFetchScopeSnapshot("current"),
+      buildFetchScopeSource("local"),
+    );
+
+    await waitForBranch(setup);
+    await focusTopBar(setup);
+
+    await act(async () => {
+      setup.mockInput.pressKey("f");
+      await setup.renderOnce();
+    });
+    await waitForRequestCount(setup, requests, 1);
+    await waitForIdle(setup);
+
+    expect(requests[0]?.formValues).toEqual({ fetchScope: "current", branch: "main" });
+
+    await act(async () => {
+      await latestConfig?.reload();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      setup.mockInput.pressKey("f");
+      await setup.renderOnce();
+    });
+    await waitForRequestCount(setup, requests, 2);
+    await waitForIdle(setup);
+
+    await act(async () => {
+      resolveActionHandler("remote.fetch", "global")?.();
+      await setup.renderOnce();
+    });
+    await waitForRequestCount(setup, requests, 3);
+
+    expect(requests[1]?.formValues).toEqual({ fetchScope: "local", branch: "main" });
+    expect(requests[2]?.formValues).toEqual(requests[1]?.formValues);
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  /**
+   * Renders until a number of fetch requests has been recorded.
+   *
+   * @param setup - Renderer setup.
+   * @param requests - Recorded requests.
+   * @param count - Expected request count.
+   */
+  async function waitForRequestCount(
+    setup: Awaited<ReturnType<typeof testRender>>,
+    requests: readonly CommandRequest[],
+    count: number,
+  ): Promise<void> {
+    const deadline = Date.now() + 2_000;
+
+    while (requests.length < count && Date.now() < deadline) {
+      await act(async () => {
+        await setup.renderOnce();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+  }
+
+  /**
+   * Renders until the command orchestrator has released its single slot.
+   *
+   * @param setup - Renderer setup.
+   */
+  async function waitForIdle(setup: Awaited<ReturnType<typeof testRender>>): Promise<void> {
+    const deadline = Date.now() + 2_000;
+
+    while (isCommandOrchestrationActive() && Date.now() < deadline) {
+      await act(async () => {
+        await setup.renderOnce();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+  }
 });
 
 describe("rendered top-bar budgets", () => {

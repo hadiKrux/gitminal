@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
-import { clampIndex } from "@/features/graph/commitSearch.results";
 import {
   GRAPH_DOUBLE_CLICK_MS,
   GRAPH_NEAR_BOTTOM_ROWS,
@@ -8,6 +7,7 @@ import {
   GRAPH_WALK_ERROR_MESSAGE,
 } from "@/features/graph/graph.constants";
 import type { GraphWalkError, SearchResultView } from "@/features/graph/graph.types";
+import { clampIndex } from "@/lib/list";
 
 /**
  * Owns the search result cursor, selection, page movement, and confirmation.

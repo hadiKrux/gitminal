@@ -2,6 +2,7 @@ import { useRenderer } from "@opentui/react";
 import { type ReactNode, useCallback, useState } from "react";
 import { AppShellHost } from "@/app/AppShellHost";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
+import type { ConfigSnapshot, ConfigSource } from "@/app/providers/ConfigProvider.types";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
 import { DraftProvider } from "@/app/providers/DraftProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
@@ -24,7 +25,13 @@ import type { CheckForUpdate } from "@/domain/update/update.types";
  * itself: `SplashGate` owns the splash subscription and `useHotkeys` owns every key after the shell
  * mounts, so exactly one keyboard handler is mounted at a time.
  *
- * @param props - Git client, cwd, watcher, update check, and an optional test probe.
+ * Configuration is loaded by the bootstrap before the first render, so the shell never shows a
+ * loading state: the resolved snapshot arrives as a prop together with the source a reload uses.
+ * Both are optional, so a test can mount the app against the built-in configuration without
+ * touching the filesystem.
+ *
+ * @param props - Git client, cwd, watcher, update check, configuration source and snapshot, and an
+ * optional test probe.
  * @returns The splash gate or the provider-backed shell.
  */
 export function App(
@@ -33,6 +40,8 @@ export function App(
     gitClient?: GitClient;
     repositoryCwd?: string;
     enableWatcher?: boolean;
+    configSource?: ConfigSource;
+    configSnapshot?: ConfigSnapshot;
     probe?: ReactNode;
   } = {},
 ): ReactNode {
@@ -49,7 +58,7 @@ export function App(
 
   if (splashDismissed) {
     return (
-      <ConfigProvider>
+      <ConfigProvider source={props.configSource} initialSnapshot={props.configSnapshot}>
         <ThemeProvider>
           <KeymapProvider>
             <RepositoryProvider

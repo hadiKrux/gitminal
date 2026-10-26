@@ -2,8 +2,14 @@ import type { ReactNode } from "react";
 
 /** Context passed to a modal entry's render function. */
 export interface OverlayRenderContext {
-  /** Closes the overlay and restores the captured focus. */
-  readonly close: () => void;
+  /**
+   * Closes the overlay and restores the captured focus.
+   *
+   * @param afterRestore - Work to run after the focus restore has completed, so a caller does not
+   * have to guess when the restore lands. It must not throw; report a handler failure through
+   * `StatusProvider`/`showError` inside the completion.
+   */
+  readonly close: (afterRestore?: () => void) => void;
 }
 
 /** A modal entry whose content is supplied by the opening feature. */
@@ -119,10 +125,26 @@ export interface OverlayContextValue {
   readonly toggleActionId: string | null;
   /** Opens an entry, replacing any entry that is already open. */
   readonly open: (entry: OverlayEntry) => void;
-  /** Closes the open entry, or dismisses the error when no entry is open. */
-  readonly close: () => void;
+  /**
+   * Closes the open entry, or dismisses the error when no entry is open.
+   *
+   * The optional completion runs once, causally after the captured focus has been restored, so a
+   * caller can dispatch work that moves focus without racing the restore. It runs from a passive
+   * effect, belongs to that one close session, and is discarded instead of retained when another
+   * surface is open at the point it would run. It must not throw: no error boundary sits above the
+   * overlay, so the completion reports its own failure through `StatusProvider`/`showError` inside
+   * the completion instead of letting it escape the effect flush. A close without a completion also
+   * discards a completion that has not run yet, and a non-function argument is treated as that plain
+   * close rather than as a completion, because native mouse handlers pass their event.
+   *
+   * @param afterRestore - Work to run after the focus restore has completed.
+   */
+  readonly close: (afterRestore?: () => void) => void;
   /**
    * Closes one entry only when it is still the open entry.
+   *
+   * An entry-scoped close neither accepts a completion nor discards one stored by `close`: it only
+   * removes the entry, and the completion belongs to the `close` call that stored it.
    *
    * @param entryId - Entry that the caller opened when it started its work.
    */

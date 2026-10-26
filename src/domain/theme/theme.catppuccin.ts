@@ -2,6 +2,7 @@ import type {
   CatppuccinRoles,
   FlavorDefinition,
   HexColor,
+  MonochromePalette,
   ThemeFlavor,
   ThemeName,
   ThemeTokens,
@@ -94,6 +95,36 @@ const LATTE_ROLES: CatppuccinRoles = Object.freeze({
 /** The default built-in theme name. */
 export const DEFAULT_THEME_NAME: ThemeName = "catppuccin-mocha";
 
+/** Readable two-tone palette used when the terminal has no usable color. */
+const MONO_DARK_PALETTE: MonochromePalette = Object.freeze({
+  background: "#000000",
+  surface: "#1f1f1f",
+  border: "#6a6a6a",
+  focus: "#ffffff",
+  text: "#ffffff",
+  muted: "#a8a8a8",
+  dim: "#8a8a8a",
+  selection: "#2f2f2f",
+});
+
+/** Readable two-tone palette used by light themes without color support. */
+const MONO_LIGHT_PALETTE: MonochromePalette = Object.freeze({
+  background: "#ffffff",
+  surface: "#f2f2f2",
+  border: "#8f8f8f",
+  focus: "#000000",
+  text: "#000000",
+  muted: "#7a7a7a",
+  dim: "#a8a8a8",
+  selection: "#e0e0e0",
+});
+
+/** The monochrome palettes, keyed by light or dark variant. */
+export const MONO_PALETTES: Readonly<Record<"dark" | "light", MonochromePalette>> = Object.freeze({
+  dark: MONO_DARK_PALETTE,
+  light: MONO_LIGHT_PALETTE,
+});
+
 /** Every built-in theme name in picker order. */
 export const THEME_NAMES: readonly ThemeName[] = Object.freeze([
   "catppuccin-mocha",
@@ -106,8 +137,9 @@ export const THEME_NAMES: readonly ThemeName[] = Object.freeze([
  * The four built-in definitions before token derivation.
  *
  * Mocha's diff backgrounds are the documented example. The Macchiato, Frappe, and Latte pairs are
- * provisional hand-picked values until the contrast-safe derivation from the capability milestone
- * replaces them; nothing verifies their contrast yet.
+ * provisional hand-picked values. The contrast-safe derivation is deferred with its threshold still
+ * an open question in ticket 20, so nothing replaces these pairs yet and nothing verifies their
+ * contrast.
  */
 const FLAVOR_DEFINITIONS: readonly FlavorDefinition[] = [
   {

@@ -1,5 +1,5 @@
 /** Outcome shown by one console entry. A cancelled or timed-out command is never `success`. */
-export type ConsoleEntryStatus = "success" | "failure" | "cancelled" | "timed-out";
+export type ConsoleEntryStatus = "success" | "failure" | "cancelled" | "timed-out" | "info";
 
 /** Bounded text block with its omitted-line count. */
 export interface ConsoleOutputBlock {
@@ -117,4 +117,18 @@ export interface RefreshConsoleEntryInput {
   readonly repositoryRoot?: string | null;
   /** Working directory the refresh used. */
   readonly cwd?: string | null;
+}
+
+/** Input for one informational console entry, such as a configuration notice. */
+export interface ConsoleNoticeInput {
+  /** Entry id. Callers own id generation so tests can be deterministic. */
+  readonly id: string;
+  /** Creation time in milliseconds. */
+  readonly at: number;
+  /** Command or action id the notice belongs to. */
+  readonly commandId: string;
+  /** Human-readable label shown in the entry header. */
+  readonly operationLabel: string;
+  /** Single-line notice text. The formatter sanitizes it. */
+  readonly message: string;
 }

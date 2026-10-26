@@ -12,7 +12,7 @@ export interface OverlayEntrySurfaceModal {
    * @param context - Helpers supplied by the overlay host.
    * @returns The modal content node.
    */
-  readonly render: (context: { readonly close: () => void }) => ReactNode;
+  readonly render: (context: { readonly close: (afterRestore?: () => void) => void }) => ReactNode;
 }
 
 /** A confirmation entry shape the entry surface can render. */
@@ -42,6 +42,6 @@ export type OverlayEntrySurfaceEntry = OverlayEntrySurfaceModal | OverlayEntrySu
 export interface OverlayEntrySurfaceProps {
   /** Open entry to render. */
   readonly entry: OverlayEntrySurfaceEntry;
-  /** Closes the entry and restores focus. */
-  readonly onClose: () => void;
+  /** Closes the entry and restores focus, then runs the optional completion. */
+  readonly onClose: (afterRestore?: () => void) => void;
 }

@@ -1,10 +1,11 @@
 /**
- * First-Esc clear callbacks registered by focused text inputs.
+ * First-Esc clear callbacks registered by focused surfaces.
  *
  * A feature owns its filter value but must not inspect key events, so it registers a clear callback
- * for its input renderable id while the value is non-empty. `AppShellHost` consults the registry
- * before it returns focus from a text input, which makes the first Esc clear and keep the field
- * focused and the next Esc leave it.
+ * for a renderable id while the value is non-empty. The global `overlay.close` handler consults the
+ * registry before it returns focus from a text input and before it closes an open overlay, which
+ * makes the first Esc clear and keep the surface open and the next Esc leave it. A modal registers
+ * the ids it owns, so the search clears whether its field or its frame has focus.
  */
 const clearRegistry = new Map<string, () => void>();
 

@@ -101,18 +101,3 @@ export function readEmptyMessage(state: {
 export function readSearchError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
-/**
- * Clamps one result index into a list that may be empty.
- *
- * @param index - Requested index.
- * @param length - Number of rows.
- * @returns A whole index between zero and `length - 1`, or zero.
- */
-export function clampIndex(index: number, length: number): number {
-  if (length <= 0 || !Number.isFinite(index)) {
-    return 0;
-  }
-
-  return Math.min(Math.max(0, Math.trunc(index)), length - 1);
-}

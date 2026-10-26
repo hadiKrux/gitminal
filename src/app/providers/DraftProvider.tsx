@@ -2,12 +2,13 @@ import { createContext, type ReactNode, useCallback, useMemo, useState } from "r
 import type { DraftContextValue, DraftProviderProps } from "@/app/providers/DraftProvider.types";
 
 /**
- * Context carrying the composer draft and the quit-confirmation read.
+ * Context carrying the composer draft and its unsaved-work flag.
  *
- * The provider is the single owner of the draft string. The composer writes it; the shell quit
- * handler reads `hasUnsavedDraft`; no feature imports another feature to answer the unsaved-work
- * question. A failure path never calls `clearDraft`, so a failed commit preserves the message, and
- * only a successful commit or amend clears it.
+ * The provider is the single owner of the draft string, so no surface keeps a second copy. The
+ * composer writes it and is its only reader today; the shell quit confirmation will read
+ * `hasUnsavedDraft` once draft-based quit lands. No feature imports another feature to answer the
+ * unsaved-work question. A failure path never calls `clearDraft`, so a failed commit preserves the
+ * message, and only a successful commit or amend clears it.
  */
 export const DraftContext = createContext<DraftContextValue | null>(null);
 

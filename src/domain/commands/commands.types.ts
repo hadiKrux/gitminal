@@ -1,3 +1,4 @@
+import type { RemoteFetchScope } from "@/domain/config/config.types";
 import type {
   BranchRecord,
   GitClient,
@@ -88,7 +89,12 @@ export interface CommandDescriptor {
   readonly category: ActionCategory;
   /** Whether the palette lists the command. */
   readonly paletteInvocable: boolean;
-  /** Whether the command opens a modal form instead of running immediately. */
+  /**
+   * Whether the command opens an input surface owned by another component.
+   *
+   * This is descriptive metadata for documentation and discovery surfaces. The flag does not drive
+   * behavior: the owning handler opens the input surface, and the palette does not branch on it.
+   */
   readonly needsInput: boolean;
 }
 
@@ -230,6 +236,28 @@ export interface CommandContext {
   readonly panel?: CommandPanelFacts;
   /** Values collected by the owning form, when the check depends on them. */
   readonly formValues?: CommandFormValues;
+  /**
+   * Whether the right pane currently renders the commit composer.
+   *
+   * `commit.focus` targets the composer textarea, which exists only while the right-pane selection
+   * keeps the composer mounted. An absent value is permissive, so a direct availability call without
+   * a provider projection never invents a hidden composer.
+   */
+  readonly composerVisible?: boolean;
+  /**
+   * Effective `config.remote.fetchScope`, absent when no configuration projection exists.
+   *
+   * An absent value is treated as `local`, which keeps a direct availability call permissive and
+   * matches the executor default.
+   */
+  readonly fetchScope?: RemoteFetchScope;
+  /**
+   * Whether the checked-out branch has a configured upstream, absent without a repository projection.
+   *
+   * It only gates the fetch commands when the effective scope is `current`; an absent value is
+   * permissive, so a direct call without provider data never invents a missing upstream.
+   */
+  readonly currentBranchHasUpstream?: boolean;
 }
 
 /** Machine-readable reason a command is unavailable. */
@@ -256,9 +284,11 @@ export type CommandAvailabilityReason =
   | "merge-state"
   | "read-only"
   | "no-files"
+  | "no-current-upstream"
   | "command-not-found"
   | "not-a-mutation"
-  | "command-not-implemented";
+  | "command-not-implemented"
+  | "composer-hidden";
 
 /** Availability of one command in one context. */
 export interface CommandAvailability {
@@ -285,6 +315,14 @@ export interface CommandRunOptions {
    * mutation before a handler can run, even when the request carries no read-only form value.
    */
   readonly readOnly?: boolean;
+  /** Effective `config.remote.fetchScope`, used when the runner re-checks fetch availability. */
+  readonly fetchScope?: RemoteFetchScope;
+  /**
+   * Whether the checked-out branch has a configured upstream, used by the runner's fetch re-check.
+   *
+   * An absent value is permissive; the app layer always supplies it.
+   */
+  readonly currentBranchHasUpstream?: boolean;
   /** Cancellation signal owned by the caller. */
   readonly signal?: AbortSignal;
   /** Receives every progress event as it is emitted. */

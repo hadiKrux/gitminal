@@ -8,6 +8,7 @@ import {
   getActionRegistryVersion,
   hasRegisteredAction,
   resetActionRegistry,
+  resolveActionHandler,
 } from "@/app/hooks/useAction";
 import type { ActionScope } from "@/app/hooks/useAction.types";
 import { useFocusState } from "@/app/hooks/useFocusState";
@@ -24,7 +25,9 @@ import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
+import { listCommandDescriptors } from "@/domain/commands/commands.registry";
 import { resetCommandRunner } from "@/domain/commands/commands.runner";
+import type { CommandTarget } from "@/domain/commands/commands.types";
 import { buildListLocalTagsArgs, buildLsRemoteTagsArgs } from "@/domain/git/git.tags";
 import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
 import { COMMIT_DETAILS_RETRY_ID } from "@/features/commit-details/useCommitDetails";
@@ -33,6 +36,11 @@ import {
   COMPOSER_MORE_BUTTON_ID,
   COMPOSER_TEXTAREA_ID,
 } from "@/features/composer/composer.constants";
+import { GRAPH_SEARCH_INPUT_ID } from "@/features/graph/graph.constants";
+import { HELP_MODAL_ID } from "@/features/help/HelpModal.constants";
+import { PALETTE_SELECT_ID } from "@/features/palette/CommandPalette.constants";
+import { decodePaletteValue } from "@/features/palette/CommandRow";
+import { readRecentCommandIds, resetRecentCommands } from "@/features/palette/palette.search";
 import { REMOTES_FILTER_INPUT_ID } from "@/features/remotes/RemoteFilter.constants";
 import type { FocusContextValue } from "@/features/shell/focus.types";
 import { FOCUS_ACTION_BY_REGION, SIDEBAR_SWITCHER_ID } from "@/features/shell/regions";
@@ -227,6 +235,7 @@ beforeEach(() => {
   resetCommandRunner();
   resetCommandOrchestration();
   resetInputEscapeClear();
+  resetRecentCommands();
 });
 
 afterEach(() => {
@@ -442,6 +451,10 @@ describe("AppShellHost", () => {
       ["overlay.close", "global"],
       ["app.console", "global"],
       ["app.refresh", "global"],
+      ["app.reloadConfig", "global"],
+      ["app.themePicker", "global"],
+      ["app.palette", "global"],
+      ["app.help", "global"],
       ["commit.focus", "global"],
       ["remote.pull", "global"],
       ["remote.push", "global"],
@@ -456,6 +469,7 @@ describe("AppShellHost", () => {
       ["nav.activate", "top-bar"],
       ["branch.create", "branches"],
       ["branch.delete", "branches"],
+      ["branch.checkout", "branches"],
       ["nav.up", "branches"],
       ["nav.down", "branches"],
       ["nav.activate", "branches"],
@@ -535,6 +549,344 @@ describe("AppShellHost", () => {
     expect(consoleError).not.toHaveBeenCalled();
 
     consoleError.mockRestore();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("registers a handler for every palette-invocable command in its declared scope", async () => {
+    const setup = await renderHost();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    let examined = 0;
+
+    for (const descriptor of listCommandDescriptors()) {
+      if (!descriptor.paletteInvocable || descriptor.actionId === undefined) {
+        continue;
+      }
+
+      examined += 1;
+
+      expect(
+        hasRegisteredAction(descriptor.actionId, descriptor.scope),
+        `${descriptor.id} in ${descriptor.scope}`,
+      ).toBe(true);
+    }
+
+    expect(examined).toBeGreaterThan(40);
+    expect(hasRegisteredAction("branch.checkout", "branches")).toBe(true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("focuses the branches region when the palette runs Focus branches", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "Branches (2)");
+
+    await act(async () => {
+      setup.renderer.root.findDescendantById("region-graph")?.focus();
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-graph");
+
+    await openPalette(setup);
+    await activatePaletteOption(setup, "Focus branches");
+    await waitForCondition(
+      setup,
+      () => setup.renderer.currentFocusedRenderable?.id === "region-branches",
+    );
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestFocus?.state.activeRegion).toBe("branches");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("focuses the commit composer when the palette runs Focus commit composer", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "Branches (2)");
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "pending" });
+      await setup.renderOnce();
+    });
+    await waitForCondition(
+      setup,
+      () => setup.renderer.root.findDescendantById(COMPOSER_TEXTAREA_ID) !== undefined,
+    );
+
+    await openPalette(setup);
+    await activatePaletteOption(setup, "Focus commit composer");
+    await waitForCondition(
+      setup,
+      () => setup.renderer.currentFocusedRenderable?.id === COMPOSER_TEXTAREA_ID,
+    );
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestFocus?.state.activeRegion).toBe("right-pane");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("opens commit search from the palette and focuses its input in the graph region", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "Branches (2)");
+
+    await act(async () => {
+      setup.renderer.root.findDescendantById("region-graph")?.focus();
+      await setup.renderOnce();
+    });
+
+    await openPalette(setup);
+    await activatePaletteOption(setup, "Search commits");
+    await waitForCondition(
+      setup,
+      () => setup.renderer.currentFocusedRenderable?.id === GRAPH_SEARCH_INPUT_ID,
+    );
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestFocus?.state.activeRegion).toBe("graph");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("focuses the branches region when the palette refuses a stale branch target", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "Branches (2)");
+
+    await act(async () => {
+      latestFocus?.setCursor("branches", "feature");
+      setup.renderer.root.findDescendantById("region-graph")?.focus();
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-graph");
+
+    await openPalette(setup);
+
+    expect(readPaletteTarget(setup, "Checkout branch")).toEqual({
+      kind: "branch",
+      name: "feature",
+    });
+
+    await act(async () => {
+      latestFocus?.setCursor("branches", "main");
+      await setup.renderOnce();
+    });
+
+    await activatePaletteOption(setup, "Checkout branch");
+    await waitForCondition(
+      setup,
+      () => latestStatus?.status?.message === "The selected target is no longer valid",
+    );
+    await waitForCondition(
+      setup,
+      () => setup.renderer.currentFocusedRenderable?.id === "region-branches",
+    );
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestStatus?.status?.message).toBe("The selected target is no longer valid");
+    expect(latestFocus?.state.activeRegion).toBe("branches");
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-branches");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("dismisses the palette when Command palette is activated from inside it", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "Branches (2)");
+
+    await act(async () => {
+      setup.renderer.root.findDescendantById("region-graph")?.focus();
+      await setup.renderOnce();
+    });
+
+    await openPalette(setup);
+    await activatePaletteOption(setup, "Command palette");
+    await waitForCondition(setup, () => findPaletteSelect(setup) === undefined);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(findPaletteSelect(setup)).toBeUndefined();
+    expect(latestFocus?.state.activeRegion).toBe("graph");
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-graph");
+    expect(readRecentCommandIds()).toEqual([]);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("opens help from the palette and focuses it after the palette closes", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "Branches (2)");
+
+    await act(async () => {
+      setup.renderer.root.findDescendantById("region-graph")?.focus();
+      await setup.renderOnce();
+    });
+
+    await openPalette(setup);
+    await activatePaletteOption(setup, "Help");
+    await waitForCondition(
+      setup,
+      () => setup.renderer.currentFocusedRenderable?.id === HELP_MODAL_ID,
+    );
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(findPaletteSelect(setup)).toBeUndefined();
+    expect(setup.renderer.root.findDescendantById(HELP_MODAL_ID)).toBeDefined();
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(HELP_MODAL_ID);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("leaves focus unchanged when a global command is refused with no owning region", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "Branches (2)");
+
+    await act(async () => {
+      setup.renderer.root.findDescendantById("region-graph")?.focus();
+      await setup.renderOnce();
+    });
+
+    await openPalette(setup);
+
+    expect(readPaletteOption(setup, "Focus commit composer")?.description).not.toBe(
+      "The commit composer is not visible",
+    );
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "commit", oid: "abc123" });
+      await setup.renderOnce();
+    });
+
+    await activatePaletteOption(setup, "Focus commit composer");
+    await waitForCondition(
+      setup,
+      () => latestStatus?.status?.message === "The commit composer is not visible",
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestStatus?.status?.message).toBe("The commit composer is not visible");
+    expect(latestFocus?.state.activeRegion).toBe("graph");
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-graph");
+    // A refused command never dispatches, so the completion never records it as recent.
+    expect(readRecentCommandIds()).toEqual([]);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("runs a normal global command from the palette exactly once", async () => {
+    const fake = createFakeGitClient();
+    const setup = await renderHost(fake.client);
+    const statusKey = "status --porcelain=v2 --branch -z --untracked-files=all";
+
+    await waitForFrame(setup, "Branches (2)");
+
+    const before = fake.counts.get(statusKey) ?? 0;
+
+    await openPalette(setup);
+    await activatePaletteOption(setup, "Refresh");
+    await waitForCondition(setup, () => latestStatus?.status?.message === "Repository refreshed");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(fake.counts.get(statusKey) ?? 0).toBe(before + 1);
+    expect(latestStatus?.status?.message).toBe("Repository refreshed");
+    // One successful dispatch records one recent entry, from the close completion only.
+    expect(readRecentCommandIds()).toEqual(["app.refresh"]);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("shows the composer availability reason in the palette for each selection", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "Branches (2)");
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "commit", oid: "abc123" });
+      await setup.renderOnce();
+    });
+
+    await openPalette(setup);
+
+    expect(readPaletteOption(setup, "Focus commit composer")?.description).toBe(
+      "The commit composer is not visible",
+    );
+
+    await act(async () => {
+      resolveActionHandler("app.palette", "global")?.();
+      await setup.renderOnce();
+    });
+    await waitForCondition(setup, () => findPaletteSelect(setup) === undefined);
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "pending" });
+      await setup.renderOnce();
+    });
+    await waitForCondition(
+      setup,
+      () => setup.renderer.root.findDescendantById(COMPOSER_TEXTAREA_ID) !== undefined,
+    );
+
+    await openPalette(setup);
+
+    expect(readPaletteOption(setup, "Focus commit composer")?.description).not.toBe(
+      "The commit composer is not visible",
+    );
+
     await act(async () => {
       await setup.dispose();
     });
@@ -1379,6 +1731,91 @@ function readBox(setup: Awaited<ReturnType<typeof testRender>>, id: string): Box
   }
 
   return box;
+}
+
+/**
+ * Opens the command palette through its global action and waits for its result list.
+ *
+ * @param setup - Renderer setup.
+ */
+async function openPalette(setup: Awaited<ReturnType<typeof testRender>>): Promise<void> {
+  await act(async () => {
+    resolveActionHandler("app.palette", "global")?.();
+    await setup.renderOnce();
+  });
+  await waitForCondition(setup, () => findPaletteSelect(setup) !== undefined);
+}
+
+/**
+ * Finds the palette result select.
+ *
+ * @param setup - Renderer setup.
+ * @returns The native select, or undefined when the palette is closed.
+ */
+function findPaletteSelect(
+  setup: Awaited<ReturnType<typeof testRender>>,
+): SelectRenderable | undefined {
+  return setup.renderer.root.findDescendantById(PALETTE_SELECT_ID) as SelectRenderable | undefined;
+}
+
+/**
+ * Activates one palette option by a fragment of its rendered name.
+ *
+ * @param setup - Renderer setup.
+ * @param fragment - Text the option name must contain.
+ */
+async function activatePaletteOption(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  fragment: string,
+): Promise<void> {
+  await act(async () => {
+    const select = findPaletteSelect(setup);
+    const index = select?.options.findIndex((option) => option.name.includes(fragment)) ?? -1;
+
+    if (select !== undefined && index >= 0) {
+      select.setSelectedIndex(index);
+      select.selectCurrent();
+    }
+
+    await setup.renderOnce();
+  });
+}
+
+/**
+ * Reads the palette option whose name contains one label.
+ *
+ * @param setup - Renderer setup.
+ * @param label - Text the option name must contain.
+ * @returns The option, or undefined when the palette does not render it.
+ */
+function readPaletteOption(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  label: string,
+): { readonly name: string; readonly description: string; readonly value: string } | undefined {
+  const option = findPaletteSelect(setup)?.options.find((candidate) =>
+    candidate.name.includes(label),
+  );
+
+  return option === undefined || option.value === undefined
+    ? undefined
+    : { name: option.name, description: option.description, value: option.value };
+}
+
+/**
+ * Reads the explicit target captured into one palette option.
+ *
+ * @param setup - Renderer setup.
+ * @param label - Text the option name must contain.
+ * @returns The captured target, or undefined when the option is absent.
+ */
+function readPaletteTarget(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  label: string,
+): CommandTarget | undefined {
+  const option = readPaletteOption(setup, label);
+  const decoded = option === undefined ? null : decodePaletteValue(option.value);
+
+  return decoded?.kind === "command" ? decoded.target : undefined;
 }
 
 /**

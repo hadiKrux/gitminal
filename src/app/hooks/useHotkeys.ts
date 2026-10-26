@@ -42,13 +42,16 @@ const OVERLAY_ALLOWED_ACTIONS: ReadonlySet<string> = new Set(["overlay.close", "
  * Physical keys a search input routes to the bound result list.
  *
  * The lookup key keeps modifiers, so only the plain key reaches the list. Printable keys such as
- * `j` and `k` keep editing the query even though the region also binds them to navigation.
+ * `j` and `k` keep editing the query even though the region also binds them to navigation. Home and
+ * End map to the first and last bound result, matching architecture section 8.
  */
 const SEARCH_INPUT_ACTIONS: ReadonlyMap<string, string> = new Map([
   ["up", "nav.up"],
   ["down", "nav.down"],
   ["pageup", "nav.pageUp"],
   ["pagedown", "nav.pageDown"],
+  ["home", "nav.first"],
+  ["end", "nav.last"],
   ["enter", "nav.activate"],
 ]);
 
@@ -161,10 +164,12 @@ export function resolveHotkeyAction(input: HotkeyResolutionInput): HotkeyResolut
 /**
  * Resolves a key while an overlay owns the keyboard.
  *
- * Only the overlay's own context, `overlay.close` on Esc, the hardcoded `Ctrl+C` quit path, and
- * modifier-gated text-input-safe actions may run. No plain unmodified global action fires from a
- * modal text field, so typing `q` inserts a character instead of quitting. Text inputs and native
- * lists inside the modal keep their own keys.
+ * A focused field that declares the `search` mode routes Up, Down, PageUp, PageDown, Home, End, and
+ * Enter to the overlay's bound result list before the modal typing rules apply, which is how the
+ * command palette moves its results while the search input keeps focus. Otherwise only the overlay's own
+ * context, `overlay.close` on Esc, the hardcoded `Ctrl+C` quit path, modifier-gated
+ * text-input-safe actions, and Tab traversal may run. No plain unmodified global action fires from a
+ * modal text field, so typing `q` inserts a character instead of quitting.
  *
  * @param input - Resolution inputs.
  * @param lookupKey - Canonical lookup key for the event.
@@ -174,6 +179,14 @@ function resolveOverlayAction(
   input: HotkeyResolutionInput,
   lookupKey: string,
 ): HotkeyResolution | null {
+  if (input.textInputFocused && input.textInputMode === "search") {
+    const routed = SEARCH_INPUT_ACTIONS.get(lookupKey);
+
+    if (routed !== undefined) {
+      return { actionId: routed, scope: "overlay" };
+    }
+  }
+
   const overlayAction = readContextAction(input.keymap, "overlay", lookupKey);
 
   if (overlayAction !== undefined) {
@@ -235,18 +248,60 @@ function resolveOverlayGlobalAction(
     return null;
   }
 
-  if (!input.textInputFocused) {
-    const allowed =
-      OVERLAY_ALLOWED_ACTIONS.has(actionId) || actionId === input.overlayToggleActionId;
-
-    return allowed ? { actionId, scope: "global" } : null;
+  if (actionId === "focus.next" || actionId === "focus.previous") {
+    // Tab traversal inside a modal belongs to the modal's own control cycle. An overlay that does
+    // not register it simply leaves the key to the focused widget, because no overlay handler runs.
+    return { actionId, scope: "overlay" };
   }
 
-  if (actionId === CLOSE_ACTION_ID || (actionId === QUIT_ACTION_ID && input.key.ctrl)) {
+  return input.textInputFocused
+    ? resolveOverlayFieldAction(actionId, input)
+    : resolveOverlayIdleAction(actionId, input);
+}
+
+/**
+ * Resolves a global action while an overlay field owns focus.
+ *
+ * Esc always closes, `Ctrl+C` always quits, and every other action needs the text-input-safe
+ * allowlist plus a primary modifier, so typing a plain letter never fires a global action from
+ * inside a modal.
+ *
+ * @param actionId - Global action bound to the key.
+ * @param input - Resolution inputs.
+ * @returns The resolution, or `null` when the field keeps the key.
+ */
+function resolveOverlayFieldAction(
+  actionId: string,
+  input: HotkeyResolutionInput,
+): HotkeyResolution | null {
+  if (actionId === CLOSE_ACTION_ID) {
     return { actionId, scope: "global" };
   }
 
+  if (actionId === QUIT_ACTION_ID) {
+    return input.key.ctrl ? { actionId, scope: "global" } : null;
+  }
+
   return isAllowedWhileTyping(actionId, input.key) ? { actionId, scope: "global" } : null;
+}
+
+/**
+ * Resolves a global action while no overlay field owns focus.
+ *
+ * Only the overlay allowlist and the overlay's own toggle escape into the modal, so an unfocused
+ * overlay never leaks an unrelated global action.
+ *
+ * @param actionId - Global action bound to the key.
+ * @param input - Resolution inputs.
+ * @returns The resolution, or `null` when the overlay keeps the key.
+ */
+function resolveOverlayIdleAction(
+  actionId: string,
+  input: HotkeyResolutionInput,
+): HotkeyResolution | null {
+  const allowed = OVERLAY_ALLOWED_ACTIONS.has(actionId) || actionId === input.overlayToggleActionId;
+
+  return allowed ? { actionId, scope: "global" } : null;
 }
 
 /**
@@ -254,7 +309,8 @@ function resolveOverlayGlobalAction(
  *
  * Esc leaves the field, Tab and Shift+Tab move to the next or previous region for a single-line
  * input, and only the documented allowlist fires, and only when its effective binding carries a
- * primary modifier. Every other key stays with the editor.
+ * primary modifier. A `search` field routes the documented navigation keys to its result list first.
+ * Every other key stays with the editor.
  *
  * @param keymap - The resolved keymap.
  * @param key - The physical key event.

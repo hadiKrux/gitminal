@@ -1,6 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import { executeRemoteFetch } from "@/domain/commands/commands.fetch";
-import type { CommandHandlerContext, CommandProgress } from "@/domain/commands/commands.types";
+import {
+  buildFetchFormValues,
+  readEmptyFetchScopeReason,
+  readFetchBranch,
+  readFetchScope,
+  readScopedUpstreamGroups,
+} from "@/domain/commands/commands.fetch.scope";
+import type {
+  CommandFormValues,
+  CommandHandlerContext,
+  CommandProgress,
+} from "@/domain/commands/commands.types";
 import type { GitClient, GitInvocationResult, GitInvokeOptions } from "@/domain/git/git.types";
 
 /** Arguments that list every local branch upstream. */
@@ -50,12 +61,14 @@ function result(stdout: string, ok: boolean = true, stderr: string = ""): GitInv
  * @param answers - Per-command answers.
  * @param progress - Progress accumulator.
  * @param calls - Invocation accumulator.
+ * @param formValues - Optional request form values carrying the fetch scope and branch.
  * @returns The handler context.
  */
 function createContext(
   answers: Readonly<Record<string, (options: GitInvokeOptions) => GitInvocationResult>>,
   progress: CommandProgress[],
   calls: GitInvokeOptions[],
+  formValues?: CommandFormValues,
 ): CommandHandlerContext {
   const client: GitClient = {
     gitPath: "git",
@@ -73,7 +86,11 @@ function createContext(
   };
 
   return {
-    request: { commandId: "remote.fetch", target: { kind: "none" } },
+    request: {
+      commandId: "remote.fetch",
+      target: { kind: "none" },
+      ...(formValues === undefined ? {} : { formValues }),
+    },
     target: { kind: "none" },
     cwd: "/repo",
     client,
@@ -81,6 +98,47 @@ function createContext(
     notifyProgress: (event) => progress.push(event),
   };
 }
+
+describe("fetch form values", () => {
+  it("builds and reads back the scope and branch a request carries", () => {
+    const values = buildFetchFormValues("current", "feature");
+
+    expect(values).toEqual({ fetchScope: "current", branch: "feature" });
+    expect(readFetchScope(values)).toBe("current");
+    expect(readFetchBranch(values)).toBe("feature");
+    expect(readFetchScope(undefined)).toBe("local");
+    expect(readFetchBranch(undefined)).toBeNull();
+    expect(readFetchBranch(buildFetchFormValues("current", ""))).toBeNull();
+  });
+
+  it("treats a detached request as having no upstreams in the current scope", () => {
+    const stdout = `${upstreamRow("main", "origin", "main")}\n`;
+    const detached = buildFetchFormValues("current", "");
+
+    expect(readScopedUpstreamGroups(stdout, detached)).toEqual([]);
+    expect(readEmptyFetchScopeReason(detached)).toBe("no-current-upstream");
+    expect(readScopedUpstreamGroups(stdout, buildFetchFormValues("local", ""))).toHaveLength(1);
+  });
+
+  it("blocks a detached request before any fetch runs", async () => {
+    const progress: CommandProgress[] = [];
+    const calls: GitInvokeOptions[] = [];
+    const context = createContext(
+      {
+        [GROUPS_ARGS]: () => result(`${upstreamRow("main", "origin", "main")}\n`),
+      },
+      progress,
+      calls,
+      buildFetchFormValues("current", ""),
+    );
+
+    const outcome = await executeRemoteFetch(context);
+
+    expect(outcome.steps).toHaveLength(0);
+    expect(outcome.blockedReason).toBe("no-current-upstream");
+    expect(calls.filter((call) => call.args[0] === "fetch")).toHaveLength(0);
+  });
+});
 
 describe("executeRemoteFetch", () => {
   it("fetches each upstream ref with --progress on the network class", async () => {
@@ -216,6 +274,49 @@ describe("executeRemoteFetch", () => {
     expect(outcome.steps).toHaveLength(0);
     expect(outcome.blockedReason).toBe("no-local-upstreams");
     expect(calls).toHaveLength(1);
+  });
+
+  it("fetches only the checked-out branch upstream in the current scope", async () => {
+    const progress: CommandProgress[] = [];
+    const calls: GitInvokeOptions[] = [];
+    const context = createContext(
+      {
+        [GROUPS_ARGS]: () =>
+          result(
+            `${upstreamRow("main", "origin", "main")}\n${upstreamRow("feature", "origin", "feature")}\n`,
+          ),
+        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () => result(""),
+      },
+      progress,
+      calls,
+      { fetchScope: "current", branch: "main" },
+    );
+
+    const outcome = await executeRemoteFetch(context);
+
+    expect(outcome.steps).toHaveLength(1);
+    expect(outcome.steps[0]?.argv).toContain("+refs/heads/main:refs/remotes/origin/main");
+    expect(calls.filter((call) => call.args[0] === "fetch")).toHaveLength(1);
+    expect(outcome.blockedReason).toBeUndefined();
+  });
+
+  it("blocks the current scope when its branch has no upstream", async () => {
+    const progress: CommandProgress[] = [];
+    const calls: GitInvokeOptions[] = [];
+    const context = createContext(
+      {
+        [GROUPS_ARGS]: () => result(`${upstreamRow("main", "origin", "main")}\n`),
+      },
+      progress,
+      calls,
+      { fetchScope: "current", branch: "feature" },
+    );
+
+    const outcome = await executeRemoteFetch(context);
+
+    expect(outcome.steps).toHaveLength(0);
+    expect(outcome.blockedReason).toBe("no-current-upstream");
+    expect(calls.filter((call) => call.args[0] === "fetch")).toHaveLength(0);
   });
 
   it("keeps a missing upstream ref non-fatal beside a healthy ref", async () => {

@@ -27,10 +27,18 @@ export interface ModalControlCycleOptions<TControl extends string> {
   /** Control focused when the modal mounts. */
   readonly initial: TControl;
   /**
+   * Whether the cycle owns Up and Down.
+   *
+   * Defaults to true. A modal whose list owns the vertical keys, such as the theme picker, sets this
+   * to false so its own `nav.up` and `nav.down` handlers stay the single registration for those
+   * actions and the cycle only owns Left and Right.
+   */
+  readonly registerVerticalNavigation?: boolean;
+  /**
    * Applies the modal's left and right rule.
    *
-   * Up and Down always step through `order`; only the horizontal rule differs between modals, so a
-   * caller supplies it here instead of duplicating the cycle.
+   * Up and Down step through `order` unless the caller owns them; only the horizontal rule differs
+   * between modals, so a caller supplies it here instead of duplicating the cycle.
    */
   readonly onHorizontal?: (
     input: ModalHorizontalInput<TControl>,
@@ -41,4 +49,14 @@ export interface ModalControlCycleOptions<TControl extends string> {
 export interface ModalControlCycle<TControl extends string> {
   /** Control that currently owns the keyboard focus. */
   readonly control: TControl;
+  /**
+   * Steps the focused control by an offset and clamps at both ends.
+   *
+   * A modal that owns the vertical keys itself, such as the theme picker while its row list is
+   * focused, calls this when focus is inside the footer instead of registering a second `nav.up` or
+   * `nav.down` handler.
+   *
+   * @param delta - Offset inside the control order; negative moves up.
+   */
+  readonly move: (delta: number) => void;
 }

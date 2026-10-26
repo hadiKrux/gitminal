@@ -5,6 +5,7 @@ import { sanitizeConsoleLine } from "./console.sanitize";
 import type {
   ConsoleEntry,
   ConsoleEntryStatus,
+  ConsoleNoticeInput,
   ConsoleStepEntry,
   FormatCommandResultOptions,
   RefreshConsoleEntryInput,
@@ -85,6 +86,38 @@ export function formatRefreshEntry(input: RefreshConsoleEntryInput): ConsoleEntr
     timedOut: false,
     summary: message,
     decisiveError: input.ok ? null : message,
+  };
+}
+
+/**
+ * Formats one informational entry that did not run a command.
+ *
+ * Configuration notices use this path: the message is the decisive content, no git step ran, and
+ * the entry carries the `info` status so it never reads as a succeeded or failed command. The text
+ * goes through the shared single-line sanitizer, so a warning that names a path cannot inject a
+ * terminal escape into the console.
+ *
+ * @param input - Ids, timing, label, and notice text.
+ * @returns The console entry.
+ */
+export function formatNoticeEntry(input: ConsoleNoticeInput): ConsoleEntry {
+  const message = sanitizeConsoleLine(input.message);
+
+  return {
+    id: input.id,
+    at: input.at,
+    commandId: input.commandId,
+    operationLabel: input.operationLabel,
+    steps: [],
+    cwd: null,
+    status: "info",
+    exitCode: null,
+    durationMs: 0,
+    phase: null,
+    cancelled: false,
+    timedOut: false,
+    summary: message,
+    decisiveError: null,
   };
 }
 

@@ -1,4 +1,3 @@
-// biome-ignore-all lint/a11y/noStaticElementInteractions: OpenTUI boxes are the only layout and hit-test primitive; they have no DOM role.
 import type { ReactNode } from "react";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";

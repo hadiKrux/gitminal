@@ -25,11 +25,21 @@ export const HIDDEN_CONTEXT_HINT_ACTIONS: ReadonlySet<string> = Object.freeze(
 );
 
 /**
+ * Actions whose hint depends on the right-pane selection rather than a panel publication.
+ *
+ * `commit.focus` targets the composer textarea, so the footer asks the same availability source the
+ * palette and help read instead of falling back to "a handler is registered" and advertising a
+ * command whose surface is not mounted.
+ */
+export const SELECTION_HINT_ACTIONS: ReadonlySet<string> = Object.freeze(new Set(["commit.focus"]));
+
+/**
  * Actions the footer advertises while a modal owns the keyboard.
  *
  * Labels come from the action catalogue so help, the palette, and the footer stay aligned. The
  * list only chooses which actions and scopes are modal-relevant. `focus.next` is deliberately absent:
- * overlay precedence blocks it while a modal is open, so advertising it would be false.
+ * the palette renders its own field-traversal hint inside the modal, and every other modal has no
+ * such cycle to advertise.
  */
 export const MODAL_HINT_ACTIONS: readonly {
   readonly actionId: ActionId;
@@ -38,6 +48,8 @@ export const MODAL_HINT_ACTIONS: readonly {
   { actionId: "nav.activate", scope: "overlay" },
   { actionId: "nav.up", scope: "overlay" },
   { actionId: "nav.down", scope: "overlay" },
+  { actionId: "nav.pageUp", scope: "overlay" },
+  { actionId: "nav.pageDown", scope: "overlay" },
   { actionId: "nav.left", scope: "overlay" },
   { actionId: "nav.right", scope: "overlay" },
   { actionId: "overlay.close", scope: "global" },

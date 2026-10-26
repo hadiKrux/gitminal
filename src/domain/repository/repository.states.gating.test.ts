@@ -119,6 +119,7 @@ describe("gateRepository", () => {
       "tag.push",
       "tag.delete",
       "stash.create",
+      "graph.search",
       "remote.push",
       "remote.pushForceSafe",
       "remote.pushForceOverwrite",

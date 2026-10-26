@@ -138,6 +138,282 @@ describe("OverlayProvider", () => {
     });
   });
 
+  it("runs a close completion after the captured focus is restored", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.modal",
+        render: () => <text>modal body</text>,
+      });
+    });
+
+    const focusAtCompletion: (string | null)[] = [];
+
+    await act(async () => {
+      latestOverlay?.close(() => {
+        focusAtCompletion.push(setup.renderer.currentFocusedRenderable?.id ?? null);
+      });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(focusAtCompletion).toEqual(["background-target"]);
+    expect(latestOverlay?.entry).toBeNull();
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("background-target");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("runs a close completion once and keeps the entry it opens", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.modal",
+        render: () => <text>modal body</text>,
+      });
+    });
+
+    let completions = 0;
+
+    await act(async () => {
+      latestOverlay?.close(() => {
+        completions += 1;
+        latestOverlay?.open({
+          kind: "modal",
+          id: "test.follow-up",
+          render: () => <text>follow-up modal</text>,
+        });
+      });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(completions).toBe(1);
+    expect(latestOverlay?.entry?.id).toBe("test.follow-up");
+    expect(latestOverlay?.isOpen).toBe(true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("does not run a pending completion when close is called without one", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.modal",
+        render: () => <text>modal body</text>,
+      });
+    });
+
+    let completions = 0;
+
+    await act(async () => {
+      latestOverlay?.close(() => {
+        completions += 1;
+      });
+      latestOverlay?.close();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(completions).toBe(0);
+    expect(latestOverlay?.entry).toBeNull();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("discards a pending completion instead of running it on a later unrelated surface", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.modal",
+        render: () => <text>modal body</text>,
+      });
+    });
+
+    let completions = 0;
+
+    await act(async () => {
+      latestOverlay?.close(() => {
+        completions += 1;
+      });
+      latestOverlay?.showError({
+        commandId: "remote.fetch",
+        operationLabel: "Fetch",
+        message: "fatal: unrelated",
+        details: "fatal: unrelated",
+        consoleEntryId: null,
+      });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestOverlay?.errorDetail?.message).toBe("fatal: unrelated");
+    expect(completions).toBe(0);
+
+    await act(async () => {
+      latestOverlay?.dismissError();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestOverlay?.isOpen).toBe(false);
+    expect(completions).toBe(0);
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("background-target");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("does not carry a completion into the entry that replaces the closed surface", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.modal",
+        render: () => <text>modal body</text>,
+      });
+    });
+
+    let completions = 0;
+
+    await act(async () => {
+      latestOverlay?.close(() => {
+        completions += 1;
+      });
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.follow-up",
+        render: () => <text>follow-up modal</text>,
+      });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestOverlay?.entry?.id).toBe("test.follow-up");
+    expect(completions).toBe(0);
+
+    await act(async () => {
+      latestOverlay?.close();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestOverlay?.entry).toBeNull();
+    expect(completions).toBe(0);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("treats a non-function close argument as a plain close that discards a pending completion", async () => {
+    const setup = await renderOverlay();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusBackground(setup);
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.modal",
+        render: () => <text>modal body</text>,
+      });
+    });
+
+    // The native mouse Cancel path passes its event, which must not be stored as a completion.
+    await act(async () => {
+      latestOverlay?.close({ type: "mouse" } as unknown as () => void);
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestOverlay?.entry).toBeNull();
+    expect(latestOverlay?.isOpen).toBe(false);
+
+    let completions = 0;
+
+    await act(async () => {
+      latestOverlay?.open({
+        kind: "modal",
+        id: "test.second",
+        render: () => <text>second modal</text>,
+      });
+    });
+    await act(async () => {
+      latestOverlay?.close(() => {
+        completions += 1;
+      });
+      latestOverlay?.close({ type: "mouse" } as unknown as () => void);
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(completions).toBe(0);
+    expect(latestOverlay?.entry).toBeNull();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("keeps the original capture when one entry replaces another", async () => {
     const setup = await renderOverlay();
 

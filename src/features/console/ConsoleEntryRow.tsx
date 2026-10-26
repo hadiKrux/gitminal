@@ -170,6 +170,8 @@ function readStatusView(
       return { marker: ICONS.warning, label: "cancelled", color: tokens.warning };
     case "timed-out":
       return { marker: ICONS.warning, label: summary, color: tokens.warning };
+    case "info":
+      return { marker: ICONS.info, label: "notice", color: tokens.info };
   }
 }
 

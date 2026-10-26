@@ -1,7 +1,10 @@
-import { ACTION_BY_ID, isActionId } from "./keymap.defaults";
+import { ACTION_BY_ID, ACTION_CATALOGUE, isActionId } from "./keymap.defaults";
 import { isFunctionKey, isLetterKey, isShiftSignificant, lookupBindingKey } from "./keymap.parse";
 import type {
+  ActionDefinition,
   KeymapContext,
+  KeymapHelpRow,
+  KeymapHelpRowOptions,
   KeymapHint,
   KeymapHintOptions,
   ParsedBinding,
@@ -130,7 +133,7 @@ function hasModifier(binding: ParsedBinding): boolean {
  * @param options - Optional handler availability filter.
  * @returns Hints sorted from keep-first to drop-first.
  */
-export function describeContextHints(
+export function describeFooterHints(
   keymap: ResolvedKeymap,
   context: KeymapContext,
   options: KeymapHintOptions = {},
@@ -155,6 +158,65 @@ export function describeContextHints(
   }
 
   return hints.sort((left, right) => left.priority - right.priority);
+}
+
+/**
+ * Derives one unfiltered help row per implemented action.
+ *
+ * Every action in the catalogue is returned, in catalogue order, regardless of whether it can run
+ * now or has any binding, because help is the discovery surface and the caller attaches availability
+ * as data. The keys are the same effective bindings `describeFooterHints` reads, so the footer and
+ * help can never disagree on a chord. `bindingContext` names the context the caller should attribute
+ * the binding to: the preferred context when the action runs there, otherwise the fallback context,
+ * the `global` context, or the first declared context.
+ *
+ * @param keymap - The resolved keymap.
+ * @param options - Preferred and fallback contexts used to attribute each row.
+ * @returns One row per catalogue action, including unavailable and unbound actions.
+ */
+export function describeHelpRows(
+  keymap: ResolvedKeymap,
+  options: KeymapHelpRowOptions = {},
+): readonly KeymapHelpRow[] {
+  return ACTION_CATALOGUE.map((action) => ({
+    actionId: action.id,
+    label: action.label,
+    description: action.description,
+    category: action.category,
+    contexts: action.contexts,
+    keys: (keymap.bindings.get(action.id) ?? []).map(formatBinding),
+    bindingContext: readBindingContext(action, options),
+  }));
+}
+
+/**
+ * Reads the context a help row attributes its effective binding to.
+ *
+ * @param action - Catalogue entry being described.
+ * @param options - Preferred and fallback contexts.
+ * @returns The attributed context.
+ */
+function readBindingContext(
+  action: ActionDefinition,
+  options: KeymapHelpRowOptions,
+): KeymapContext {
+  const preferred = options.preferredContext;
+
+  if (preferred !== undefined && action.contexts.includes(preferred)) {
+    return preferred;
+  }
+
+  const fallback = options.fallbackContext;
+
+  if (fallback !== undefined && action.contexts.includes(fallback)) {
+    return fallback;
+  }
+
+  if (action.contexts.includes("global")) {
+    return "global";
+  }
+
+  return action.contexts[0] ?? "global";
 }
 
 /**

@@ -90,6 +90,24 @@ describe("capConsoleOutput", () => {
     });
   });
 
+  it("applies the documented default line cap", () => {
+    const text = Array.from({ length: 250 }, (_, index) => `line ${index}`).join("\n");
+    const block = capConsoleOutput(text);
+
+    expect(block.totalLines).toBe(250);
+    expect(block.omittedLines).toBeGreaterThan(0);
+    expect(block.text.split("\n").length).toBeLessThanOrEqual(201);
+  });
+
+  it("applies the documented default byte cap beyond the line cap", () => {
+    const lines = Array.from({ length: 300 }, (_, index) => `${index}`.padEnd(120, "x"));
+    const text = lines.join("\n");
+    const block = capConsoleOutput(text);
+
+    expect(block.omittedLines).toBeGreaterThan(50);
+    expect(Buffer.byteLength(block.text, "utf8")).toBeLessThan(Buffer.byteLength(text, "utf8"));
+  });
+
   it("handles empty output", () => {
     expect(capConsoleOutput("")).toEqual({ text: "", omittedLines: 0, totalLines: 0 });
   });

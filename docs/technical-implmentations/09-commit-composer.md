@@ -5,7 +5,7 @@
 - Spec reference: `docs/product-spec.md` F-09 (lines 740-804), F-10 (lines 805-837), F-11 (lines 838-953), F-16 (lines 1067-1095), the keyboard map (lines 1539-1704), action IDs (lines 1705-1742).
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`.
 - Region id: `right-pane` (`src/features/shell/regions.ts`), owned by `CommitComposer.tsx`, which renders the focusable frame. The composer is the right-pane mode when `RepositoryProvider.selection.kind === "pending"`. The other right-pane modes are commit details for a commit selection, stash details for a stash selection, and worktree details for a worktree selection (F-10).
-- Dependencies: F-01 (shell, focus, region order, quit confirmation reading `hasUnsavedDraft` from `DraftProvider`), F-08 (the Pending Changes row selects the composer through `RepositoryProvider.selection`), F-10 (the right-pane mode switch), F-11 (staged file list and working tree diffs), F-15 (error overlay and the More menu overlay), F-16 (empty repository, missing git identity), F-17 (refresh after commit), F-18 (safety, hook execution), F-19 (keymap overrides for `commit.submit` and `commit.options`).
+- Dependencies: F-01 (shell, focus, region order, the quit confirmation that will read `hasUnsavedDraft` from `DraftProvider` once it lands), F-08 (the Pending Changes row selects the composer through `RepositoryProvider.selection`), F-10 (the right-pane mode switch), F-11 (staged file list and working tree diffs), F-15 (error overlay and the More menu overlay), F-16 (empty repository, missing git identity), F-17 (refresh after commit), F-18 (safety, hook execution), F-19 (keymap overrides for `commit.submit` and `commit.options`).
 - Owned paths:
   - `src/features/composer/CommitComposer.tsx`
   - `src/features/composer/ComposerIdentity.tsx`
@@ -39,7 +39,7 @@ Hooks used:
 | --- | --- | --- |
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts`. | Central dispatcher; this feature never calls it directly. |
 | `useAction` | `useComposer.ts` registers only composer-scoped handlers (`scope: "right-pane"`): `commit.submit`, `commit.submitNoVerify`, `commit.amend`, `commit.amendNoVerify`, `commit.options`, `form.submit`, and the composer's own `nav.left`, `nav.right`, and `nav.activate`. | Features receive action IDs, never raw key strings. Global actions such as `app.quit`, `commit.focus`, `focus.next`, `focus.previous`, `overlay.close`, and `app.refresh` are owned by the app, the shell, or `useRepository`, never by this feature. |
-| `useDraft` | `useComposer.ts` reads and writes the message through `DraftProvider`; the shell quit handler reads `hasUnsavedDraft` from the same provider. | The draft has exactly one owner, so the composer and the quit confirmation cannot disagree. |
+| `useDraft` | `useComposer.ts` reads and writes the message through `DraftProvider`; once draft-based quit lands the shell quit handler will read `hasUnsavedDraft` from the same provider. | The draft has exactly one owner, so the composer and the future quit confirmation cannot disagree. |
 | `usePaste` | `CommitComposer.tsx` for paste into the textarea. | Commit message and field paste handling is a named `usePaste` use in architecture section 6. |
 | `useBoxRows` | `CommitComposer.tsx` measures the laid-out panel body and derives the message row cap. | The right-pane slot changes with the terminal height and the console drawer, so the field budget follows the measured body rather than estimating it. |
 | `useFocusRegion` | `CommitComposer.tsx` reads `focused` and calls `focus()` for `right-pane`. | Region focus is derived from native focus; cursor persistence per region. |
@@ -83,7 +83,7 @@ CommitOptionsMenu
 - `src/features/composer/ComposerIdentity.tsx` - the read-only identity line and the missing-identity reason.
 - `src/features/composer/CommitOptionsMenu.tsx` - the four variants, disabled reasons, amend selection, and cancel behavior.
 - `src/features/composer/useComposer.ts` - enablement rules, menu state, amend selection, amend message loading, command dispatch, and draft reads and writes through `DraftProvider`.
-- `src/app/providers/DraftProvider.tsx` - the single owner of the composer draft string and `hasUnsavedDraft`, read by both this feature and the shell quit handler.
+- `src/app/providers/DraftProvider.tsx` - the single owner of the composer draft string and `hasUnsavedDraft`, read by this feature today and by the shell quit handler once draft-based quit lands.
 - `src/domain/git/git.commit.ts` - commit command builders for the four variants.
 - Tests colocated: `src/domain/git/git.commit.test.ts`, `src/app/providers/DraftProvider.test.tsx`, `src/features/composer/useComposer.test.tsx`, `src/features/composer/CommitComposer.test.tsx`, `src/features/composer/CommitOptionsMenu.test.tsx`.
 
@@ -98,7 +98,7 @@ View state, owned by `useComposer.ts` and `CommitOptionsMenu.tsx`:
 
 Provider state, read and never recomputed here:
 
-- `DraftProvider`: the composer draft string and `hasUnsavedDraft`. This is the single owner of the draft. `useComposer` reads and writes it through `useDraft` and does not keep a second copy. The shell quit handler reads the same provider, so no feature imports another feature to answer the unsaved-work question.
+- `DraftProvider`: the composer draft string and `hasUnsavedDraft`. This is the single owner of the draft. `useComposer` reads and writes it through `useDraft` and does not keep a second copy. The shell quit handler will read the same provider once draft-based quit lands, so no feature imports another feature to answer the unsaved-work question.
 - `RepositoryProvider`: staged file list and staged count, pending count, HEAD OID, the repository refresh generation, and the right-pane selection union. The right-pane mode is derived from `selection` (`pending` renders the composer, `commit` renders commit details, `stash` renders stash details, `worktree` renders worktree details), never from a second sub-mode flag.
 - `StatusProvider`: operation progress and the transient success status.
 - `OverlayProvider`: the More menu modal and the persistent error overlay.
@@ -157,14 +157,14 @@ Action IDs only (product spec section 6.1). Raw key strings never appear outside
 | `commit.amendNoVerify` (no default key; menu and palette only) | Amend the last commit with `--no-verify` using the current message and staged files. |
 | `form.submit` (`Ctrl/Cmd+Enter`) | Submit the focused form; in the composer it runs the same normal commit as `commit.submit`. |
 | `commit.options` (`Alt+.` while the textarea is focused; plain `.` only while the `right-pane` region frame is focused) | Open `CommitOptionsMenu`. The text-input allowlist only fires an action whose effective binding uses `Ctrl`, `Cmd`, or `Alt`, so `Alt+.` works while typing and plain `.` types a period; plain `.` opens the menu only when focus is on the region frame outside the textarea. `Ctrl/Cmd+.` stays OpenTUI redo. |
-| `commit.focus` (`c`) | Focus the composer textarea when the composer is visible (the Pending Changes row is selected); shell-owned. |
+| `commit.focus` (`c`) | Focus the composer textarea when the composer is visible (the Pending Changes row or the diff-file fallback keeps it mounted); shell-owned. The palette and help report the shared `composer-hidden` reason when commit, stash, or worktree details replace it. |
 | `overlay.close` (`Esc`) | In the textarea: leave the textarea and focus the `right-pane` region frame; the draft is kept. In the More menu: cancel and restore the draft snapshot. |
 | `nav.up`, `nav.down` | Move the highlighted variant inside the More menu. |
 | `nav.left`, `nav.right` | With the `right-pane` region frame focused, move between the textarea, More, and Commit controls. |
 | `nav.activate` (`Enter`) | Run the highlighted variant in the More menu. In the textarea, `Enter` inserts a newline, not a commit. |
 | `focus.next`, `focus.previous` (`Tab` / `Shift+Tab`) | In the textarea, `Tab` inserts the two-space indent unit and `Shift+Tab` removes up to one indent unit from the start of the current line; neither moves focus. With the `right-pane` region frame focused, Tab moves to the next or previous region. |
 | `focus.region.rightPane` (`7`) | Direct jump to the `right-pane` region and into the active mode, composer or details; shell-owned. |
-| `app.quit` (`q`) | Quit; the shell opens the confirmation when `hasUnsavedDraft` is true in `DraftProvider` (F-01). |
+| `app.quit` (`q`) | Quit; today it aborts the in-flight command and tears down without a draft prompt. Draft-based quit confirmation is deferred; when it lands the shell will open the confirmation when `hasUnsavedDraft` is true in `DraftProvider` (F-01). |
 
 `Enter` inserts a newline; `Tab` inserts the two-space indent unit at the cursor (replacing a selection) and `Shift+Tab` outdents the current line by up to one indent unit; neither leaves the textarea. The Commit button and `Ctrl/Cmd+S` run `commit.submit`; `form.submit` runs the same operation from a multiline form. The four menu variants are separate commands with no default keys, so only `commit.submit` is bound to `Ctrl/Cmd+S`. With the `right-pane` region frame focused, `nav.left` and `nav.right` move between the textarea, More, and Commit. While the textarea is focused, every unmodified printable key belongs to the textarea until `Esc` leaves it. The footer shows `commit.submit` and `commit.options` hints for the `right-pane` region when the composer mode is active, so footer, help, and palette agree through `@/domain/keymap/keymap.describe.ts`.
 
@@ -214,7 +214,7 @@ Every state carries a text marker; color is never the only signal.
 | Author identity comes from git configuration | `ComposerIdentity.tsx`; `git.repo.ts` `readIdentity()` |
 | `--no-verify` and amend variants work and are visible in the console | `CommitOptionsMenu.tsx` dispatches `commit.submitNoVerify`, `commit.amend`, and `commit.amendNoVerify` as separate commands; `git.commit.ts` builders; console entry from `useCommandRunner.ts` |
 | A failed commit preserves the message and staged state | `DraftProvider` keeps the draft; no clear on failure; error overlay from `OverlayProvider` |
-| Quitting with an unsent message shows the quit confirmation | shell quit handler reads `hasUnsavedDraft` from `DraftProvider` (F-01) |
+| Quitting with an unsent message shows the quit confirmation | Deferred. `app.quit` aborts the in-flight command and tears down without a draft prompt today; the shell quit handler will read `hasUnsavedDraft` from `DraftProvider` once the confirmation lands (F-01) |
 | Multiline textarea with placeholder and auto-grow to 8 rows | `CommitComposer.tsx` `<textarea>` and height rule |
 | Enter inserts a newline; `Ctrl/Cmd+S` commits; Tab indents and Shift+Tab outdents inside the textarea | `CommitComposer.tsx` textarea handling; `commit.submit` handler; `TEXT_INDENT_UNIT` from `src/lib/text.ts` |
 | Amend loads the previous message and shows "Amending <short hash>" | `useComposer.ts` amend load via `git.log.ts`; indicator span in `CommitComposer.tsx` |
@@ -224,7 +224,7 @@ Every state carries a text marker; color is never the only signal.
 
 - `src/domain/git/git.commit.test.ts`: argument construction for one builder per action ID, asserting exactly the staged-only form (no pathspec, no `-a`), `commit.submit` has neither `--no-verify` nor `--amend`, `commit.submitNoVerify` adds only `--no-verify`, `commit.amend` adds only `--amend`, and `commit.amendNoVerify` adds both; no spawning in unit tests.
 - `src/domain/git/parsers/parse.status.test.ts` (shared with F-11): the status invocation uses `git status --porcelain=v2 --branch -z --untracked-files=all`, and `-z` output with spaces and newlines in paths parses correctly.
-- `src/app/providers/DraftProvider.test.tsx`: the provider is the single owner of the draft and `hasUnsavedDraft`; writing, clearing, and failure-preserving updates are visible to both the composer and the quit confirmation; the shell confirmation opens only when `hasUnsavedDraft` is true.
+- `src/app/providers/DraftProvider.test.tsx`: the provider is the single owner of the draft and `hasUnsavedDraft`; writing, clearing, and failure-preserving updates are visible to both the composer and the quit confirmation; once draft-based quit lands the shell confirmation will open only when `hasUnsavedDraft` is true.
 - `src/features/composer/useComposer.test.tsx`: enablement matrix for no staged files, empty and whitespace-only messages, missing `user.name` and `user.email`, and amend with no staged changes; draft survives a simulated failure through `DraftProvider`; amend message load and cancel restoring the snapshot; the right-pane mode is derived from `selection.kind` (`pending`, `commit`, `stash`, `worktree`) with no second flag; duplicate `(actionId, scope)` registration is rejected; no global action such as `app.quit`, `commit.focus`, `focus.next`, or `app.refresh` is registered by the feature.
 - `src/features/composer/CommitComposer.test.tsx`: placeholder "Commit message...", identity line, "Nothing to commit" label, auto-grow to 8 rows then scroll, `Enter` newline, `Tab` inserts two spaces without moving focus, `Shift+Tab` removes up to two leading spaces from the current line, `Alt+.` opens options while typing, plain `.` inserts a period in the textarea and opens options only when the region frame is focused, the allowlist fires only modified effective bindings while `Ctrl+.` remains redo, `Ctrl/Cmd+S` dispatches `commit.submit`, `Ctrl/Cmd+Enter` dispatches `form.submit`, the four menu rows dispatch four distinct action IDs, success clears `DraftProvider`, and the hook-failure overlay text includes the `--no-verify` hint.
 - `src/features/composer/CommitOptionsMenu.test.tsx`: the four variants in order, disabled reason "no previous commit" when there is no HEAD, amend selection indicator, Cancel restoring the previous draft, and the absence of default keys for the three menu-only variants.

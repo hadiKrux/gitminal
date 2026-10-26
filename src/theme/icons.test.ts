@@ -22,13 +22,23 @@ const REQUIRED_ICON_GROUPS: Readonly<Record<string, readonly IconName[]>> = {
   Diff: ["diffAdd", "diffRemove", "diffContext", "diffNoNewline"],
   "Tag scope": ["tagLocal", "tagRemote", "tagUnpushed", "tagLocalOnly"],
   "Remote actions": ["push", "pull"],
-  "Operation status": ["success", "warning", "error", "info", "pending", "running", "done"],
+  "Operation status": [
+    "success",
+    "warning",
+    "warningMarker",
+    "error",
+    "info",
+    "pending",
+    "running",
+    "done",
+  ],
   Spinner: ["spinnerFrames"],
   Toggle: ["checkboxOn", "checkboxOff"],
   Overflow: ["badgeOverflow"],
   Console: ["omittedLines"],
   "Graph lanes": ["graphLanes"],
   "Truncation and hints": ["ellipsis", "hintSeparator"],
+  Theme: ["swatch"],
 };
 
 /** Every documented icon name, flattened from the required groups. */

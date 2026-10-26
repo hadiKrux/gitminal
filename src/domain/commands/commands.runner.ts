@@ -115,6 +115,8 @@ export async function runCommand(
     operation: "idle",
     readOnly: options.readOnly,
     formValues: request.formValues,
+    fetchScope: options.fetchScope,
+    currentBranchHasUpstream: options.currentBranchHasUpstream,
   });
 
   if (!availability.available) {

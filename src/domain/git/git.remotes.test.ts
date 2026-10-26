@@ -440,6 +440,22 @@ describe("readUpstreamGroups", () => {
   it("returns no groups for an empty scope", () => {
     expect(readUpstreamGroups("")).toEqual([]);
   });
+
+  it("filters to the exact local branch without matching a longer prefix", () => {
+    const stdout = [
+      "feature\torigin\trefs/heads/feature",
+      "feature/x\torigin\trefs/heads/feature-x",
+      "main\torigin\trefs/heads/main",
+    ].join("\n");
+
+    expect(readUpstreamGroups(stdout, { localBranch: "feature" })).toEqual([
+      { remote: "origin", refs: [descriptor("origin", "feature")] },
+    ]);
+    expect(readUpstreamGroups(stdout, { localBranch: "feature/x" })).toEqual([
+      { remote: "origin", refs: [descriptor("origin", "feature-x")] },
+    ]);
+    expect(readUpstreamGroups(stdout, { localBranch: "missing" })).toEqual([]);
+  });
 });
 
 describe("planPruneDeletions", () => {

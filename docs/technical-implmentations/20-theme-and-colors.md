@@ -9,17 +9,27 @@
   - `src/domain/theme/theme.catppuccin.ts`
   - `src/domain/theme/theme.resolve.ts`
   - `src/domain/theme/theme.capability.ts`
+  - `src/domain/theme/theme.capability.palette.ts`
   - `src/domain/theme/theme.tokens.ts`
   - `src/theme/ThemeContext.tsx`
+  - `src/theme/ThemeContext.types.ts`
   - `src/theme/useTokens.ts`
+  - `src/theme/useThemeControls.ts`
   - `src/theme/icons.ts`
+  - `src/theme/theme.types.ts`
   - `src/app/providers/ThemeProvider.tsx`
   - `src/app/providers/ThemeProvider.types.ts`
   - `src/app/hooks/useTheme.ts`
   - `src/features/theme-picker/ThemePicker.tsx`
+  - `src/features/theme-picker/ThemePicker.constants.ts`
+  - `src/features/theme-picker/ThemePicker.types.ts`
   - `src/features/theme-picker/ThemeRow.tsx`
+  - `src/features/theme-picker/ThemeRow.constants.ts`
   - `src/features/theme-picker/useThemePicker.ts`
+  - `src/features/theme-picker/useThemePicker.constants.ts`
+  - `src/features/theme-picker/useThemePicker.types.ts`
   - `src/ui/Swatch.tsx`
+  - `src/ui/Swatch.constants.ts`
 
 Consumed paths (not owned):
 - `src/features/overlays/OverlayHost.tsx` (stack-aware overlay wrapper)
@@ -84,7 +94,7 @@ ConfigProvider
 
 The component contract has two distinct roles. `src/features/overlays/OverlayHost.tsx` is the stack-aware wrapper: it reads the top of the `OverlayProvider` stack and renders the active entry, including the theme picker. `src/ui/ModalFrame.tsx` is the presentational primitive that supplies the dim overlay, the frame, and the focus trap; it does not know about the overlay stack or the theme picker. `ThemePicker.tsx` builds the entry content (title, the list of `ThemeRow` items, the `theme.json` note, and the footer actions) that `OverlayHost` renders inside `ModalFrame`; it never renders a second frame of its own.
 
-`ThemeRow.tsx` is a custom `<box>` row, not a `<select>` option. Each row renders the theme name, a light or dark label, the active `*` marker, and a `Swatch` cell from `src/ui/Swatch.tsx` when color is available. `Swatch.tsx` is the shared primitive; the picker does not inline a color cell.
+`ThemeRow.tsx` is a custom `<box>` row, not a `<select>` option. Each row renders the theme name, a light or dark label, the active `*` marker, and a `Swatch` cell from `src/ui/Swatch.tsx` when color is available. The swatch fill comes from the capability-mapped tokens, so a 256-color terminal previews the quantized color the app would render; a monochrome terminal keeps the plain marker. `Swatch.tsx` is the shared primitive and types its fill as `HexColor`; the picker does not inline a color cell.
 
 ## 5. Enforced files and folders
 
@@ -92,24 +102,34 @@ The component contract has two distinct roles. `src/features/overlays/OverlayHos
 - `src/domain/theme/theme.catppuccin.ts`
 - `src/domain/theme/theme.resolve.ts`
 - `src/domain/theme/theme.capability.ts`
+- `src/domain/theme/theme.capability.palette.ts`
 - `src/domain/theme/theme.tokens.ts`
 - `src/theme/ThemeContext.tsx`
+- `src/theme/ThemeContext.types.ts`
 - `src/theme/useTokens.ts`
+- `src/theme/useThemeControls.ts`
 - `src/theme/icons.ts`
 - `src/app/providers/ThemeProvider.tsx`
 - `src/app/providers/ThemeProvider.types.ts`
 - `src/app/hooks/useTheme.ts`
 - `src/features/theme-picker/ThemePicker.tsx`
+- `src/features/theme-picker/ThemePicker.constants.ts`
+- `src/features/theme-picker/ThemePicker.types.ts`
 - `src/features/theme-picker/ThemeRow.tsx`
+- `src/features/theme-picker/ThemeRow.constants.ts`
 - `src/features/theme-picker/useThemePicker.ts`
+- `src/features/theme-picker/useThemePicker.constants.ts`
+- `src/features/theme-picker/useThemePicker.types.ts`
 - `src/ui/Swatch.tsx`
+- `src/ui/Swatch.constants.ts`
 
 ## 6. State model
 
-- `ThemeProvider` (provider state): the active base theme name, the resolved token set for the current capability, and the override layer loaded from `theme.json`. It also exposes a preview override used during picker highlight.
+- `ThemeProvider` (provider state): the active base theme name, the resolved token set for the current capability, and the override layer loaded from `theme.json`. It also exposes session-only `preview(name)`, `commit(name)`, and `restore(previous)` controls used during picker highlighting. Resolution is memoized in two stages: the active name plus the override layer produce a truecolor theme, and the capability maps that theme onto final colors.
 - `src/theme/useTokens.ts`: the read-only hook returning resolved tokens; the only way components read colors. It lives in the theme folder and reads `ThemeContext` directly because theme must not import app.
-- `src/app/hooks/useTheme.ts`: the app-layer read-only hook returning the full `ResolvedTheme`, including the resolved label, variant, and warnings, for components that need theme metadata rather than a color. It uses the same throw-outside-provider contract as `useTokens`.
-- `ThemeProvider.types.ts`: `ThemeProviderProps`. The optional `themeName` prop is a static test and embedding override, not a live preview; the picker preview is provider state in the later milestone.
+- `src/theme/useThemeControls.ts`: the read-only hook returning the preview, commit, and restore controls for the picker.
+- `src/app/hooks/useTheme.ts`: the app-layer read-only hook returning the full `ResolvedTheme`, including the resolved label, variant, capability, and warnings, for components that need theme metadata rather than a color. It uses the same throw-outside-provider contract as `useTokens`.
+- `ThemeProvider.types.ts`: `ThemeProviderProps`. The optional `themeName` prop is a static test and embedding override, not a live preview, and it wins over `config.theme` for the whole mount; the picker preview is provider state shipped in M9 through the `preview`, `commit`, and `restore` controls.
 - `ConfigProvider` (provider state): the `theme` field and the resolved `theme.json` path.
 - `KeymapProvider` (provider state): effective bindings for `app.themePicker` and the picker's overlay-scoped actions. The picker never parses a key or keeps a binding copy.
 - `useThemePicker` (view state): the highlighted index, the previously active theme (for Esc), the list of built-in flavors, and the preview-in-progress flag.
@@ -179,9 +199,9 @@ The picker has no text field and no multiline field, so `form.submit` and the te
 
 - Loading: none; resolution is synchronous.
 - Empty: not applicable; four flavors always exist.
-- Error: a malformed `theme.json` or missing `colors` object leaves the base theme active and warns; unknown tokens and invalid color values are reported and ignored, keeping the base token; a newer `version` is ignored with a warning.
+- Error: a malformed `theme.json` or missing `colors` object leaves the base theme active and warns; unknown tokens and invalid color values are reported and ignored, keeping the base token; a newer `version` is ignored with a warning. Those warnings reach the user through the shared configuration warning surface with a `Theme:` prefix: the top bar warning status, one console notice, and the Help Configuration section, all bounded and deduplicated by the same combined list.
 - Session-only apply: if `config.json` is malformed, read-only, or unwritable, the picker applies the theme for the session, leaves the file untouched, and shows a warning such as "theme applied for this session; could not save".
-- No-color: with `NO_COLOR` or a monochrome terminal, swatches render as plain markers and all meaning is carried by names, the active `*` marker, and the light or dark label.
+- No-color: with `NO_COLOR` or a monochrome terminal, swatches render the `ICONS.swatch` plain marker in the same fixed width and all meaning is carried by names, the active `*` marker, and the light or dark label.
 
 ## 10. Performance and bounds
 
@@ -223,10 +243,9 @@ The picker has no text field and no multiline field, so `form.submit` and the te
 - `src/features/theme-picker/useThemePicker.test.ts`: highlight preview, Enter persist, Esc restore, same-theme Enter closes.
 - `src/features/theme-picker/ThemePicker.test.tsx`: the list renders as a `<scrollbox>` of custom `ThemeRow` `<box>` rows with `Swatch` cells and no `<select>`; active `*` marker, light or dark label, note below the list when `theme.json` is present; `nav.up` and `nav.down` preview live; `nav.activate` applies and closes; `overlay.close` restores the previous theme.
 - Handler ownership test: the theme picker registers only overlay-scoped handlers; `app.themePicker` is registered exactly once by the app or shell, and a duplicate global registration is rejected.
-- `src/domain/config/config.writer.test.ts`: writes only the theme field, preserves others, creates a minimal config when absent, leaves the file untouched when unwritable.
+- `src/domain/config/config.writer.test.ts`: writes only the theme field and preserves every other field; creates a minimal configuration when absent; leaves the file untouched when it is malformed, oversized, not an object, or unwritable; creates a missing directory and leaves no temp file behind; writes through a symlinked config, including a dangling link into a directory that does not exist yet, and keeps the link a symlink; preserves the mode of an existing file; sweeps a matching stale temp file under the pattern-tight age bound while keeping a recent one, a differently shaped sibling, and unrelated files; fails without touching the original file in a read-only directory; keeps the original file and removes the temp file when the rename fails.
 
 ## 14. Open questions
 
 - The exact contrast-safe blend function and its threshold for deriving `diffAddBackground` and `diffRemoveBackground` when omitted.
 - Whether the swatch should be a solid `box` fill only or a two-cell foreground and background pair on low-color terminals.
-- Whether `config.writer.ts` should live in `domain/config` (shared) with the picker calling it, versus a theme-owned writer.

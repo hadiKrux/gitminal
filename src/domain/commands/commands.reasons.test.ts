@@ -8,6 +8,7 @@ describe("describeCommandReason", () => {
     expect(describeCommandReason("no-remote")).toBe("no remote");
     expect(describeCommandReason("detached-head")).toBe("detached HEAD");
     expect(describeCommandReason("no-local-upstreams")).toBe("no local branches with upstreams");
+    expect(describeCommandReason("no-current-upstream")).toBe("no upstream for the current branch");
     expect(describeCommandReason("no-commits-yet")).toBe("no commits yet");
     expect(describeCommandReason("operation-in-progress")).toBe("operation in progress");
     expect(describeCommandReason("loading")).toBe("loading repository");

@@ -1,8 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { describeContextHints, formatBinding } from "@/domain/keymap/keymap.describe";
+import { ACTION_CATALOGUE } from "@/domain/keymap/keymap.defaults";
+import {
+  describeFooterHints,
+  describeHelpRows,
+  formatBinding,
+} from "@/domain/keymap/keymap.describe";
 import { bindingKey, parseBinding } from "@/domain/keymap/keymap.parse";
 import { resolveKeymap } from "@/domain/keymap/keymap.resolve";
-import type { KeymapPlatform, ParsedBinding } from "@/domain/keymap/keymap.types";
+import type { KeymapContext, KeymapPlatform, ParsedBinding } from "@/domain/keymap/keymap.types";
 
 /**
  * Parses a binding and fails the test when it is invalid.
@@ -63,10 +68,10 @@ describe("formatBinding", () => {
   });
 });
 
-describe("describeContextHints", () => {
+describe("describeFooterHints", () => {
   it("lists context actions before globals and hides direct focus actions", () => {
     const keymap = resolveKeymap({ platform: "linux" });
-    const hints = describeContextHints(keymap, "branches");
+    const hints = describeFooterHints(keymap, "branches");
 
     const branchCreate = hints.findIndex((hint) => hint.actionId === "branch.create");
     const quit = hints.findIndex((hint) => hint.actionId === "app.quit");
@@ -79,7 +84,7 @@ describe("describeContextHints", () => {
 
   it("drops a global hint when the focused context owns the same key", () => {
     const keymap = resolveKeymap({ platform: "linux" });
-    const hints = describeContextHints(keymap, "stashes");
+    const hints = describeFooterHints(keymap, "stashes");
 
     expect(hints.some((hint) => hint.actionId === "stash.pop")).toBe(true);
     expect(hints.some((hint) => hint.actionId === "remote.pull")).toBe(false);
@@ -87,7 +92,7 @@ describe("describeContextHints", () => {
 
   it("keeps help first and filters by availability", () => {
     const keymap = resolveKeymap({ platform: "linux" });
-    const hints = describeContextHints(keymap, "global", {
+    const hints = describeFooterHints(keymap, "global", {
       isAvailable: (actionId) => actionId === "app.help" || actionId === "app.quit",
     });
 
@@ -96,10 +101,98 @@ describe("describeContextHints", () => {
 
   it("formats every effective binding of an action", () => {
     const keymap = resolveKeymap({ platform: "linux" });
-    const hints = describeContextHints(keymap, "global", {
+    const hints = describeFooterHints(keymap, "global", {
       isAvailable: (actionId) => actionId === "app.help",
     });
 
     expect(hints[0]?.keys).toEqual(["?", "F1"]);
   });
 });
+
+describe("describeHelpRows", () => {
+  it("returns every implemented action in catalogue order", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const rows = describeHelpRows(keymap);
+
+    expect(rows.map((row) => row.actionId)).toEqual(ACTION_CATALOGUE.map((action) => action.id));
+  });
+
+  it("keeps unavailable and unbound actions with their effective keys", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const rows = describeHelpRows(keymap);
+    const unbound = rows.find((row) => row.actionId === "focus.region.topBar");
+    const help = rows.find((row) => row.actionId === "app.help");
+
+    expect(unbound?.keys).toEqual([]);
+    expect(unbound?.label).toBe("Focus top bar");
+    expect(help?.keys).toEqual(["?", "F1"]);
+    expect(help?.description).toContain("keybinding");
+    expect(help?.contexts).toEqual(["global"]);
+  });
+
+  it("agrees with the footer hints on effective keys", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const rows = describeHelpRows(keymap);
+    const contexts: readonly KeymapContext[] = ["global", "branches", "graph", "diff", "console"];
+
+    for (const context of contexts) {
+      for (const hint of describeFooterHints(keymap, context)) {
+        const row = rows.find((candidate) => candidate.actionId === hint.actionId);
+
+        expect(row?.keys, hint.actionId).toEqual(hint.keys);
+      }
+    }
+  });
+
+  it("attributes each binding to the preferred, fallback, or first context", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const rows = describeHelpRows(keymap, {
+      preferredContext: "branches",
+      fallbackContext: "overlay",
+    });
+
+    expect(readBindingContext(rows, "nav.up")).toBe("branches");
+    expect(readBindingContext(rows, "nav.pageUp")).toBe("overlay");
+    expect(readBindingContext(rows, "app.help")).toBe("global");
+
+    const fallbackOnly = describeHelpRows(keymap, { preferredContext: "graph" });
+
+    expect(readBindingContext(fallbackOnly, "nav.pageUp")).toBe("graph");
+    expect(readBindingContext(fallbackOnly, "nav.left")).toBe("top-bar");
+  });
+
+  it("reflects a configured override in the effective keys", () => {
+    const keymap = resolveKeymap({ platform: "linux", keybindings: { "stash.pop": "ctrl+p" } });
+    const rows = describeHelpRows(keymap);
+
+    expect(readKeys(rows, "stash.pop")).toEqual(["Ctrl+P"]);
+  });
+});
+
+/**
+ * Reads one help row's effective keys.
+ *
+ * @param rows - Described help rows.
+ * @param actionId - Action to look up.
+ * @returns The formatted keys, or undefined when the row is missing.
+ */
+function readKeys(
+  rows: ReturnType<typeof describeHelpRows>,
+  actionId: string,
+): readonly string[] | undefined {
+  return rows.find((row) => row.actionId === actionId)?.keys;
+}
+
+/**
+ * Reads one help row's attributed binding context.
+ *
+ * @param rows - Described help rows.
+ * @param actionId - Action to look up.
+ * @returns The attributed context, or undefined when the row is missing.
+ */
+function readBindingContext(
+  rows: ReturnType<typeof describeHelpRows>,
+  actionId: string,
+): KeymapContext | undefined {
+  return rows.find((row) => row.actionId === actionId)?.bindingContext;
+}

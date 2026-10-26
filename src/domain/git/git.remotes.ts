@@ -6,6 +6,7 @@ import type {
   PushMode,
   PushPlanInput,
   PushPlanResult,
+  ReadUpstreamGroupsOptions,
   RemoteFetchGroup,
 } from "./git.remotes.types";
 import type {
@@ -489,20 +490,31 @@ function readAdvertisedBranch(line: string): string | null {
  *
  * The input is the captured tab-separated `for-each-ref` output for `refs/heads`: the local ref,
  * the upstream remote name, and the upstream branch ref. Malformed lines, lines without an
- * upstream, and unsafe names are skipped. Refs are deduped by remote and branch and sorted by
- * display ref, so every run of the scoped Fetch and Fetch --prune produces a stable argv. The group
- * key is the exact remote name, so a remote such as `a/b` is never split.
+ * upstream, and unsafe names are skipped. A `localBranch` option keeps only the exact local ref
+ * named, so the scoped Fetch and Fetch --prune can narrow to the checked-out branch without a
+ * prefix match. Refs are deduped by remote and branch and sorted by display ref, so every run
+ * produces a stable argv. The group key is the exact remote name, so a remote such as `a/b` is
+ * never split.
  *
  * @param stdout - Captured `for-each-ref` output.
+ * @param options - Optional exact local-branch filter.
  * @returns Remote groups in first-seen order with distinct sorted refs.
  */
-export function readUpstreamGroups(stdout: string): readonly RemoteFetchGroup[] {
+export function readUpstreamGroups(
+  stdout: string,
+  options: ReadUpstreamGroupsOptions = {},
+): readonly RemoteFetchGroup[] {
   const grouped = new Map<string, Map<string, UpstreamDescriptor>>();
+  const localBranch = options.localBranch ?? null;
 
   for (const line of stdout.split("\n")) {
     const separator = line.indexOf("\t");
 
     if (separator < 0) {
+      continue;
+    }
+
+    if (localBranch !== null && line.slice(0, separator) !== localBranch) {
       continue;
     }
 

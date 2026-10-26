@@ -61,3 +61,46 @@ describe("redactArgv", () => {
     ]);
   });
 });
+
+describe("redaction coverage table", () => {
+  it("redacts every documented credential shape", () => {
+    const cases = [
+      {
+        name: "URL userinfo with a token",
+        raw: "fatal: unable to access 'https://x-access-token:ghp_ab@github.com/org/repo.git/'",
+        expected: "fatal: unable to access 'https://[redacted]@github.com/org/repo.git/'",
+      },
+      {
+        name: "Proxy-Authorization header",
+        raw: "Proxy-Authorization: Basic dXNlcjpwYXNz",
+        expected: "Proxy-Authorization: [redacted]",
+      },
+      {
+        name: "lowercase credential environment name",
+        raw: "github_token=ghp_lowercase",
+        expected: "github_token=[redacted]",
+      },
+      {
+        name: "bearer token in a single argument",
+        raw: "Bearer abc.def",
+        expected: "Bearer [redacted]",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      expect(redactText(testCase.raw), testCase.name).toBe(testCase.expected);
+    }
+  });
+
+  it("redacts a bearer token inside argv", () => {
+    expect(redactArgv(["git", "http.extraHeader=Authorization: Bearer abc.def"])).toEqual([
+      "git",
+      "http.extraHeader=Authorization: [redacted]",
+    ]);
+    expect(redactArgv(["git", "credential", "Bearer abc.def"])).toEqual([
+      "git",
+      "credential",
+      "Bearer [redacted]",
+    ]);
+  });
+});

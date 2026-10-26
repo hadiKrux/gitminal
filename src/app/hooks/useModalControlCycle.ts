@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
-import { useAction } from "@/app/hooks/useAction";
+import { useCallback, useMemo, useState } from "react";
+import { useActions } from "@/app/hooks/useAction";
+import type { ActionBatchRegistration } from "@/app/hooks/useAction.types";
 import type {
   ModalControlCycle,
   ModalControlCycleOptions,
@@ -16,10 +17,12 @@ const OVERLAY_SCOPE = "overlay" as const;
  * Up and Down step through the caller's visible control order and clamp at both ends, so a hidden
  * control can never take focus. Left and Right defer to the caller's horizontal rule, because the
  * three modals differ there: some always focus a footer action, while others move between a select
- * and the footer. The hook registers only `nav.up`, `nav.down`, `nav.left`, and `nav.right` in the
- * overlay scope; activation, submission, and native focus stay with the caller.
+ * and the footer. The hook registers `nav.up`, `nav.down`, `nav.left`, and `nav.right` in the overlay
+ * scope; a caller that owns the vertical keys itself sets `registerVerticalNavigation` to false so
+ * the cycle registers only the horizontal pair and no duplicate registration is rejected. Activation,
+ * submission, and native focus stay with the caller.
  *
- * @param options - Visible order, initial control, and the optional horizontal rule.
+ * @param options - Visible order, initial control, vertical ownership, and the horizontal rule.
  * @returns The current control.
  */
 export function useModalControlCycle<TControl extends string>(
@@ -43,20 +46,46 @@ export function useModalControlCycle<TControl extends string>(
     [control, move, options],
   );
 
-  useAction("nav.up", { scope: OVERLAY_SCOPE }, () => {
-    move(-1);
-  });
-  useAction("nav.down", { scope: OVERLAY_SCOPE }, () => {
-    move(1);
-  });
-  useAction("nav.left", { scope: OVERLAY_SCOPE }, () => {
-    runHorizontal("left");
-  });
-  useAction("nav.right", { scope: OVERLAY_SCOPE }, () => {
-    runHorizontal("right");
-  });
+  const registerVertical = options.registerVerticalNavigation !== false;
+  const registrations = useMemo<readonly ActionBatchRegistration[]>(
+    () => buildControlRegistrations(registerVertical, move, runHorizontal),
+    [registerVertical, move, runHorizontal],
+  );
 
-  return { control };
+  useActions(registrations);
+
+  return { control, move };
+}
+
+/**
+ * Builds the overlay-scoped navigation registrations for one cycle.
+ *
+ * @param registerVertical - True when the cycle owns Up and Down.
+ * @param move - Vertical step operation.
+ * @param runHorizontal - Horizontal rule runner.
+ * @returns The registrations to install, in display order.
+ */
+function buildControlRegistrations(
+  registerVertical: boolean,
+  move: (delta: number) => void,
+  runHorizontal: (direction: ModalControlDirection) => void,
+): readonly ActionBatchRegistration[] {
+  const options = { scope: OVERLAY_SCOPE } as const;
+  const registrations: ActionBatchRegistration[] = [];
+
+  if (registerVertical) {
+    registrations.push(
+      { actionId: "nav.up", options, handler: () => move(-1) },
+      { actionId: "nav.down", options, handler: () => move(1) },
+    );
+  }
+
+  registrations.push(
+    { actionId: "nav.left", options, handler: () => runHorizontal("left") },
+    { actionId: "nav.right", options, handler: () => runHorizontal("right") },
+  );
+
+  return registrations;
 }
 
 /**

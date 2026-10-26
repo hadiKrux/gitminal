@@ -2,9 +2,11 @@ import { useCallback, useRef } from "react";
 import { useCommandRunner } from "@/app/hooks/useCommandRunner";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useStatus } from "@/app/hooks/useStatus";
+import { buildFetchFormValues } from "@/domain/commands/commands.fetch.scope";
 import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import type {
   CommandAvailabilityReason,
+  CommandFormValues,
   CommandResult,
   CommandTarget,
 } from "@/domain/commands/commands.types";
@@ -24,6 +26,9 @@ const OVERWRITE_COMMAND = "remote.pushForceOverwrite";
 
 /** Warning shown when a confirmation no longer matches the current branch or upstream. */
 const STALE_CONFIRMATION_WARNING = "branch or upstream changed; open the confirmation again";
+
+/** Commands whose request carries the effective fetch scope and checked-out branch. */
+const FETCH_COMMANDS: ReadonlySet<string> = new Set(["remote.fetch", "remote.fetchPrune"]);
 
 /** Values captured when a force confirmation opens. */
 interface ForceConfirmationCapture {
@@ -50,7 +55,7 @@ interface ForceConfirmationCapture {
  * latest provider state; a branch or upstream change closes the confirmation with a warning and runs
  * nothing, so an overwrite can never authorise a branch the user did not see.
  *
- * @param input - Branch, upstream classification, upstream ref, and availability reader.
+ * @param input - Branch, upstream ref, effective fetch scope, and availability reader.
  * @returns The dispatch and confirmed-activation entry points.
  */
 export function useTopBarCommands(input: TopBarCommandsInput): TopBarCommands {
@@ -75,20 +80,28 @@ export function useTopBarCommands(input: TopBarCommandsInput): TopBarCommands {
   /** Runs a command after a fresh availability check, including the push auto-create statuses. */
   const dispatch = useCallback(
     (commandId: string, expectedBranch?: string): void => {
-      if (expectedBranch !== undefined && expectedBranch !== input.branch) {
+      const current = latestInputRef.current;
+
+      if (expectedBranch !== undefined && expectedBranch !== current.branch) {
         setStatus({ kind: "warning", message: STALE_CONFIRMATION_WARNING });
         return;
       }
 
-      const target = resolveCommandTarget(commandId, input.branch);
-      const availability = input.getAvailability(commandId, target);
+      const target = resolveCommandTarget(commandId, current.branch);
+      const availability = current.getAvailability(commandId, target);
 
       if (!availability.available) {
         reportBlocked(availability.reason);
         return;
       }
 
-      void runCommand({ commandId, target })
+      const formValues = readFetchFormValues(commandId, current);
+
+      void runCommand({
+        commandId,
+        target,
+        ...(formValues === undefined ? {} : { formValues }),
+      })
         .then((result) => {
           const autoCreated = readAutoCreatedUpstream(result);
 
@@ -106,7 +119,7 @@ export function useTopBarCommands(input: TopBarCommandsInput): TopBarCommands {
           void error;
         });
     },
-    [input.branch, input.getAvailability, reportBlocked, runCommand, setStatus],
+    [reportBlocked, runCommand, setStatus],
   );
 
   const dispatchRef = useRef(dispatch);
@@ -167,6 +180,26 @@ export function useTopBarCommands(input: TopBarCommandsInput): TopBarCommands {
   );
 
   return { dispatch, activateCommand };
+}
+
+/**
+ * Builds the fetch form values a remote request carries.
+ *
+ * Only the two fetch commands read them. The scope comes from the effective configuration and the
+ * branch from the same projection the top bar renders, so a palette dispatch through this handler
+ * produces a request identical to a top bar activation.
+ *
+ * @param commandId - Command being dispatched.
+ * @param input - Current branch and effective fetch scope.
+ * @returns The fetch form values, or undefined for every other command.
+ */
+function readFetchFormValues(
+  commandId: string,
+  input: TopBarCommandsInput,
+): CommandFormValues | undefined {
+  return FETCH_COMMANDS.has(commandId)
+    ? buildFetchFormValues(input.fetchScope, input.branch)
+    : undefined;
 }
 
 /**

@@ -5,7 +5,12 @@ import { resetCommandOrchestration } from "@/app/hooks/commandRunner.state";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useStatus } from "@/app/hooks/useStatus";
 import { registerCommandHandler, resetCommandRunner } from "@/domain/commands/commands.runner";
-import type { CommandAvailability, CommandTarget } from "@/domain/commands/commands.types";
+import type {
+  CommandAvailability,
+  CommandRequest,
+  CommandTarget,
+} from "@/domain/commands/commands.types";
+import type { RemoteFetchScope } from "@/domain/config/config.types";
 import type { GitClient } from "@/domain/git/git.types";
 import type { TopBarCommands } from "@/features/top-bar/useTopBar.types";
 import { readAutoCreatedUpstream, useTopBarCommands } from "@/features/top-bar/useTopBarCommands";
@@ -27,6 +32,9 @@ let setBranch: (branch: string) => void = () => {};
 /** Switches the upstream ref the harness reports. */
 let setUpstream: (upstreamRef: string | null) => void = () => {};
 
+/** Switches the effective fetch scope the harness reports. */
+let setFetchScope: (fetchScope: RemoteFetchScope) => void = () => {};
+
 /** Handler invocations recorded for the force push. */
 let handlerCalls = 0;
 
@@ -44,14 +52,17 @@ const ALWAYS_AVAILABLE = (): CommandAvailability => ({ available: true });
 function CommandsProbe(): ReactNode {
   const [branch, setCurrentBranch] = useState("main");
   const [upstreamRef, setCurrentUpstream] = useState<string | null>("origin/main");
+  const [fetchScope, setCurrentFetchScope] = useState<RemoteFetchScope>("local");
 
   setBranch = setCurrentBranch;
   setUpstream = setCurrentUpstream;
+  setFetchScope = setCurrentFetchScope;
   latestOverlay = useOverlay();
   latestStatus = useStatus();
   latestCommands = useTopBarCommands({
     branch,
     upstreamRef,
+    fetchScope,
     getAvailability: ALWAYS_AVAILABLE,
   });
 
@@ -74,6 +85,7 @@ async function renderCommands(client?: GitClient): Promise<{
   handlerTargets = [];
   setBranch = () => {};
   setUpstream = () => {};
+  setFetchScope = () => {};
 
   const fake = createFakeGitClient();
   const setup = await testRender(
@@ -112,6 +124,59 @@ beforeEach(() => {
 afterEach(() => {
   resetCommandRunner();
   resetCommandOrchestration();
+});
+
+describe("useTopBarCommands fetch form values", () => {
+  it("carries the scope and branch only for the two fetch commands", async () => {
+    const requests: CommandRequest[] = [];
+    const commandIds = [
+      "remote.fetch",
+      "remote.fetchPrune",
+      "remote.pull",
+      "remote.push",
+      "remote.pushNoVerify",
+    ];
+    const cleanups = commandIds.map((commandId) =>
+      registerCommandHandler({
+        commandId,
+        operationLabel: commandId,
+        handler: async (context) => {
+          requests.push(context.request);
+
+          return { steps: [] };
+        },
+      }),
+    );
+    const { setup } = await renderCommands();
+
+    await act(async () => {
+      setFetchScope("current");
+      await setup.renderOnce();
+    });
+
+    for (const commandId of commandIds) {
+      await act(async () => {
+        latestCommands?.dispatch(commandId);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+    }
+
+    expect(requests.map((request) => [request.commandId, request.formValues])).toEqual([
+      ["remote.fetch", { fetchScope: "current", branch: "main" }],
+      ["remote.fetchPrune", { fetchScope: "current", branch: "main" }],
+      ["remote.pull", undefined],
+      ["remote.push", undefined],
+      ["remote.pushNoVerify", undefined],
+    ]);
+
+    for (const cleanup of cleanups) {
+      cleanup();
+    }
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
 });
 
 describe("readAutoCreatedUpstream", () => {

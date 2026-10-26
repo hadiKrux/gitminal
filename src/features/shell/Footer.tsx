@@ -19,9 +19,13 @@ import { useStatus } from "@/app/hooks/useStatus";
 import { getCommandDescriptor } from "@/domain/commands/commands.registry";
 import type { CommandTarget } from "@/domain/commands/commands.types";
 import { ACTION_BY_ID } from "@/domain/keymap/keymap.defaults";
-import { describeContextHints, formatBinding } from "@/domain/keymap/keymap.describe";
+import { describeFooterHints, formatBinding } from "@/domain/keymap/keymap.describe";
 import type { KeymapContext, ResolvedKeymap } from "@/domain/keymap/keymap.types";
-import { HIDDEN_CONTEXT_HINT_ACTIONS, MODAL_HINT_ACTIONS } from "@/features/shell/Footer.constants";
+import {
+  HIDDEN_CONTEXT_HINT_ACTIONS,
+  MODAL_HINT_ACTIONS,
+  SELECTION_HINT_ACTIONS,
+} from "@/features/shell/Footer.constants";
 import { HintBar } from "@/ui/HintBar";
 
 /**
@@ -80,6 +84,10 @@ export function Footer(): ReactNode {
         return readRemoteHintAvailability(actionId, repository, operation !== null);
       }
 
+      if (SELECTION_HINT_ACTIONS.has(actionId) && repository !== null) {
+        return repository.getAvailability(actionId, { kind: "none" }, "overlay").available;
+      }
+
       return hasRegisteredAction(actionId, scope);
     },
     [availabilityVersion, consoleLog.entries.length, operation, registryVersion, repository],
@@ -94,7 +102,7 @@ export function Footer(): ReactNode {
       ? (state.activeRegion ?? "global")
       : "global";
 
-    return describeContextHints(keymap, context, { isAvailable })
+    return describeFooterHints(keymap, context, { isAvailable })
       .filter((hint) => !HIDDEN_CONTEXT_HINT_ACTIONS.has(hint.actionId))
       .map((hint) => ({
         key: hint.keys[0] ?? "",

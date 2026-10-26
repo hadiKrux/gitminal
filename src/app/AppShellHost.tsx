@@ -1,11 +1,16 @@
 import type { ReactNode } from "react";
+import { useConfigActions } from "@/app/hooks/useConfigActions";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
+import { useHelpAction } from "@/app/hooks/useHelpAction";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
 import { useMainCommands } from "@/app/hooks/useMainCommands";
+import { useMouseSetting } from "@/app/hooks/useMouseSetting";
+import { usePaletteAction } from "@/app/hooks/usePaletteAction";
 import { usePanelCommands } from "@/app/hooks/usePanelCommands";
 import { useRemoteCommands } from "@/app/hooks/useRemoteCommands";
 import { useRepository, useRepositoryRefreshAction } from "@/app/hooks/useRepository";
 import { useShellActions } from "@/app/hooks/useShellActions";
+import { useThemePickerAction } from "@/app/hooks/useThemePickerAction";
 import { selectRepositoryPath, selectTagRows } from "@/domain/repository/repository.selectors";
 import type {
   RemoteTagChecks,
@@ -44,9 +49,13 @@ import { WorktreesPanel } from "@/features/worktrees/WorktreesPanel";
  * It installs the single keyboard dispatcher and registers the panel and main-area command
  * executors once. Global quit, close, console, and commit-focus behaviour lives in
  * `useShellActions`, which applies it against the focus, status, repository, overlay, console, and
- * draft providers; refresh keeps its own `useRepositoryRefreshAction` handler. The graph is mounted
- * for the lifetime of the shell because it owns the commit navigator and the graph-window refresher;
- * only the right pane changes with `RepositoryProvider.selection`.
+ * draft providers; refresh keeps its own `useRepositoryRefreshAction` handler. The app-surface
+ * actions that own an overlay or a reload keep their own hooks: `useThemePickerAction` is the single
+ * owner of `app.themePicker`, `usePaletteAction` owns `app.palette`, `useHelpAction` owns `app.help`,
+ * and `useConfigActions` owns `app.reloadConfig` plus the configuration warning surface.
+ * `useMouseSetting` keeps the renderer's mouse reporting in step with `ui.mouse` after a reload. The
+ * graph is mounted for the lifetime of the shell because it owns the commit navigator and the
+ * graph-window refresher; only the right pane changes with `RepositoryProvider.selection`.
  *
  * @returns The responsive shell.
  */
@@ -60,6 +69,11 @@ export function AppShellHost(): ReactNode {
   usePanelCommands();
   useMainCommands();
   useShellActions();
+  useThemePickerAction();
+  usePaletteAction();
+  useHelpAction();
+  useConfigActions();
+  useMouseSetting();
 
   return (
     <ResponsiveGate

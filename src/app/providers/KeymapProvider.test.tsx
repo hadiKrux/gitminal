@@ -3,8 +3,9 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { useKeymap } from "@/app/hooks/useKeymap";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
+import type { ConfigSnapshot } from "@/app/providers/ConfigProvider.types";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
-import { DEFAULT_CONFIG } from "@/domain/config/config.defaults";
+import { DEFAULT_CONFIG, UNRESOLVED_CONFIG_PATHS } from "@/domain/config/config.defaults";
 import type { GitminalConfig } from "@/domain/config/config.types";
 import { ACTION_CATALOGUE } from "@/domain/keymap/keymap.defaults";
 import { bindingKey } from "@/domain/keymap/keymap.parse";
@@ -99,6 +100,41 @@ describe("KeymapProvider", () => {
     expect(readLatest()?.bindings.get("app.refresh")?.map(bindingKey)).toEqual(["x"]);
     expect(readLatest()?.contexts.get("global")?.get("x")).toBe("app.refresh");
     expect(readLatest()?.contexts.get("global")?.get("r")).toBeUndefined();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("applies the keybindings file over config.json for the same action", async () => {
+    const snapshot: ConfigSnapshot = {
+      status: "applied",
+      config: { ...DEFAULT_CONFIG, keybindings: { "app.refresh": ["x"] } },
+      paths: UNRESOLVED_CONFIG_PATHS,
+      files: [],
+      warnings: [],
+      keybindingsFile: { "app.refresh": ["z"], "app.help": ["f3"] },
+      themeOverrides: null,
+    };
+    latest = undefined;
+
+    const setup = await testRender(
+      <ConfigProvider initialSnapshot={snapshot}>
+        <KeymapProvider platform="linux">
+          <KeymapProbe />
+        </KeymapProvider>
+      </ConfigProvider>,
+      { width: 40, height: 10 },
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(readLatest()?.bindings.get("app.refresh")?.map(bindingKey)).toEqual(["z"]);
+    expect(readLatest()?.contexts.get("global")?.get("z")).toBe("app.refresh");
+    expect(readLatest()?.contexts.get("global")?.get("x")).toBeUndefined();
+    expect(readLatest()?.bindings.get("app.help")?.map(bindingKey)).toEqual(["f3"]);
 
     await act(async () => {
       await setup.dispose();

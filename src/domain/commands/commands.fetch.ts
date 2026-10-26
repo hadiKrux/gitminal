@@ -3,10 +3,10 @@ import {
   buildFetchTrackingRefArgs,
   buildUpstreamGroupsArgs,
   isTruncatedOutput,
-  readUpstreamGroups,
 } from "@/domain/git/git.remotes";
 import type { RemoteFetchGroup } from "@/domain/git/git.remotes.types";
 import type { GitInvocationResult } from "@/domain/git/git.types";
+import { readEmptyFetchScopeReason, readScopedUpstreamGroups } from "./commands.fetch.scope";
 import type { RemoteFetchRun } from "./commands.fetch.types";
 import { toCommandStep } from "./commands.steps";
 import type {
@@ -19,13 +19,15 @@ import type {
 /**
  * Executes the spec-conformant `remote.fetch` mutation.
  *
- * Fetch is scoped to the upstream refs of local branches, grouped by remote and deduplicated, which
- * is the product default scope. Each explicit refspec is fetched with `--progress` and the network
- * operation class, so no invocation can hang and progress reaches the status strip. One failed
- * remote or ref does not stop the remaining groups. A scope with no upstream refs is a blocked
- * outcome, and a configured upstream whose remote ref is gone is a non-fatal warning rather than a
- * command failure. Each remote is reported through `remoteResults` so the app layer records evidence
- * only for remotes that were actually reached.
+ * The request's effective scope decides the refs. `local`, the product default, fetches the upstream
+ * refs of every local branch, while `current` fetches only the checked-out branch's upstream. Groups
+ * are deduplicated by remote, so each remote is contacted once. Each explicit refspec is fetched
+ * with `--progress` and the network operation class, so no invocation can hang and progress reaches
+ * the status strip. One failed remote or ref does not stop the remaining groups. A scope with no
+ * upstream refs is a blocked outcome: `no-current-upstream` for the current scope and
+ * `no-local-upstreams` otherwise. A configured upstream whose remote ref is gone is a non-fatal
+ * warning rather than a command failure. Each remote is reported through `remoteResults` so the app
+ * layer records evidence only for remotes that were actually reached.
  *
  * @param context - Request, repository root, git client, signal, and progress callback.
  * @returns The ordered steps, per-remote results, warnings, and any cancellation, timeout, or
@@ -45,10 +47,13 @@ export async function executeRemoteFetch(
     return { steps: [toCommandStep(upstreams)], failed: true };
   }
 
-  const groups = readUpstreamGroups(upstreams.stdout);
+  const groups = readScopedUpstreamGroups(upstreams.stdout, context.request.formValues);
 
   if (groups.length === 0) {
-    return { steps: [], blockedReason: "no-local-upstreams" };
+    return {
+      steps: [],
+      blockedReason: readEmptyFetchScopeReason(context.request.formValues),
+    };
   }
 
   const steps: CommandStepResult[] = [];

@@ -44,6 +44,29 @@ function Harness(): ReactNode {
 }
 
 /**
+ * Renders the harness inside the config, theme, and focus providers.
+ *
+ * The capability is pinned to truecolor so the frame colors can be compared against the built-in
+ * palette instead of a value derived from the test runner's terminal.
+ *
+ * @returns The renderer setup.
+ */
+async function renderRegion(): Promise<Awaited<ReturnType<typeof testRender>>> {
+  latest = undefined;
+
+  return testRender(
+    <ConfigProvider>
+      <ThemeProvider capability="truecolor">
+        <FocusProvider>
+          <Harness />
+        </FocusProvider>
+      </ThemeProvider>
+    </ConfigProvider>,
+    { width: 40, height: 10 },
+  );
+}
+
+/**
  * Focuses a renderable by id.
  *
  * @param setup - Renderer setup.
@@ -64,16 +87,7 @@ beforeEach(() => {
 
 describe("useFocusRegion", () => {
   it("exposes the stable frame identity and focus colors", async () => {
-    const setup = await testRender(
-      <ConfigProvider>
-        <ThemeProvider>
-          <FocusProvider>
-            <Harness />
-          </FocusProvider>
-        </ThemeProvider>
-      </ConfigProvider>,
-      { width: 40, height: 10 },
-    );
+    const setup = await renderRegion();
 
     await act(async () => {
       await setup.renderOnce();
@@ -92,16 +106,7 @@ describe("useFocusRegion", () => {
   });
 
   it("focuses the region frame through the returned action", async () => {
-    const setup = await testRender(
-      <ConfigProvider>
-        <ThemeProvider>
-          <FocusProvider>
-            <Harness />
-          </FocusProvider>
-        </ThemeProvider>
-      </ConfigProvider>,
-      { width: 40, height: 10 },
-    );
+    const setup = await renderRegion();
 
     await act(async () => {
       await setup.renderOnce();
@@ -125,16 +130,7 @@ describe("useFocusRegion", () => {
   });
 
   it("stays focused while a text input inside the region owns focus", async () => {
-    const setup = await testRender(
-      <ConfigProvider>
-        <ThemeProvider>
-          <FocusProvider>
-            <Harness />
-          </FocusProvider>
-        </ThemeProvider>
-      </ConfigProvider>,
-      { width: 40, height: 10 },
-    );
+    const setup = await renderRegion();
 
     await act(async () => {
       await setup.renderOnce();
@@ -149,16 +145,7 @@ describe("useFocusRegion", () => {
   });
 
   it("is not focused when focus is outside every region", async () => {
-    const setup = await testRender(
-      <ConfigProvider>
-        <ThemeProvider>
-          <FocusProvider>
-            <Harness />
-          </FocusProvider>
-        </ThemeProvider>
-      </ConfigProvider>,
-      { width: 40, height: 10 },
-    );
+    const setup = await renderRegion();
 
     await act(async () => {
       await setup.renderOnce();
@@ -174,16 +161,7 @@ describe("useFocusRegion", () => {
   });
 
   it("reads and writes the region cursor", async () => {
-    const setup = await testRender(
-      <ConfigProvider>
-        <ThemeProvider>
-          <FocusProvider>
-            <Harness />
-          </FocusProvider>
-        </ThemeProvider>
-      </ConfigProvider>,
-      { width: 40, height: 10 },
-    );
+    const setup = await renderRegion();
 
     await act(async () => {
       await setup.renderOnce();

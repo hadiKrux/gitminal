@@ -213,7 +213,7 @@ beforeEach(() => {
 });
 
 describe("useBranches registration", () => {
-  it("registers branch.create and branch.delete in the branches scope and no global action", async () => {
+  it("registers the branch actions in the branches scope and no global action", async () => {
     const { client } = createRecordingClient();
     const setup = await renderHarness(client);
 
@@ -221,6 +221,7 @@ describe("useBranches registration", () => {
 
     expect(hasRegisteredAction("branch.create", "branches")).toBe(true);
     expect(hasRegisteredAction("branch.delete", "branches")).toBe(true);
+    expect(hasRegisteredAction("branch.checkout", "branches")).toBe(true);
 
     for (const actionId of ["nav.up", "nav.down", "nav.activate", "nav.first", "nav.last"]) {
       expect(hasRegisteredAction(actionId, "branches")).toBe(true);

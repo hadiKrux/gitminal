@@ -64,7 +64,7 @@ Allowed imports:
 - `src/theme/**` imports React, `@opentui/*`, `src/theme/**`, any module under `src/domain/theme/**`, and `src/lib/**`. Type-only use of the domain theme modules is the review norm for token types. It does not import `src/ui/**`, `src/features/**`, `src/app/**`, or a domain module outside `src/domain/theme/**`.
 - `src/app/**` imports everything except the test-only imports: the test runners `bun:test` and `node:test`, and the harness under `src/test/**`. No production module imports any of them; only colocated `*.test.*` files and modules already under `src/test/` may.
 - Feature to feature imports are forbidden. Cross-feature coordination goes through a provider, a domain command, or a selector exported from `src/domain/**`.
-- `src/app/AppShellHost.tsx` is the composition root. It is the only module that imports `features/shell` together with the feature panels, graph, composer, details, diff, console, and overlays. `features/shell/AppShell.tsx` owns layout, region frames, and the shell's own UI, but it receives feature surfaces as `ReactNode` props or children and never imports another feature. The quit handler reads `hasUnsavedDraft` from `DraftProvider`, never from the composer feature.
+- `src/app/AppShellHost.tsx` is the composition root. It is the only module that imports `features/shell` together with the feature panels, graph, composer, details, diff, console, and overlays. `features/shell/AppShell.tsx` owns layout, region frames, and the shell's own UI, but it receives feature surfaces as `ReactNode` props or children and never imports another feature. Today the quit handler aborts the in-flight command and tears down without a draft prompt; when draft-based quit lands it will read `hasUnsavedDraft` from `DraftProvider`, never from the composer feature.
 
 Forbidden imports and key access (enforced by the section 12 scripts):
 
@@ -129,6 +129,7 @@ gitminal/
       providers/
         ConfigProvider.tsx
         ConfigProvider.types.ts
+        config.source.ts
         ThemeProvider.tsx
         ThemeProvider.types.ts
         RepositoryProvider.tsx
@@ -156,6 +157,9 @@ gitminal/
         useActionAvailability.ts
         useCommandRunner.ts
         useCommandRunner.types.ts
+        useCommandTargets.ts
+        useCommandTargets.constants.ts
+        useCommandTargets.types.ts
         commandRunner.blocked.ts
         commandRunner.report.ts
         commandRunner.state.ts
@@ -167,6 +171,7 @@ gitminal/
         useFooterActionCycle.types.ts
         useModalControlCycle.ts
         useModalControlCycle.types.ts
+        useMouseSetting.ts
         useScrollSelectedRow.ts
         useInputEscapeClear.ts
         useDebouncedValue.ts
@@ -175,7 +180,11 @@ gitminal/
         useStatus.ts
         useTheme.ts
         useConfig.ts
+        useConfigActions.ts
         useKeymap.ts
+        useThemePickerAction.tsx
+        usePaletteAction.tsx
+        useHelpAction.tsx
         useRepository.ts
         useRepositoryRefresh.ts
         useRepositoryRefresh.types.ts
@@ -217,6 +226,8 @@ gitminal/
         useShellActions.ts
         useTerminalSize.ts
         useOverlaySurfaceState.ts
+        useOverlayFocusHandoff.ts
+        useOverlayOperations.ts
     features/
       splash/
         SplashScreen.tsx
@@ -429,8 +440,24 @@ gitminal/
         useReadOnlyDiff.ts
       palette/
         CommandPalette.tsx
+        CommandPalette.constants.ts
+        CommandPalette.types.ts
         CommandRow.tsx
+        CommandRow.constants.ts
+        CommandRow.types.ts
+        palette.capture.ts
+        palette.capture.types.ts
+        palette.search.ts
+        palette.search.types.ts
+        palette.targets.ts
+        palette.targets.constants.ts
+        palette.targets.types.ts
         useCommandPalette.ts
+        useCommandPalette.types.ts
+        usePaletteCapture.ts
+        usePaletteDispatch.ts
+        usePaletteKeys.ts
+        usePaletteView.ts
       console/
         ConsoleDrawer.tsx
         ConsoleDrawer.constants.ts
@@ -447,10 +474,24 @@ gitminal/
         useConsole.types.ts
       help/
         HelpModal.tsx
+        HelpModal.constants.ts
+        HelpModal.types.ts
         HelpSection.tsx
         HelpRow.tsx
+        HelpRow.constants.ts
         HelpConfiguration.tsx
+        HelpConfiguration.constants.ts
+        help.availability.ts
+        help.sections.ts
+        help.view.ts
         useHelp.ts
+        useHelp.constants.ts
+        useHelp.types.ts
+        useHelpFieldKeys.ts
+        useHelpListKeys.ts
+        useHelpModel.ts
+        useHelpSectionsState.ts
+        useHelpViewState.ts
       overlays/
         ConfirmModal.tsx
         ConfirmModal.constants.ts
@@ -465,8 +506,16 @@ gitminal/
         useOverlayHostActions.types.ts
       theme-picker/
         ThemePicker.tsx
+        ThemePicker.constants.ts
+        ThemePicker.types.ts
         ThemeRow.tsx
+        ThemeRow.constants.ts
         useThemePicker.ts
+        useThemePicker.constants.ts
+        useThemePicker.types.ts
+        useThemePickerCommit.ts
+        useThemePickerNavigation.ts
+        useThemePickerState.ts
     ui/
       Panel.tsx
       Panel.constants.ts
@@ -501,6 +550,7 @@ gitminal/
       Overlay.tsx
       Overlay.constants.ts
       Swatch.tsx
+      Swatch.constants.ts
       SectionHeader.tsx
     domain/
       git/
@@ -553,6 +603,7 @@ gitminal/
         commands.reasons.ts
         commands.steps.ts
         commands.fetch.ts
+        commands.fetch.scope.ts
         commands.fetch.types.ts
         commands.remote.ts
         commands.remote.types.ts
@@ -581,6 +632,14 @@ gitminal/
         config.paths.ts
         config.loader.ts
         config.validate.ts
+        config.validate.fields.ts
+        config.validate.guards.ts
+        config.validate.keybindings.ts
+        config.warnings.ts
+        config.atomic.ts
+        config.atomic.constants.ts
+        config.atomic.types.ts
+        config.errors.ts
         config.writer.ts
       keymap/
         keymap.types.ts
@@ -594,6 +653,7 @@ gitminal/
         theme.catppuccin.ts
         theme.resolve.ts
         theme.capability.ts
+        theme.capability.palette.ts
         theme.tokens.ts
       console/
         console.types.ts
@@ -608,7 +668,10 @@ gitminal/
         update.constants.ts
     theme/
       ThemeContext.tsx
+      ThemeContext.types.ts
+      theme.types.ts
       useTokens.ts
+      useThemeControls.ts
       icons.ts
     lib/
       paths.ts
@@ -617,8 +680,10 @@ gitminal/
       format.ts
       result.ts
       assert.ts
+      object.ts
       async.ts
       invariant.ts
+      list.ts
       semver.ts
       semver.types.ts
     test/
@@ -753,13 +818,14 @@ Required `ICONS` groups and their default values:
 | Diff | `diffAdd`, `diffRemove`, `diffContext`, `diffNoNewline` | `+`, `-`, ` `, `\ No newline at end of file` |
 | Tag scope | `tagLocal`, `tagRemote`, `tagUnpushed`, `tagLocalOnly` | `local`, `remote`, `unpushed`, `local only` |
 | Remote actions | `push`, `pull` | `^`, `v` |
-| Operation status | `success`, `warning`, `error`, `info`, `pending`, `running`, `done` | `v`, `!`, `x`, `i`, `[ ]`, `[..]`, `[v]` |
+| Operation status | `success`, `warning`, `warningMarker`, `error`, `info`, `pending`, `running`, `done` | `v`, `!`, `[!]`, `x`, `i`, `[ ]`, `[..]`, `[v]` |
 | Spinner | `spinnerFrames` | `["|", "/", "-", "\\"]` |
 | Toggle | `checkboxOn`, `checkboxOff` | `[x]`, `[ ]` |
 | Overflow | `badgeOverflow` | `+` |
 | Console | `omittedLines` | `... N lines omitted ...` |
 | Graph lanes | `graphLanes` | `["*", "|", "/", "\\", "-", "+"]` |
 | Truncation and hints | `ellipsis`, `hintSeparator` | `...`, `|` |
+| Theme | `swatch` | `[#]` |
 
 Consumers, all of which read from `ICONS`:
 
@@ -834,8 +900,8 @@ Direct region jumps use the digits `1`-`9` in screen order: `1`-`5` are the five
 - OpenTUI editing behavior is preserved. In text input mode, only an explicit text-input-safe allowlist of app actions may fire: `app.palette`, `app.console`, `commit.submit`, `commit.options`, and `form.submit`. Such an action fires only when its effective binding uses `Ctrl`, `Cmd`, or `Alt`; an unmodified default binding for the same action never fires while an editor is focused. This is why `commit.options` remains reachable as `Alt+.` in the composer while plain `.` types a period. Every other key, including every modified key not in that allowlist, passes to the input or textarea untouched. This preserves `Enter` submit on single-line inputs, `Enter` newline on textareas, and the OpenTUI editing bindings: `Ctrl+A/E/F/B/W`, `Ctrl+Backspace/Delete`, `Ctrl+K/U`, `Ctrl+-/.`, `Super+A/Z`, and `Alt+D/F/B` plus arrow variants. Configured app bindings outside the allowlist never fire while typing, even when they use a modified key. `Ctrl+C` remains the hardcoded app quit path from the product spec and is the one deliberate exception.
 - `Ctrl`/`Cmd`-modified shortcuts do not resolve through the app keymap in text input mode. They do so only outside text input mode or when they are in the text-input-safe allowlist above and use a modifier. Unmodified keys always pass to the input.
 - Native list mode applies when a `<select>` or `<tab-select>` is focused. That widget owns `nav.up`, `nav.down`, `nav.pageUp`, `nav.pageDown`, `nav.first`, `nav.last`, and `nav.activate`; `useHotkeys` must not prevent those keys from reaching it. A focused `<tab-select>` also consumes Left and Right natively, which is how the collapsed sidebar switches panels; no app action binds those keys in a sidebar context. Global modified shortcuts, `focus.next`/`focus.previous`, and the `focus.region.*` digit jumps still work.
-- `overlay` is not a region. On open, `OverlayProvider` captures the current focused renderable, blurs it, and focuses the first focusable element in the modal after mount. While open, the overlay owns keys. The overlay context applies the same text-input and native-list delegation for keys it does not handle; region focus does not apply. On close, it restores the captured renderable if it is still mounted, otherwise it focuses that renderable's region frame.
-- Outside a modal text field, the only global actions that may resolve while an overlay is open are the overlay's own toggle and `overlay.close`: `app.palette` when the palette is the open overlay, `app.help` when help is the open overlay, and `app.quit` as the hardcoded quit escape hatch. They toggle or close that overlay. No other global action, including `remote.*`, `app.themePicker`, or `app.reloadConfig`, is reachable until the overlay closes. Inside a modal text field, `overlay.close` on `Esc`, the hardcoded `Ctrl+C` quit path, and modifier-gated text-input-safe actions may fire; a plain unmodified global action never does. The console drawer is not an overlay; `app.console` stays global while it is open.
+- `overlay` is not a region. On open, `OverlayProvider` captures the current focused renderable, blurs it, and focuses the first focusable element in the modal after mount. While open, the overlay owns keys. The overlay context applies the same text-input and native-list delegation for keys it does not handle; region focus does not apply. On close, it restores the captured renderable if it is still mounted, otherwise it focuses that renderable's region frame. `close(afterRestore)` accepts an optional completion that the provider runs from an effect declared after the restore effect, once the restore is acknowledged; the completion belongs to that one close session, runs at most once, is discarded instead of retained when another surface is open at that point, and must not throw.
+- Outside a modal text field, the only global actions that may resolve while an overlay is open are the overlay's own toggle and `overlay.close`: `app.palette` when the palette is the open overlay, `app.help` when help is the open overlay, and `app.quit` as the hardcoded quit escape hatch. They toggle or close that overlay. No other global action, including `remote.*`, `app.themePicker`, or `app.reloadConfig`, is reachable until the overlay closes. Inside a modal text field, `overlay.close` on `Esc`, the hardcoded `Ctrl+C` quit path, and modifier-gated text-input-safe actions may also fire; a plain unmodified global action never does. An open modal may consume the first `Esc` through the focused-surface clear registry in `src/app/hooks/useInputEscapeClear.ts`, which the global `overlay.close` handler consults before it closes the overlay; help registers it while its search has text, so `Esc` clears and the next `Esc` closes. The console drawer is not an overlay; `app.console` stays global while it is open.
 - The startup splash is not a region and has no focus. It renders before the providers and the keymap mount. `SplashGate` owns the only `useKeyboard` subscription while the splash is visible: `Ctrl+C` calls `onQuit` without dismissing, and every other key calls `onDismiss`. After dismissal `SplashGate` unmounts and the shell's `useHotkeys` owns keys, with `app.quit` as the quit path. `SplashGate` reads the fixed quit chord only through `src/app/quit.key.ts`. See `21-startup-splash.md`.
 - Action IDs are exactly the IDs in product spec section 6.1 and live in `src/domain/keymap/keymap.defaults.ts`. Features receive action IDs only.
 - `KeymapContext` uses the exact `RegionId` values plus `global` and `overlay`: `top-bar`, `branches`, `remotes`, `tags`, `stashes`, `worktrees`, `graph`, `right-pane`, `diff`, and `console`. `useHotkeys` therefore looks up `contexts.get(activeRegion)` directly, with no adapter or cast between the focus model and the keymap.
@@ -890,8 +956,9 @@ Handlers are scoped and singular:
 - `src/app/hooks/useAction.ts` exposes `useAction(actionId, { scope, targetKind }, handler)`. Exactly one handler may exist per `(actionId, scope)`. A duplicate registration is a development error and the later registration is rejected; last-mounted-wins is never allowed.
 - Global actions (`app.*`, `focus.*`, `remote.*`, `overlay.close`) have exactly one designated owner: `src/app`, the shell, or the always-mounted top bar for the `remote.*` operations it presents. Features register only their region-scoped actions, such as `branch.delete`, `diff.stage`, or `nav.activate`. A panel that unmounts in the collapsed layout never owns a global handler.
 - `useHotkeys` resolves the focused scope first, then the one global registration. `nav.activate` is registered by the focused region only, so the active surface owns it.
-- The palette dispatches `{ commandId, target }`, captured when the palette opens from the selector above. On Enter it revalidates availability with fresh state. If the target is missing, stale, or the owning surface is hidden by the collapsed layout, the palette closes, focuses or reveals the owning region, and shows the availability reason; it never dispatches to a hidden panel's stale cursor.
-- Commands with `needsInput` close the palette and open the owning modal with the resolved target. Commands whose target is the right-pane selection read `RepositoryProvider.selection`; commands whose target is a list row read the focused region's cursor projection.
+- The palette captures `{ commandId, target }` when it opens from the selector above. On Enter it re-derives the same target and compares the two by value. If the fresh availability is false, the target is missing or differs from the capture, or the owning surface is hidden by the collapsed layout, the palette closes and shows the availability reason, and its post-restore completion focuses the owning region when that region's frame is mounted; when the owning panel is hidden by the collapsed layout, the restored focus stays where it was and the status strip carries the reason. Switching the collapsed sidebar panel remains the recorded deferral in `index.md`. It never dispatches to a hidden panel's stale cursor. Otherwise it dispatches to the owning scope handler. Handlers take no target argument: the handler re-derives the target from the same live projection, so the captured target's equality check is the safety boundary and the handler and the palette always read the same selector. A list-row handler re-reads its region cursor, so it assumes the cursor identity and the cursor index still name the same row after the post-restore dispatch; a background refresh that lands between validation and that dispatch is the residual risk, because it can rewrite the row list in that window. The scope-to-region mapping that turns a global command into an `overlay` availability question lives with the shared target derivation in `useCommandTargets.ts`, so the palette and help ask the same region.
+- The palette closes through the overlay's `close(afterRestore)` operation, and the overlay provider runs that completion from an effect declared after the focus-restore effect. The ordering is causal rather than timed: the palette closes, the overlay restores the captured background focus, then the completion runs the owning handler, or the refusal's move to the owning region. The completion belongs to that one close session: once the restore is acknowledged it is cleared, and it is discarded instead of retained when another surface is open at that point, so it can never run on a later unrelated close. A command that opens another overlay can therefore render one committed frame of the restored background before the new overlay appears.
+- Commands described by `needsInput` open an input surface owned by another component. The flag is descriptive: the owning handler performs the open, and the palette does not branch on it. Commands whose target is the right-pane selection read `RepositoryProvider.selection`; commands whose target is a list row read the focused region's cursor projection.
 
 ## 9. State architecture
 
@@ -903,7 +970,7 @@ Providers, outermost to innermost:
 2. `ThemeProvider`: resolved tokens and color capability. Source: `@/domain/theme`. Exposes tokens through `@/theme/useTokens.ts` and the full resolved theme through `app/hooks/useTheme.ts`.
 3. `KeymapProvider`: resolved action to keys map. Source: `@/domain/keymap`.
 4. `RepositoryProvider`: repository snapshot, the right-pane selection union (`pending`, `commit`, `stash`, `worktree`, or `diffFile`), and the refresh cycle. Source: `@/domain/repository` and `@/domain/git`. It does not own row expansion.
-5. `DraftProvider`: the composer draft string and `hasUnsavedDraft`. The shell's quit handler and the composer both read this provider; the composer does not duplicate it, and no feature imports another feature to answer the unsaved-work question. The footer reads the repository through `useOptionalRepository`, which returns null outside a provider so shell-only tests do not need the repository stack.
+5. `DraftProvider`: the composer draft string and `hasUnsavedDraft`. The composer reads and writes this provider and does not duplicate the draft; the shell quit handler will read `hasUnsavedDraft` here once draft-based quit lands, and no feature imports another feature to answer the unsaved-work question. The footer reads the repository through `useOptionalRepository`, which returns null outside a provider so shell-only tests do not need the repository stack.
 6. `FocusProvider`: a projection of OpenTUI native focus, `previousRegion`, and the per-region cursor map. It is not a second focus authority.
 7. `OverlayProvider`: one open overlay entry at a time (a feature modal or a destructive/non-destructive confirmation) plus the focus captured when it opened. Opening a second entry replaces the first instead of stacking. The persistent error detail and the error overlay landed in M6. Success and informational messages are not overlays.
 8. `StatusProvider`: transient status, footer hint mode, operation progress. It is the only surface for success and informational messages. Success and informational messages auto-dismiss after a short timeout; warning and error messages stay until another status replaces them or `clearStatus` removes them.
@@ -945,7 +1012,7 @@ Rules:
 - Every invocation has a timeout and a cancellation signal. Defaults are 10 seconds for local reads, 30 seconds for local writes, and 120 seconds for network operations. `git.client.ts` accepts an `AbortSignal`; on abort it sends `SIGTERM`, waits two seconds, then sends `SIGKILL`, and returns a cancelled result. Timeouts use the same path and are reported as "timed out after N seconds". A terminated child settles on its `exit` event; a normal exit waits for `close` only during a bounded 100 ms flush grace, so a backgrounded descendant that inherits the output pipes cannot defeat the timeout or delay quit. Once a normal exit is recorded the invocation timeout is cleared, so a late timeout or abort cannot rewrite a completed command as timed out or cancelled. Quit aborts the in-flight command through the orchestrator, waits for it to settle, and destroys the renderer only after the child has exited or been killed. M4 deviation: draft-based quit confirmation remains deferred beyond the M6 overlay work, so `app.quit` always aborts immediately; the abort-before-destroy order is implemented.
 - Writes are serialized inside `commands.runner.ts`. Index-touching reads (`status`, `diff`, `log --raw`) are serialized against writes by `git.client.ts`, so a status read never observes a half-applied mutation. A second write while one is running returns a blocked result with a reason. The runner holds no provider state; the blocked reason and the running flag are projected to the UI through the orchestrator and `StatusProvider`.
 - `commands.runner.ts` executes only. It returns a `CommandResult` with the operation label, the ordered `steps` (each with argv, exit status, duration, stdout, and stderr), cwd, progress phases, and the cancelled or timed-out flag. A composite operation such as create-with-checkout, delete-local-and-remote, or a grouped prune records one step per git invocation so the console can show each command. A step marked `nonFatal` does not make the result a failure: the documented case is a scoped Fetch whose configured upstream no longer exists on the remote, where the step stays in the console, the result stays a success, and `warnings` names the affected branch so the orchestrator shows a warning status instead of the error surface. A handler that refuses its scope before working returns `blockedReason`, which the runner turns into a blocked result with no steps. A handler that contacts remotes may also return `remoteResults`, a per-remote success list; `useRemoteCommands` records `RepositoryProvider.recordRemoteCheck(remote, "fetch", succeeded)` for each entry, so a completed fetch advances that remote's last successful fetch timestamp and a failed remote leaves it untouched. A Fetch --prune handler also returns `prunedUpstreamRefs` and `unknownUpstreamRefs`; the wrapper folds both lists into repository evidence and performs one refresh before returning, so the orchestrator's own refresh sees the new upstream classification without one full read per ref. A run whose every remote group failed and that fetched or pruned nothing sets `failed: true`, so a total failure reaches the error surface while a partial failure stays a success with warnings. The runner never refreshes the repository, appends a console entry, sets a status, or opens an overlay. `src/app/hooks/useCommandRunner.ts` applies those effects after the result.
-- The scoped Fetch runs one invocation per upstream ref with `git fetch --progress -- <remote> +refs/heads/<branch>:refs/remotes/<remote>/<branch>`. The forced-update prefix keeps the remote-tracking ref a mirror of the remote after an amend, rebase, or force-push, and the destination is never a local branch. A missing remote ref is classified per step as `nonFatal`; a scope with no upstream refs is blocked. The scope is read from the tab-separated `%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref)` atoms and grouped by the exact remote name, so a remote whose name contains `/` is never split at the first slash.
+- The scoped Fetch runs one invocation per upstream ref with `git fetch --progress -- <remote> +refs/heads/<branch>:refs/remotes/<remote>/<branch>`. The forced-update prefix keeps the remote-tracking ref a mirror of the remote after an amend, rebase, or force-push, and the destination is never a local branch. A missing remote ref is classified per step as `nonFatal`. The effective scope comes from `config.remote.fetchScope` and is captured into the request as form values with the checked-out branch: `local` reads the upstream refs of every local branch and is blocked with `no-local-upstreams` when there are none, while `current` narrows the read to the checked-out branch's upstream with an exact local-ref match and is blocked with `no-current-upstream` when it has none. `commands.fetch.scope.ts` owns that shared request and planner logic for Fetch and Fetch --prune, and the availability context carries the same scope and current-upstream flag so the top bar, palette, help, and executor re-check agree. The refs are read from the tab-separated `%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref)` atoms and grouped by the exact remote name, so a remote whose name contains `/` is never split at the first slash.
 - Network operations pass `--progress` (`git fetch --progress`, `git pull --progress --no-edit`, `git push --progress`) and stream stderr through `git.progress.ts`; the runner forwards progress events to the orchestrator, which updates `StatusProvider`. Commands without a meaningful percentage emit phase-only events, and a phase-only event for a new phase clears the previous percentage. Remote and ref arguments are validated as single safe argv values and passed after `--` where git supports it; `git update-ref` places `--` after `-d`. Push plans always name the configured upstream remote and an explicit `refs/heads/<branch>:refs/heads/<upstream.branch>` refspec after reading `git branch --show-current`, and the no-upstream path uses `--set-upstream origin refs/heads/<branch>:refs/heads/<branch>`, so `push.default=matching` cannot widen the scope and a stale snapshot cannot push the wrong branch. The configured upstream itself is read with `%(upstream:remotename)` and `%(upstream:remoteref)`, never by splitting `%(upstream:short)`, because a legal remote name may contain a slash; Fetch and Fetch --prune use the same atoms.
 - `git.redact.ts` redacts credentials in URLs, authorization headers, and environment values before any console or error rendering. The orchestrator applies redaction to the `CommandResult` before it stores or renders output.
 - `git.watcher.ts` watches the git directory and triggers refresh. Recursive watching is requested first; when the platform refuses it, the git directory and its ref directories are watched non-recursively and the limitation is published through the watcher status. Worktree watching is opt-in and off by default, filters a documented ignore set, and reports its own limitation. Because the default git-dir mode leaves the working tree unwatched, F-17 assigns a text hint to the footer or sidebar surface. The M5 top-bar status strip is reserved for branch information, operation progress, and transient status, and no component renders the hint yet; the deferral is recorded in `17-freshness-and-performance.md` so this contract does not claim a surface that does not exist. `.git/index.lock` churn never triggers a refresh, and a watch error closes the watch and publishes an inactive status. Manual `r` refresh is always available.
@@ -1026,13 +1093,13 @@ M4 deviations, recorded here per the last rule in this document:
 ## 11. Configuration and theme architecture
 
 - `@/domain/config/config.paths.ts` resolves `config.json`, `keybindings.json`, and `theme.json` using the precedence in product spec F-19 and F-20.
-- Load order is defaults, `config.json`, `keybindings.json`, then runtime reload. Validation is per field; an invalid field falls back to the previous effective value and produces a warning.
+- Load order is defaults, `config.json`, `keybindings.json`, then runtime reload. The bootstrap loads the three files before the first render through `src/app/providers/config.source.ts`, so the shell has no loading state, and `ConfigProvider` keeps the resolved snapshot: effective config, resolved paths, per-file load status, validated `keybindings.json` overrides, the raw `theme.json` layer, and bounded warnings. Each file read is capped at 256 KB, and an oversized file produces one bounded warning instead of being buffered. `config.writer.ts` creates the configuration directory recursively and replaces `config.json` through a sibling temp file plus a rename, removing the temp file on failure. Validation is per field; an invalid field falls back to the previous effective value and produces a warning. `src/app/hooks/useConfigActions.ts` is the single owner of the global `app.reloadConfig` action: a reload re-reads and re-validates through the same source, applies in place on success, and keeps the previous effective configuration on a rejected file. Configuration warnings surface as a non-blocking top-bar status and one console notice, never an overlay. `combineConfigurationWarnings` in `@/domain/config/config.warnings.ts` merges the configuration warnings with the theme resolution warnings behind a `Theme:` prefix and bounds them once, so the top bar, the console, and Help report the same deduplicated set. `src/app/hooks/useMouseSetting.ts` assigns `renderer.useMouse` from `config.ui.mouse`, and the bootstrap passes the startup value to `createCliRenderer`, so a reload changes mouse reporting without a restart.
 - `@/domain/theme/theme.catppuccin.ts` is the only place hex colors exist. It defines the four flavors and the token table from F-20.
-- `@/domain/theme/theme.capability.ts` detects truecolor, 256-color, and monochrome, and honors `NO_COLOR`. Token resolution returns final colors per capability.
-- UI reads colors only through `useTokens()`. No component holds a hex literal.
+- `@/domain/theme/theme.capability.ts` detects truecolor, 256-color, and monochrome, and honors `NO_COLOR`; `theme.capability.palette.ts` owns the xterm-256 nearest-color search. Token resolution returns final colors per capability, and `ThemeProvider` memoizes the truecolor resolution and the capability mapping separately.
+- UI reads colors only through `useTokens()`. No component holds a hex literal. `Swatch` is the only UI primitive that paints a caller-supplied color, and it falls back to the `ICONS.swatch` marker when the capability has no color.
 - The sidebar `ListRow` selected fill uses `surface` as a deliberate exception to the generic selected-row `selection` token; native selects and focused buttons still use `selection`. `THEME_TOKEN_TARGETS` and product F-20 record the exception.
 - `@/theme/icons.ts` is the single configuration file for every icon, marker, and glyph. No component inlines a glyph. Icons are ASCII-only and always have a text equivalent; the pairing is enforced by review, not by a module test. See section 6.1.
-- The theme picker previews by swapping tokens in `ThemeProvider` without writing the file; Enter persists through `config.writer.ts`.
+- The theme picker previews by swapping tokens in `ThemeProvider` without writing the file; Enter persists through `config.writer.ts`. `ThemeProvider` exposes `preview(name)`, `commit(name)`, and `restore(previous)` as session-only controls read through `useThemeControls()`, and `src/app/hooks/useThemePickerAction.tsx` is the single owner of the global `app.themePicker` action that opens it as an `OverlayModalEntry`. The picker registers only overlay-scoped handlers, and a failed write keeps the theme for the session with the documented warning.
 
 ## 12. Enforcement
 
@@ -1053,8 +1120,8 @@ Rules:
 
 - TypeScript strict mode is already on. Keep `noUncheckedIndexedAccess` and `noImplicitOverride`. `resolveJsonModule` is on for `app.constants.ts`.
 - `bun run typecheck` must pass before any change is considered done.
-- Biome handles linting, formatting, and import organization. `bun run check` (or `bun run check:fix` to apply safe fixes) must pass before any change is considered done. Configuration lives in `biome.json`; Markdown under `docs/` is excluded from formatting because its tables are hand-aligned.
-- Husky manages Git hooks. The pre-commit hook runs `fallow audit` against the merge base with the branch upstream and blocks commits that introduce error-severity findings (dead code, complexity, duplication, or styling). Configuration lives in `.fallowrc.jsonc`; the `.fallow/` cache is git-ignored. `bun run audit` runs the same analysis manually. Function-size and complexity review uses fallow's findings, not a hand-written line-count parser. The `scripts/**` enforcement checkers use the default health ceilings and have colocated unit tests, so no `health.thresholdOverrides` entry is needed.
+- Biome handles linting, formatting, and import organization. `bun run check` (or `bun run check:fix` to apply safe fixes) must pass before any change is considered done. Configuration lives in `biome.json`; Markdown under `docs/` is excluded from formatting because its tables are hand-aligned. The `src/ui/**` override turns off `a11y/noStaticElementInteractions`, because OpenTUI boxes are the only layout and hit-test primitive and have no DOM role; a UI primitive never repeats that rule as a per-file suppression comment.
+- Husky manages Git hooks. The pre-commit hook runs `fallow audit` against the merge base with the branch upstream and blocks commits that introduce error-severity findings (dead code, complexity, duplication, or styling). Configuration lives in `.fallowrc.jsonc`; the `.fallow/` cache is git-ignored. `bun run audit` runs the same analysis manually. Function-size and complexity review uses fallow's findings, not a hand-written line-count parser. Because fallow counts every React hook call toward a hook's cognitive complexity against the documented ceiling, a surface with more than a dozen concerns splits into one hook per concern - view state, catalogue, operations, and key registrations - instead of one hook that registers every action. The `scripts/**` enforcement checkers use the default health ceilings and have colocated unit tests, so no `health.thresholdOverrides` entry is needed.
 - `bun test` runs the unit suite and must pass. `bun test:integration` runs `*.integration.test.ts` against temporary repositories created by `src/test/git.fixture.ts`. CI runs both. Unit tests never spawn a process; integration tests may spawn the system git only through the fixture.
 - `scripts/check-boundary.ts` (`bun run check:boundary`) walks every `.ts`, `.tsx`, `.js`, and `.jsx` file under `src/` with the TypeScript AST and fails on:
   - any external package import under `src/domain/**` or `src/lib/**`; React and `@opentui/*` are included, so domain and lib stay free of runtime packages. Any Node builtin under domain or lib outside the per-module allowlist in section 3 is rejected the same way.

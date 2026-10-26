@@ -199,6 +199,8 @@ Every handler receives an explicit target. Section and bulk handlers use a targe
 - Every action is unavailable in read-only mode (a commit or stash selection) with the reason "read-only", and during a conflicting write with the reason "operation in progress".
 - A bulk action on an empty section is unavailable with the reason "no files".
 
+Help evaluates availability with no form values, so a bulk diff command with a null section is permissive there and help shows it from its section-independent availability. The command is still disabled at execution when the acting section is empty or unknown. This is a discovery-surface caveat, not a change to the availability rule.
+
 The footer, palette, help, buttons, and confirmations all read the same result.
 
 ## 8. Keyboard and focus
@@ -213,10 +215,10 @@ The footer, palette, help, buttons, and confirmations all read the same result.
 | `diff.unstage` | Unstage the selected file; no confirmation |
 | `diff.discard` (`d`) | Discard the selected tracked working-tree file. On an untracked row the handler routes the same key to `diff.deleteUntracked`. |
 | `diff.deleteUntracked` | Delete the selected untracked file, with confirmation. Reached by `d` on an untracked row, and from the menu and palette. |
-| `diff.stageAll` | Stage all files in the current section, using only that section's path set; unavailable during a merge, rebase, or cherry-pick |
-| `diff.unstageAll` | Unstage all files in the current section, using only the staged path set; unavailable during a merge, rebase, or cherry-pick |
-| `diff.discardAll` (`D`) | Discard all tracked working-tree files in the current section, with confirmation. Routes to `diff.deleteAllUntracked` when the section is untracked. |
-| `diff.deleteAllUntracked` | Delete all untracked files in the current section, with confirmation. Reached by `D` on an untracked section, and from the menu and palette. |
+| `diff.stageAll` | Stage all files in the current section, using only that section's path set; unavailable during a merge, rebase, or cherry-pick; the bulk action is not a palette entry because its scope comes from the panel's form values |
+| `diff.unstageAll` | Unstage all files in the current section, using only the staged path set; unavailable during a merge, rebase, or cherry-pick; the bulk action is not a palette entry because its scope comes from the panel's form values |
+| `diff.discardAll` (`D`) | Discard all tracked working-tree files in the current section, with confirmation. Routes to `diff.deleteAllUntracked` when the section is untracked; the bulk action is not a palette entry because its scope comes from the panel's form values. |
+| `diff.deleteAllUntracked` | Delete all untracked files in the current section, with confirmation. Reached by `D` on an untracked section, and from the menu and footer; the bulk action is not a palette entry because its scope comes from the panel's form values. |
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
 | `focus.region.diff` | Direct jump to the Diff panel (default `8`), shell-owned |
 

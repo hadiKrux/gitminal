@@ -26,7 +26,7 @@ export function ShellTestProviders(props: {
 }): ReactNode {
   return (
     <ConfigProvider>
-      <ThemeProvider>
+      <ThemeProvider capability="truecolor">
         <KeymapProvider platform={props.platform ?? "linux"}>
           <FocusProvider>
             <OverlayProvider>

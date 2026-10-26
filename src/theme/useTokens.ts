@@ -12,11 +12,11 @@ import { ThemeContext } from "@/theme/ThemeContext";
  * @throws When called outside a `ThemeProvider`.
  */
 export function useTokens(): ThemeTokens {
-  const theme = useContext(ThemeContext);
+  const context = useContext(ThemeContext);
 
-  if (!theme) {
+  if (!context) {
     throw new Error("useTokens must be used within a ThemeProvider.");
   }
 
-  return theme.tokens;
+  return context.theme.tokens;
 }

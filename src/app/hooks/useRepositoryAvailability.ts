@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { isCommandOrchestrationActive } from "@/app/hooks/commandRunner.state";
+import { useConfig } from "@/app/hooks/useConfig";
 import type {
   RepositoryAvailabilityInput,
   TagRowsCache,
@@ -12,7 +13,11 @@ import { getAvailability } from "@/domain/commands/commands.availability";
 import { isCommandRunning } from "@/domain/commands/commands.runner";
 import type { CommandPanelFacts } from "@/domain/commands/commands.types";
 import type { TagRowRecord } from "@/domain/git/git.types";
-import { isReadOnlySelection, selectTagRows } from "@/domain/repository/repository.selectors";
+import {
+  isReadOnlySelection,
+  selectComposerVisible,
+  selectTagRows,
+} from "@/domain/repository/repository.selectors";
 import { detectRepositoryState } from "@/domain/repository/repository.states";
 
 /**
@@ -25,7 +30,11 @@ import { detectRepositoryState } from "@/domain/repository/repository.states";
  * render, and merged tag rows are memoized
  * per snapshot plus tag knowledge because a tag list asks for availability once per row and the merge
  * is O(n log n). The orchestration flag keeps mutations blocked through the post-result refresh
- * window, after the domain write latch has already been released.
+ * window, after the domain write latch has already been released. The effective fetch scope comes
+ * from `ConfigProvider`, and whether the checked-out branch has an upstream comes from the same
+ * store signals, so the top bar, palette, help, and executor re-check read one availability source.
+ * A configuration reload changes the reader identity, so every discovery surface re-renders with the
+ * new scope.
  *
  * @param input - Store ref.
  * @returns The availability reader exposed by the provider.
@@ -34,6 +43,8 @@ export function useRepositoryAvailability(
   input: RepositoryAvailabilityInput,
 ): RepositoryContextValue["getAvailability"] {
   const tagRowsRef = useRef<TagRowsCache | null>(null);
+  const { config } = useConfig();
+  const fetchScope = config.remote.fetchScope;
 
   const readTagRows = useCallback((store: RepositoryStore): readonly TagRowRecord[] => {
     const cached = tagRowsRef.current;
@@ -70,9 +81,12 @@ export function useRepositoryAvailability(
         readOnly: isReadOnlySelection(store.selection),
         panel: buildPanelFacts(store, readTagRows(store)),
         formValues,
+        composerVisible: selectComposerVisible(store.selection),
+        fetchScope,
+        currentBranchHasUpstream: store.signals.upstream !== null,
       });
     },
-    [input.storeRef, readTagRows],
+    [fetchScope, input.storeRef, readTagRows],
   );
 }
 

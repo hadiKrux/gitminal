@@ -119,7 +119,7 @@ Note on the frame modules: `src/ui/ModalFrame.tsx` is the reusable presentationa
 - `src/features/overlays/useOverlayHostActions.ts` - the console-entry and retry actions that need the overlay, console, and focus providers.
 - `src/app/providers/OverlayProvider.tsx` - the provider shell that publishes the surface context.
 - `src/app/providers/OverlayProvider.state.ts` - pure reducer for entry, error, captured focus, and released focus.
-- `src/app/hooks/useOverlaySurfaceState.ts` - captures and blurs the background focus, dispatches surface transitions, and restores focus once on close.
+- `src/app/hooks/useOverlaySurfaceState.ts` - captures and blurs the background focus, dispatches surface transitions, restores focus once on close, and runs a `close(afterRestore)` completion after that restore.
 - Colocated tests: `OverlayHost.test.tsx`, `ConfirmModal.test.tsx`, `ErrorOverlay.test.tsx`, plus `src/app/providers/OverlayProvider.test.tsx`.
 
 ## 6. State model
@@ -159,7 +159,7 @@ action ID -> useAction -> OverlayProvider.open({ kind, title, description, field
 
 Named modules:
 - `src/app/providers/OverlayProvider.state.ts` - the single entry, the error detail, the captured focus, and the released focus.
-- `src/app/hooks/useOverlaySurfaceState.ts` - open, close, closeEntry, confirm, showError, dismissError, background blur, and focus restore.
+- `src/app/hooks/useOverlaySurfaceState.ts` - open, close with its `afterRestore` completion, closeEntry, confirm, showError, dismissError, background blur, and focus restore.
 - `src/app/hooks/useOverlay.ts` - the hook features use to open and close overlays.
 - `src/domain/commands/confirm.labels.ts` - the exact F-15 labels and the visible label warning used at entry creation.
 - `src/domain/commands/commands.runner.ts` - the pure executor: availability, serialization, execution, and a `CommandResult`. It never closes an overlay, sets a status, or refreshes the repository.
@@ -190,6 +190,7 @@ Focus behavior:
 - Destructive confirmations default focus to Cancel.
 - Non-destructive confirmations default focus to the primary action.
 - On close, focus returns to the exact renderable that was focused before the overlay opened, if it is still mounted; otherwise it focuses that renderable's region frame and restores the region cursor.
+- `close(afterRestore)` accepts an optional completion that runs from an effect declared after the restore effect, so work that moves focus is not undone by the restore. The completion belongs to that one close session, runs at most once, and is discarded instead of retained when another surface is open at that point or when a later close clears it; a discarded completion runs nothing, reports no failure of its own, and changes neither the status strip nor the console, so a dispatch dropped this way leaves no trace beyond the surface that opened. A completion must not throw: no error boundary sits above the overlay, so a handler failure is reported through `StatusProvider`/`showError` inside the completion rather than escaping the effect flush.
 - The footer shows the modal's keys while the modal is open.
 
 ## 9. Loading, empty, error, and disabled states
@@ -239,7 +240,7 @@ Focus behavior:
 ## 13. Tests to add
 
 Colocated per architecture section 5:
-- `src/app/providers/OverlayProvider.test.tsx`: only one modal at a time; a second error replaces the first instead of stacking; close on success closes only the originating entry; an unrelated entry stays open; opening captures and blurs the focused renderable, and closing restores that renderable if it is still mounted, otherwise its region frame; a stale `showError` captured before a modal opened cannot blur the modal's focused field; an invalid destructive label produces a visible warning and a disabled primary action instead of a crash; success and informational results add no overlay entry.
+- `src/app/providers/OverlayProvider.test.tsx`: only one modal at a time; a second error replaces the first instead of stacking; close on success closes only the originating entry; an unrelated entry stays open; opening captures and blurs the focused renderable, and closing restores that renderable if it is still mounted, otherwise its region frame; a stale `showError` captured before a modal opened cannot blur the modal's focused field; an invalid destructive label produces a visible warning and a disabled primary action instead of a crash; success and informational results add no overlay entry; a close completion runs exactly once after the restore and keeps the entry it opens; a pending completion is discarded when another surface opens before it runs, when an entry replaces the closed surface, or when a later close is called without one; a non-function close argument is treated as a plain close that still discards a pending completion.
 - `OverlayHost.test.tsx`: `overlay.close` cancels; the focus trap keeps `focus.next` inside the modal even when another field is focusable; destructive default focus is Cancel; an exact destructive label leaves the primary enabled and Enter runs `onConfirm`; a non-exact destructive label cannot be confirmed with Enter; a queued error does not pull focus back to the modal's initial field; Open console entry moves focus into the console region; the footer shows the modal keys; `form.submit` fires from a multiline field; `Enter` still activates a focused footer button. `src/app/hooks/useCommandRunner.test.tsx` covers an unrelated confirmation staying open while a command settles, and `src/app/AppShellHost.test.tsx` covers a confirmation that keeps native focus when an in-flight failure arrives.
 - Keyboard ownership test: while an overlay is open outside a modal text field, `app.quit` and that overlay's own toggle resolve, and every other global action, including `app.console`, `app.palette` in a non-palette modal, `remote.pull`, `app.themePicker`, and `app.reloadConfig`, does not resolve.
 - `ConfirmModal.test.tsx`: each of the exact labels renders for its action; the explicit label-to-destructiveness table drives label rendering and the Cancel-first check for every label; no "OK" or "Yes" appears for destructive actions; scope text is present; a non-exact destructive label renders the warning and the disabled reason. `src/domain/commands/confirm.labels.test.ts` pins the literal label set and the count-naming bulk label.

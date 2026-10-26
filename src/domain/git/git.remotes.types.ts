@@ -20,6 +20,16 @@ export type PushPlanResult =
   | { readonly ok: true; readonly args: readonly string[] }
   | { readonly ok: false; readonly error: string };
 
+/** Options that narrow the upstream ref read. */
+export interface ReadUpstreamGroupsOptions {
+  /**
+   * Local branch whose upstream refs are read, or null for every local branch.
+   *
+   * The comparison is exact, so a branch named `feature` never matches `feature/x`.
+   */
+  readonly localBranch?: string | null;
+}
+
 /** One distinct upstream ref grouped under its remote. */
 export interface RemoteFetchGroup {
   /** Remote name, exactly as configured, including any slash it contains. */

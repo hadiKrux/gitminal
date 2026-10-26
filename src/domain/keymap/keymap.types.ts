@@ -162,6 +162,44 @@ export interface KeymapHintOptions {
   readonly isAvailable?: (actionId: string, scope: KeymapContext) => boolean;
 }
 
+/**
+ * One unfiltered help row for an implemented action.
+ *
+ * Help keeps every implemented action visible, including actions that cannot run now and actions
+ * configuration left unbound, so availability is attached as data by the caller instead of removing
+ * the row. `keys` holds the effective bindings after overrides and is empty when the action is
+ * unbound.
+ */
+export interface KeymapHelpRow {
+  /** Stable action id from the catalogue. */
+  readonly actionId: string;
+  /** Human-readable action name. */
+  readonly label: string;
+  /** One-line explanation of what the action does. */
+  readonly description: string;
+  /** Catalogue grouping used by help sections and the palette. */
+  readonly category: ActionCategory;
+  /** Contexts the action can run in, in catalogue order. */
+  readonly contexts: readonly KeymapContext[];
+  /** Effective bindings formatted for display; empty when the action is unbound. */
+  readonly keys: readonly string[];
+  /** Context whose binding list applies to this row. */
+  readonly bindingContext: KeymapContext;
+}
+
+/** Context hints used to attribute a help row's effective binding. */
+export interface KeymapHelpRowOptions {
+  /**
+   * Context the caller is currently reading help from, normally the focused region or `overlay`.
+   *
+   * When the action runs in this context, the row names it. Otherwise the fallback context, the
+   * `global` context, or the first declared context is used, in that order.
+   */
+  readonly preferredContext?: KeymapContext;
+  /** Context to attribute an action that does not run in the preferred context. */
+  readonly fallbackContext?: KeymapContext;
+}
+
 /** Inputs for one keymap resolution pass. */
 export interface ResolveKeymapOptions {
   /** Overrides from the main configuration file. */

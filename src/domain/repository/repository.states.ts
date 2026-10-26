@@ -74,6 +74,7 @@ const ALWAYS_AVAILABLE_ACTIONS: ReadonlySet<string> = new Set([
   "console.clear",
   "diff.toggle",
   "remote.more",
+  "commit.focus",
 ]);
 
 /** Action prefixes that are navigation-only and stay available in every primary state. */
@@ -107,6 +108,7 @@ const EMPTY_REPOSITORY_ACTIONS: ReadonlySet<string> = new Set([
   "tag.push",
   "tag.delete",
   "stash.create",
+  "graph.search",
   "remote.push",
   "remote.pushForceSafe",
   "remote.pushForceOverwrite",

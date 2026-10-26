@@ -37,6 +37,7 @@ export const ICONS = Object.freeze({
   pull: "v",
   success: "v",
   warning: "!",
+  warningMarker: "[!]",
   error: "x",
   info: "i",
   pending: "[ ]",
@@ -50,6 +51,7 @@ export const ICONS = Object.freeze({
   graphLanes: Object.freeze(["*", "|", "/", "\\", "-", "+"]),
   ellipsis: "...",
   hintSeparator: "|",
+  swatch: "[#]",
 });
 
 /** The name of every entry in `ICONS`. */

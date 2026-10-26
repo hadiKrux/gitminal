@@ -5,8 +5,9 @@ import type { DraftContextValue } from "@/app/providers/DraftProvider.types";
 /**
  * Reads the composer draft and its unsaved-work flag.
  *
- * The composer writes through `setDraft` and `clearDraft`; the shell quit handler reads
- * `hasUnsavedDraft` from the same provider, so the two can never disagree.
+ * The composer writes through `setDraft` and `clearDraft` and is the only reader today; once
+ * draft-based quit lands the shell quit handler will read `hasUnsavedDraft` from the same provider,
+ * so the two can never disagree.
  *
  * @returns The draft context value.
  * @throws When called outside a `DraftProvider`.

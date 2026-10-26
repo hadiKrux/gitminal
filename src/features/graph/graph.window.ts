@@ -5,6 +5,7 @@ import {
   GRAPH_SCROLL_STEP_ROWS,
 } from "@/features/graph/graph.constants";
 import type { VisibleWindow } from "@/features/graph/graph.types";
+import { clampIndex } from "@/lib/list";
 
 /**
  * Reads how many two-line rows fit in a scrollbox viewport.
@@ -139,19 +140,4 @@ export function moveIndexByRows(index: number, total: number, delta: number): nu
   }
 
   return clampIndex(index + delta, total);
-}
-
-/**
- * Clamps one row index into a non-empty list.
- *
- * @param index - Requested index.
- * @param total - Number of rows.
- * @returns A whole index between zero and `total - 1`.
- */
-function clampIndex(index: number, total: number): number {
-  if (!Number.isFinite(index)) {
-    return 0;
-  }
-
-  return Math.min(Math.max(0, Math.trunc(index)), total - 1);
 }

@@ -268,6 +268,20 @@ export function isReadOnlySelection(selection: RepositorySelection): boolean {
 }
 
 /**
+ * Reports whether the right pane currently renders the commit composer.
+ *
+ * The pending changes row and the diff-file fallback both keep the composer mounted, while commit,
+ * stash, and worktree details replace it. `commit.focus` and its availability check read this one
+ * predicate, so the action is never advertised or dispatched at a textarea that is not on screen.
+ *
+ * @param selection - Current right-pane selection.
+ * @returns True when the composer is the mounted right-pane surface.
+ */
+export function selectComposerVisible(selection: RepositorySelection): boolean {
+  return selection.kind === "pending" || selection.kind === "diffFile";
+}
+
+/**
  * Reads the commit tips that start a graph scope.
  *
  * The graph cursor seeds its frontier with these OIDs so a tip that is not among the first page is

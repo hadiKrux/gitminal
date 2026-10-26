@@ -4,6 +4,7 @@ import type { ActionBatchRegistration } from "@/app/hooks/useAction.types";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import type { ListCursorHandle, UseListCursorOptions } from "@/app/hooks/useListCursor.types";
 import type { RegionId } from "@/features/shell/focus.types";
+import { clampIndex } from "@/lib/list";
 
 /** Largest gap between two clicks on one row that counts as a double click. */
 const DOUBLE_CLICK_THRESHOLD_MS = 400;
@@ -277,21 +278,6 @@ function resolveItemsChange(
  */
 function findItemIndex(items: readonly { readonly id: string }[], id: string): number {
   return items.findIndex((item) => item.id === id);
-}
-
-/**
- * Clamps an index into the bounds of a list.
- *
- * @param index - Requested index, possibly negative, fractional, or non-finite.
- * @param length - Number of available rows.
- * @returns A whole index between `0` and `length - 1`, or `0` for an empty list.
- */
-function clampIndex(index: number, length: number): number {
-  if (length <= 0 || !Number.isFinite(index)) {
-    return 0;
-  }
-
-  return Math.min(Math.max(0, Math.trunc(index)), length - 1);
 }
 
 /**

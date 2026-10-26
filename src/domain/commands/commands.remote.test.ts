@@ -5,6 +5,7 @@ import {
   executeRemotePush,
 } from "@/domain/commands/commands.remote";
 import type {
+  CommandFormValues,
   CommandHandlerContext,
   CommandProgress,
   CommandTarget,
@@ -72,13 +73,14 @@ function readTargetBranch(target: CommandTarget): string {
 /**
  * Builds a handler context with a fake git client.
  *
- * @param input - Command id, target, and per-argument answers.
+ * @param input - Command id, target, per-argument answers, and optional form values.
  * @returns The context plus its recorded calls and progress events.
  */
 function createContext(input: {
   readonly commandId: string;
   readonly target: CommandTarget;
   readonly answers: Readonly<Record<string, Answer>>;
+  readonly formValues?: CommandFormValues;
 }): {
   readonly context: CommandHandlerContext;
   readonly calls: GitInvokeOptions[];
@@ -108,7 +110,11 @@ function createContext(input: {
 
   return {
     context: {
-      request: { commandId: input.commandId, target: input.target },
+      request: {
+        commandId: input.commandId,
+        target: input.target,
+        ...(input.formValues === undefined ? {} : { formValues: input.formValues }),
+      },
       target: input.target,
       cwd: "/repo",
       client,
@@ -544,11 +550,13 @@ describe("executeRemoteFetchPrune", () => {
    *
    * @param groups - Captured group output.
    * @param answers - Additional answers besides the group probe.
+   * @param formValues - Optional request form values carrying the fetch scope and branch.
    * @returns The outcome, calls, and progress.
    */
   async function runPrune(
     groups: string,
     answers: Readonly<Record<string, Answer>>,
+    formValues?: CommandFormValues,
   ): Promise<{
     outcome: Awaited<ReturnType<typeof executeRemoteFetchPrune>>;
     calls: GitInvokeOptions[];
@@ -558,6 +566,7 @@ describe("executeRemoteFetchPrune", () => {
       commandId: "remote.fetchPrune",
       target: NO_TARGET,
       answers: { ...answers, [GROUPS_ARGS]: () => result(groups) },
+      ...(formValues === undefined ? {} : { formValues }),
     });
 
     return { outcome: await executeRemoteFetchPrune(context), calls, progress };
@@ -767,5 +776,33 @@ describe("executeRemoteFetchPrune", () => {
     expect(outcome.blockedReason).toBe("no-local-upstreams");
     expect(outcome.steps).toHaveLength(0);
     expect(calls).toHaveLength(1);
+  });
+
+  it("blocks the current scope when its branch has no upstream", async () => {
+    const { outcome, calls } = await runPrune(
+      THREE_GROUPS,
+      {},
+      { fetchScope: "current", branch: "missing" },
+    );
+
+    expect(outcome.blockedReason).toBe("no-current-upstream");
+    expect(outcome.steps).toHaveLength(0);
+    expect(calls.map((call) => call.args.join(" "))).toEqual([GROUPS_ARGS]);
+  });
+
+  it("scopes the prune read to the checked-out branch upstream", async () => {
+    const { outcome, calls } = await runPrune(
+      THREE_GROUPS,
+      {
+        "ls-remote --heads -- origin": () => result("aaa\trefs/heads/main\n"),
+        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () => result(""),
+      },
+      { fetchScope: "current", branch: "main" },
+    );
+    const keys = calls.map((call) => call.args.join(" "));
+
+    expect(outcome.steps.length).toBeGreaterThan(0);
+    expect(keys).not.toContain("update-ref -d -- refs/remotes/origin/feature");
+    expect(keys).not.toContain("update-ref -d -- refs/remotes/origin/topic");
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useActions } from "@/app/hooks/useAction";
 import type { ActionRegistrationOptions } from "@/app/hooks/useAction.types";
+import { useConfig } from "@/app/hooks/useConfig";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import { selectRepositoryView } from "@/domain/repository/repository.selectors";
@@ -47,6 +48,7 @@ const GLOBAL_BRANCH_OPTIONS: ActionRegistrationOptions = {
  */
 export function useTopBar(options: UseTopBarOptions): TopBarHandle {
   const repository = useRepository();
+  const { config } = useConfig();
   const { status, operation } = useStatus();
   const { branch, getAvailability } = useTopBarAvailability();
   const [focusedKind, setFocusedKind] = useState<TopBarControlKind>("info");
@@ -73,6 +75,7 @@ export function useTopBar(options: UseTopBarOptions): TopBarHandle {
   const { activateCommand } = useTopBarCommands({
     branch,
     upstreamRef: repository.signals.upstream,
+    fetchScope: config.remote.fetchScope,
     getAvailability,
   });
   const { openMoreMenu } = useTopBarMenu({

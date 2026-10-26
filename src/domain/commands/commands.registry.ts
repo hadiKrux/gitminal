@@ -20,12 +20,174 @@ type DescriptorRow = readonly [
 /**
  * Single command catalogue.
  *
- * It names every command the repository-state gates, the remote executors, and the M5 top bar need
- * before the remaining feature panels land. Each row declares the command kind, the owning scope,
- * and the target kind, so availability and dispatch share one source of truth.
+ * It names every command the repository-state gates, the remote executors, the M5 top bar, and the
+ * palette and help surfaces need. Each row declares the command kind, the owning scope, and the
+ * target kind, so availability and dispatch share one source of truth. The app and direct region
+ * jump rows are navigation commands with no target, because the palette lists commands and never
+ * key-only `nav.*` intents.
  */
 const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
   ["app.refresh", "read", "global", "none", "app", "Refresh", "Reload repository state", false],
+  [
+    "app.quit",
+    "navigation",
+    "global",
+    "none",
+    "app",
+    "Quit",
+    "Quit Gitminal; a running operation is cancelled first.",
+    false,
+  ],
+  [
+    "app.help",
+    "navigation",
+    "global",
+    "none",
+    "app",
+    "Help",
+    "Open help and the effective keybinding list.",
+    false,
+  ],
+  [
+    "app.palette",
+    "navigation",
+    "global",
+    "none",
+    "app",
+    "Command palette",
+    "Open the command palette.",
+    false,
+  ],
+  [
+    "app.console",
+    "navigation",
+    "global",
+    "none",
+    "app",
+    "Toggle console",
+    "Open or close the command console.",
+    false,
+  ],
+  [
+    "app.reloadConfig",
+    "navigation",
+    "global",
+    "none",
+    "app",
+    "Reload configuration",
+    "Reload configuration, keybindings, and theme files.",
+    false,
+  ],
+  [
+    "app.themePicker",
+    "navigation",
+    "global",
+    "none",
+    "app",
+    "Theme picker",
+    "Open the theme picker.",
+    false,
+  ],
+  [
+    "focus.region.topBar",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus top bar",
+    "Move focus to the top bar.",
+    false,
+  ],
+  [
+    "focus.region.branches",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus branches",
+    "Move focus to the branches panel.",
+    false,
+  ],
+  [
+    "focus.region.remotes",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus remotes",
+    "Move focus to the remotes panel.",
+    false,
+  ],
+  [
+    "focus.region.tags",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus tags",
+    "Move focus to the tags panel.",
+    false,
+  ],
+  [
+    "focus.region.stashes",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus stashes",
+    "Move focus to the stashes panel.",
+    false,
+  ],
+  [
+    "focus.region.worktrees",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus worktrees",
+    "Move focus to the worktrees panel.",
+    false,
+  ],
+  [
+    "focus.region.graph",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus commit graph",
+    "Move focus to the commit graph.",
+    false,
+  ],
+  [
+    "focus.region.rightPane",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus right pane",
+    "Move focus to the right pane.",
+    false,
+  ],
+  [
+    "focus.region.diff",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus diffs",
+    "Move focus to the diff panel.",
+    false,
+  ],
+  [
+    "focus.region.console",
+    "navigation",
+    "global",
+    "none",
+    "focus",
+    "Focus console",
+    "Open or focus the console.",
+    false,
+  ],
   ["remote.fetch", "mutation", "global", "none", "remote", "Fetch", "Fetch a remote", false],
   [
     "remote.fetchPrune",
@@ -96,6 +258,16 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
     "remote",
     "Create local branch",
     "Create a local branch from a remote branch",
+    true,
+  ],
+  [
+    "graph.search",
+    "navigation",
+    "graph",
+    "none",
+    "graph",
+    "Search commits",
+    "Focus the commit graph search field.",
     true,
   ],
   [
@@ -204,6 +376,16 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
     "Show the selected worktree",
     false,
   ],
+  [
+    "commit.focus",
+    "navigation",
+    "global",
+    "none",
+    "commit",
+    "Focus commit composer",
+    "Focus the commit message composer when it is visible.",
+    false,
+  ],
   ["commit.submit", "mutation", "right-pane", "none", "commit", "Commit", "Create a commit", false],
   [
     "commit.submitNoVerify",
@@ -293,14 +475,31 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
 /**
  * Internal selection commands that have no action id and no default key.
  *
- * They are palette-invocable command ids only: the owning panel dispatches them to set the
- * right-pane selection, so they must never expose an `actionId` a keybinding could bind.
+ * The owning panel dispatches them to set the right-pane selection, so they must never expose an
+ * `actionId` a keybinding could bind, and they are never palette entries: the palette lists user
+ * commands, not another surface's selection primitive.
  */
 const INTERNAL_NAVIGATION_COMMANDS: ReadonlySet<string> = new Set([
   "graph.selectCommit",
   "graph.selectPending",
   "stash.select",
   "worktree.select",
+]);
+
+/**
+ * Commands the palette must never list, even though they have descriptors.
+ *
+ * The internal selection commands are another surface's navigation primitive. The bulk diff
+ * actions need the Diff panel's section path set from form values, which the palette cannot capture
+ * as a target, so they stay in the Diffs footer and help and are never palette entries. The
+ * per-file staging actions keep their `diffFile` target and remain palette-invocable.
+ */
+const NON_PALETTE_COMMANDS: ReadonlySet<string> = new Set([
+  ...INTERNAL_NAVIGATION_COMMANDS,
+  "diff.stageAll",
+  "diff.unstageAll",
+  "diff.discardAll",
+  "diff.deleteAllUntracked",
 ]);
 
 /** Indexed command catalogue. */
@@ -331,7 +530,7 @@ function createDescriptor(row: DescriptorRow): CommandDescriptor {
     description,
     keywords: Object.freeze(buildKeywords(id, label)),
     category,
-    paletteInvocable: true,
+    paletteInvocable: !NON_PALETTE_COMMANDS.has(id),
     needsInput,
   });
 }

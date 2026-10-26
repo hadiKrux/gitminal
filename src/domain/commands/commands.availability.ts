@@ -48,6 +48,9 @@ const OPERATION_MARKER_GATE_REASONS: ReadonlySet<CommandAvailabilityReason> = ne
   "cherry-pick-in-progress",
 ]);
 
+/** Commands driven by `config.remote.fetchScope`. */
+const FETCH_SCOPE_COMMANDS: ReadonlySet<string> = new Set(["remote.fetch", "remote.fetchPrune"]);
+
 /** Commit commands that create a normal commit and therefore need staged files. */
 const STAGED_COMMIT_ACTIONS: ReadonlySet<string> = new Set([
   "commit.submit",
@@ -61,14 +64,16 @@ const AMEND_COMMIT_ACTIONS: ReadonlySet<string> = new Set(["commit.amend", "comm
  * Combines repository-wide gates with target validation for one command.
  *
  * The repository gate runs first, so a whole-shell state such as not-a-repository or bare explains
- * the block before a target ever matters. Read-only diff mode is checked before that gate, because a
- * commit or stash selection makes every diff action unavailable even while an operation marker is
- * present. The authoritative `readOnly` context flag is checked with the form flag, so a palette or
- * direct dispatch that omits the feature-owned form value is still refused. A mutation is also
- * blocked while another mutation runs. Target validation then checks that
- * the explicit target matches the kind the descriptor requires and that the target is still valid,
- * for example that a branch is not the current branch. Panel facts, when supplied, let a check
- * compare the target with the rows the panels render.
+ * the block before a target ever matters. The fetch commands then apply the effective scope: with
+ * `current`, a repository whose only missing piece is that the checked-out branch has no upstream
+ * is reported as `no-current-upstream` instead of the wider `no-local-upstreams` reason. Read-only
+ * diff mode is checked before that gate, because a commit or stash selection makes every diff action
+ * unavailable even while an operation marker is present. The authoritative `readOnly` context flag
+ * is checked with the form flag, so a palette or direct dispatch that omits the feature-owned form
+ * value is still refused. A mutation is also blocked while another mutation runs. Target validation
+ * then checks that the explicit target matches the kind the descriptor requires and that the target
+ * is still valid, for example that a branch is not the current branch. Panel facts, when supplied,
+ * let a check compare the target with the rows the panels render.
  *
  * @param commandId - Stable command id.
  * @param context - Repository state, signals, target, region, operation flag, and panel facts.
@@ -88,7 +93,16 @@ export function getAvailability(commandId: string, context: CommandContext): Com
   const gate = gateRepository(commandId, context.state, context.signals);
 
   if (!gate.available) {
-    return { available: false, reason: readGateReason(commandId, gate.reason) };
+    return {
+      available: false,
+      reason: readBlockedGateReason(descriptor, context, gate.reason),
+    };
+  }
+
+  const fetchScopeReason = readFetchScopeReason(descriptor, context);
+
+  if (fetchScopeReason !== null) {
+    return blocked(fetchScopeReason);
   }
 
   if (descriptor.kind === "mutation" && context.operation === "running") {
@@ -108,6 +122,55 @@ export function getAvailability(commandId: string, context: CommandContext): Com
   }
 
   return { available: true };
+}
+
+/**
+ * Reads the reason for a command the repository gate blocked.
+ *
+ * A `current`-scope fetch whose repository has no local upstream at all reports the narrower
+ * `no-current-upstream` reason, because the checked-out branch is certainly one of the branches
+ * without an upstream. Every other gate reason is preserved.
+ *
+ * @param descriptor - Command descriptor.
+ * @param context - Command context.
+ * @param reason - Gate reason, when the gate blocked the command.
+ * @returns The availability reason to report.
+ */
+function readBlockedGateReason(
+  descriptor: CommandDescriptor,
+  context: CommandContext,
+  reason: CommandAvailabilityReason | undefined,
+): CommandAvailabilityReason {
+  if (
+    reason === "no-local-upstreams" &&
+    FETCH_SCOPE_COMMANDS.has(descriptor.id) &&
+    context.fetchScope === "current"
+  ) {
+    return "no-current-upstream";
+  }
+
+  return readGateReason(descriptor.id, reason);
+}
+
+/**
+ * Reads the scope-specific block for the fetch commands.
+ *
+ * The current scope needs the checked-out branch's own upstream. An absent projection stays
+ * permissive, because a direct call without provider data must not invent a missing upstream.
+ *
+ * @param descriptor - Command descriptor.
+ * @param context - Command context.
+ * @returns `no-current-upstream`, or null when the scope allows the command.
+ */
+function readFetchScopeReason(
+  descriptor: CommandDescriptor,
+  context: CommandContext,
+): CommandAvailabilityReason | null {
+  if (!FETCH_SCOPE_COMMANDS.has(descriptor.id) || context.fetchScope !== "current") {
+    return null;
+  }
+
+  return context.currentBranchHasUpstream === false ? "no-current-upstream" : null;
 }
 
 /**
@@ -574,10 +637,34 @@ function readStateReason(
   return (
     readDiffStateReason(descriptor, context) ??
     readCommitStateReason(descriptor, context) ??
+    readComposerStateReason(descriptor, context) ??
     readOperationMarkerStateReason(descriptor, context) ??
     readConflictStateReason(descriptor, context) ??
     readPanelStateReason(descriptor, context)
   );
+}
+
+/**
+ * Reads the right-pane requirement of the composer focus command.
+ *
+ * `commit.focus` focuses the composer textarea, which mounts only while the right pane renders the
+ * composer. The provider derives the same boolean the focus handler uses, so the palette, help, and
+ * footer report the reason instead of advertising a command whose target is not on screen. An absent
+ * projection stays permissive, matching the other provider-backed checks.
+ *
+ * @param descriptor - Command descriptor.
+ * @param context - Command context.
+ * @returns `composer-hidden`, or null when the composer can receive focus.
+ */
+function readComposerStateReason(
+  descriptor: CommandDescriptor,
+  context: CommandContext,
+): CommandAvailabilityReason | null {
+  if (descriptor.id !== "commit.focus") {
+    return null;
+  }
+
+  return context.composerVisible === false ? "composer-hidden" : null;
 }
 
 /**

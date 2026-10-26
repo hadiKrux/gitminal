@@ -250,10 +250,49 @@ describe("resolveHotkeyAction", () => {
       actionId: "nav.pageDown",
       scope: "graph",
     });
+    expect(resolve(key("home"), context)).toEqual({ actionId: "nav.first", scope: "graph" });
+    expect(resolve(key("end"), context)).toEqual({ actionId: "nav.last", scope: "graph" });
     expect(resolve(key("enter"), context)).toEqual({
       actionId: "nav.activate",
       scope: "graph",
     });
+  });
+
+  it("routes a search input inside an overlay to the overlay result list", () => {
+    const context = { overlayOpen: true, textInputFocused: true, inputMode: "search" } as const;
+
+    expect(resolve(key("up"), context)).toEqual({ actionId: "nav.up", scope: "overlay" });
+    expect(resolve(key("down"), context)).toEqual({ actionId: "nav.down", scope: "overlay" });
+    expect(resolve(key("pageup"), context)).toEqual({
+      actionId: "nav.pageUp",
+      scope: "overlay",
+    });
+    expect(resolve(key("pagedown"), context)).toEqual({
+      actionId: "nav.pageDown",
+      scope: "overlay",
+    });
+    expect(resolve(key("home"), context)).toEqual({ actionId: "nav.first", scope: "overlay" });
+    expect(resolve(key("end"), context)).toEqual({ actionId: "nav.last", scope: "overlay" });
+    expect(resolve(key("enter"), context)).toEqual({
+      actionId: "nav.activate",
+      scope: "overlay",
+    });
+    expect(resolve(key("j"), context)).toBeNull();
+    expect(resolve(key("k"), context)).toBeNull();
+  });
+
+  it("resolves modal traversal through the overlay scope", () => {
+    expect(resolve(key("tab"), { overlayOpen: true })).toEqual({
+      actionId: "focus.next",
+      scope: "overlay",
+    });
+    expect(resolve(key("tab", { shift: true }), { overlayOpen: true })).toEqual({
+      actionId: "focus.previous",
+      scope: "overlay",
+    });
+    expect(
+      resolve(key("tab"), { overlayOpen: true, textInputFocused: true, inputMode: "search" }),
+    ).toEqual({ actionId: "focus.next", scope: "overlay" });
   });
 
   it("keeps typing, editing, and unbound keys in a search input", () => {
@@ -265,8 +304,8 @@ describe("resolveHotkeyAction", () => {
     expect(resolve(key("backspace"), context)).toBeNull();
     expect(resolve(key("delete"), context)).toBeNull();
     expect(resolve(key("left"), context)).toBeNull();
-    expect(resolve(key("home"), context)).toBeNull();
-    expect(resolve(key("end"), context)).toBeNull();
+    expect(resolve(key("home"), context)).toEqual({ actionId: "nav.first", scope: "graph" });
+    expect(resolve(key("end"), context)).toEqual({ actionId: "nav.last", scope: "graph" });
     expect(resolve(key("escape"), context)).toEqual({
       actionId: "overlay.close",
       scope: "global",

@@ -7,7 +7,7 @@ import { clearFocusedInput } from "@/app/hooks/useInputEscapeClear";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
-import type { RepositorySelection } from "@/domain/repository/repository.types";
+import { selectComposerVisible } from "@/domain/repository/repository.selectors";
 import { COMPOSER_TEXTAREA_ID } from "@/features/composer/useComposer";
 import type { RegionId } from "@/features/shell/focus.types";
 
@@ -39,13 +39,20 @@ export function useShellActions(): void {
 
   useAction("commit.focus", { scope: "global", owner: "app" }, () => {
     // The composer, and therefore its textarea, mounts only while the right pane is the composer.
-    if (isComposerSelection(repository.selection)) {
+    if (selectComposerVisible(repository.selection)) {
       focusRenderable(COMPOSER_TEXTAREA_ID);
     }
   });
 
   useAction("overlay.close", { scope: "global", owner: "app" }, () => {
     if (overlay.isOpen) {
+      // A focused surface may consume the first Esc for a documented clear, exactly like the
+      // non-overlay branch below. Help registers one while its search has text, so Esc clears the
+      // query and only the next Esc closes the modal.
+      if (clearFocusedInput(state.focusedRenderableId)) {
+        return;
+      }
+
       overlay.close();
 
       return;
@@ -87,20 +94,6 @@ export function useShellActions(): void {
 
     consoleLog.toggle();
   });
-}
-
-/**
- * Reports whether the right pane currently shows the composer.
- *
- * `commit.focus` uses the same rule as the right-pane surface builder in `AppShellHost`, so the
- * focus action can never target a textarea that is not mounted. The pending changes row and the
- * diff-file fallback both render the composer.
- *
- * @param selection - Current right-pane selection.
- * @returns True when the composer is the mounted right-pane surface.
- */
-function isComposerSelection(selection: RepositorySelection): boolean {
-  return selection.kind === "pending" || selection.kind === "diffFile";
 }
 
 /**

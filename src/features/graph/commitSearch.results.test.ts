@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  clampIndex,
-  readEmptyMessage,
-  readStatusText,
-} from "@/features/graph/commitSearch.results";
+import { readEmptyMessage, readStatusText } from "@/features/graph/commitSearch.results";
 
 /** Base state shared by the status and empty-message assertions. */
 const STATE = {
@@ -18,13 +14,6 @@ const STATE = {
 };
 
 describe("commit search results", () => {
-  it("clamps indexes into a possibly empty list", () => {
-    expect(clampIndex(5, 3)).toBe(2);
-    expect(clampIndex(-2, 3)).toBe(0);
-    expect(clampIndex(Number.NaN, 3)).toBe(0);
-    expect(clampIndex(1, 0)).toBe(0);
-  });
-
   it("reports a plus marker while more pages may exist", () => {
     expect(readStatusText(STATE)).toBe("3+ matches");
     expect(readStatusText({ ...STATE, done: true })).toBe("3 matches");

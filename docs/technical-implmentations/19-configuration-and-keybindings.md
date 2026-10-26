@@ -10,7 +10,15 @@
   - `src/domain/config/config.paths.ts`
   - `src/domain/config/config.loader.ts`
   - `src/domain/config/config.validate.ts`
+  - `src/domain/config/config.validate.fields.ts`
+  - `src/domain/config/config.validate.guards.ts`
+  - `src/domain/config/config.validate.keybindings.ts`
+  - `src/domain/config/config.warnings.ts`
   - `src/domain/config/config.writer.ts`
+  - `src/domain/config/config.atomic.ts`
+  - `src/domain/config/config.atomic.constants.ts`
+  - `src/domain/config/config.atomic.types.ts`
+  - `src/domain/config/config.errors.ts`
   - `src/domain/keymap/keymap.types.ts`
   - `src/domain/keymap/keymap.defaults.ts`
   - `src/domain/keymap/keymap.parse.ts`
@@ -19,9 +27,12 @@
   - `src/domain/keymap/keymap.describe.ts`
   - `src/app/providers/ConfigProvider.tsx`
   - `src/app/providers/ConfigProvider.types.ts`
+  - `src/app/providers/config.source.ts`
   - `src/app/providers/KeymapProvider.tsx`
   - `src/app/providers/KeymapProvider.types.ts`
   - `src/app/hooks/useConfig.ts`
+  - `src/app/hooks/useConfigActions.ts`
+  - `src/app/hooks/useMouseSetting.ts`
   - `src/app/hooks/useKeymap.ts`
   - `src/app/hooks/useHotkeys.ts`
 
@@ -80,7 +91,14 @@ ConfigProvider                 (resolved config, warnings, reload)
 - `src/domain/config/config.paths.ts`
 - `src/domain/config/config.loader.ts`
 - `src/domain/config/config.validate.ts`
+- `src/domain/config/config.validate.fields.ts`
+- `src/domain/config/config.validate.guards.ts`
+- `src/domain/config/config.validate.keybindings.ts`
 - `src/domain/config/config.writer.ts`
+- `src/domain/config/config.atomic.ts`
+- `src/domain/config/config.atomic.constants.ts`
+- `src/domain/config/config.atomic.types.ts`
+- `src/domain/config/config.errors.ts`
 - `src/domain/keymap/keymap.types.ts`
 - `src/domain/keymap/keymap.defaults.ts`
 - `src/domain/keymap/keymap.parse.ts`
@@ -89,16 +107,18 @@ ConfigProvider                 (resolved config, warnings, reload)
 - `src/domain/keymap/keymap.describe.ts`
 - `src/app/providers/ConfigProvider.tsx`
 - `src/app/providers/ConfigProvider.types.ts`
+- `src/app/providers/config.source.ts`
 - `src/app/providers/KeymapProvider.tsx`
 - `src/app/providers/KeymapProvider.types.ts`
 - `src/app/hooks/useConfig.ts`
+- `src/app/hooks/useConfigActions.ts`
 - `src/app/hooks/useKeymap.ts`
 - `src/app/hooks/useHotkeys.ts`
 
 ## 6. State model
 
-- `ConfigProvider` (provider state): the resolved config object, the resolved file paths (config, keybindings, theme), the warning list, and a reload function. Source: `@/domain/config`.
-- `KeymapProvider` (provider state): the resolved action-to-keys map, the effective key-to-action map per context, and the conflict and warning list. Source: `@/domain/keymap`.
+- `ConfigProvider` (provider state): the resolved config object, the resolved file paths (config, keybindings, theme), the per-file load status, the validated `keybindings.json` overrides, the raw `theme.json` layer, the bounded warning list, and a reload function. Source: `@/domain/config`, loaded before the first render by `src/app/providers/config.source.ts`.
+- `KeymapProvider` (provider state): the resolved action-to-keys map, the effective key-to-action map per context, and the conflict and warning list. It resolves both override layers: `config.json` keybindings, then `keybindings.json`. Source: `@/domain/keymap`.
 - `ThemeProvider` and `src/theme/useTokens.ts`: theme path and active theme name for Help; theme resolution is specified in `20-theme-and-colors.md`.
 - Handler registry (`src/app/hooks/useAction.ts`): one registered handler per `(actionId, scope)`, keyed by the action ID and an explicit scope of `global`, a `RegionId`, or `overlay`. It is not provider state and not a feature-local copy; the key resolution in section 8 selects the scope, and a duplicate registration is rejected rather than last-mounted-wins.
 - Input mode metadata: each focused editor declares `field`, `search`, or `form` when its owner registers it. `useHotkeys` reads that declaration as part of resolution; it is not a provider flag and no feature decides a mode ad hoc.
@@ -109,24 +129,28 @@ ConfigProvider                 (resolved config, warnings, reload)
 
 ```text
 launch -> config.paths resolves files -> config.loader reads -> config.validate per field
-   -> ConfigProvider (resolved config + warnings)
+   -> ConfigProvider (resolved config + per-file status + warnings)
    -> keymap.defaults + config.keybindings + keybindings.json -> keymap.parse
    -> keymap.resolve -> keymap.conflicts -> KeymapProvider
    -> useHotkeys dispatches action IDs -> useAction handler for the resolved scope
    -> command ID + explicit CommandTarget -> commands.registry / useCommandRunner
 ```
 
+The bootstrap calls `config.source.ts` before the first render, so there is no loading state. `app.reloadConfig` is registered once by `src/app/hooks/useConfigActions.ts`: it re-runs the same source, and `ConfigProvider` applies the result in one transition or keeps the previous effective configuration when the main file is rejected. The same hook reports every load warning, and every theme resolution warning from `ThemeProvider`, as a top-bar warning status plus one console notice, never as an overlay; theme warnings carry a `Theme:` prefix and the combined list is bounded and deduplicated.
+
 Reload flow: `app.reloadConfig` -> `config.loader` re-reads the main config, keybindings, and theme -> `config.validate` -> if valid, `ConfigProvider` and `KeymapProvider` update in place; the graph reloads when `graph.scope` or `graph.initialPageSize` changed; diffs redraw with the new `diff.contextLines`; mouse and theme apply immediately; footer, help, and palette re-read effective bindings.
+
+Theme persistence: the theme picker saves through `config.writer.ts`, which writes only the `theme` field of the main file and hands the replacement to `config.atomic.ts`. The atomic writer creates the parent directory when it is missing and replaces `config.json` through a sibling temp file and a rename. An existing `config.json` that is a symlink is resolved to its target first, so a dotfiles-managed file is updated in place and the link stays a link; a link whose target does not exist yet keeps its recorded target, so the write creates that file instead of replacing the link with a regular one. The existing file's permission bits are carried onto the temp file before the rename, so a user-hardened `0600` file stays `0600`, while a new file uses the platform default mode. Temp files left behind by a killed process are swept before the next write: only siblings matching this writer's own `.config.json.<digits>-<base36 token>.tmp` pattern and older than 60 seconds by `mtime` are removed, best-effort and with no effect on the write result. The age bound keeps a second gitminal process's in-flight temp file safe: a same-host, same-clock writer is protected, while a skewed clock can still misjudge the age. The writer still expects to be the only long-lived writer of the target, and a sibling with a different name is never touched.
 
 Resolution algorithm (exact, module level):
 
-1. `config.paths.ts` resolves `config.json` by precedence: `$GITMINAL_CONFIG` when set and non-empty, then `$XDG_CONFIG_HOME/gitminal/config.json` when `XDG_CONFIG_HOME` is set, then `~/.config/gitminal/config.json` otherwise, then on Windows `%APPDATA%\gitminal\config.json` when the XDG and home paths are unavailable. It resolves `keybindings.json` from `$GITMINAL_KEYBINDINGS` when set and non-empty, otherwise next to the resolved config file, and `theme.json` from `$GITMINAL_THEME` when set and non-empty, otherwise next to the resolved config file.
+1. `config.paths.ts` resolves `config.json` by precedence: `$GITMINAL_CONFIG` when set and non-empty, then `$XDG_CONFIG_HOME/gitminal/config.json` when `XDG_CONFIG_HOME` is set, then `~/.config/gitminal/config.json` otherwise, then on Windows `%APPDATA%\gitminal\config.json` when the XDG and home paths are unavailable. It resolves `keybindings.json` from `$GITMINAL_KEYBINDINGS` when set and non-empty, otherwise next to the resolved config file, and `theme.json` from `$GITMINAL_THEME` when set and non-empty, otherwise next to the resolved config file. Every result is absolute: a relative `$GITMINAL_CONFIG`, `$GITMINAL_KEYBINDINGS`, or `$GITMINAL_THEME` value is resolved against the launch working directory, while `XDG_CONFIG_HOME`, `APPDATA`, and the home directory are used only when they are already absolute, so a relative value is ignored and the next step of the precedence decides the location.
 2. `config.loader.ts` reads each file. A missing file yields no warning. An unreadable or malformed file yields a warning naming the file and parse error and never blocks launch.
 3. `config.defaults.ts` provides built-in defaults. `config.validate.ts` merges per field: defaults, then `config.json`, then `keybindings.json` (keybindings only). Unknown fields and unknown action IDs are reported and ignored. An invalid field keeps the previous effective value and adds a warning. A missing `version` is treated as 1; a newer version is ignored with a warning.
 4. `keymap.parse.ts` parses each binding value into a normalized key token: modifiers (`ctrl` or `control`, `shift`, `alt` or `option`, `cmd`, `command`, or `meta`, and `mod`) plus a base key (a named key or a printable character). Modifier order is irrelevant. Uppercase letters normalize to `shift` plus the lower letter. Unsupported keys and platform modifiers are reported and ignored on that platform. `mod` expands to Control on Linux and Windows and Command on macOS. Built-in defaults that display `Ctrl/Cmd` bind both `ctrl` and `mod`. A literal space is written as `space` because every segment is trimmed, and `+` is the separator, so a plus key cannot be expressed as a binding.
 5. `keymap.resolve.ts` builds, per context, the effective key-to-action map: start from `keymap.defaults.ts`; apply `config.json` `keybindings` per action (a string or an array replaces the whole list); apply `keybindings.json` per action (it wins over `config.json` for the same action); apply `null` as reset-to-default and `[]` as unbind; actions not mentioned keep the previous value. Context actions override global actions for the same key. `Ctrl+C` is injected as a non-overridable quit and cancel entry.
 6. `keymap.conflicts.ts` scans each context for two different actions sharing a key. On conflict it rejects the conflicting overrides, keeps the built-in defaults for those actions, and records a warning naming both action IDs and the key. It also warns when quit, help, and the palette end up with no binding.
-7. `keymap.describe.ts` reads the resolved map and produces two distinct outputs from the same resolution. `describeFooterHints(focus, availability)` returns footer hints filtered by the focused region and current availability. `describeHelpRows()` returns every implemented action, including actions that are currently unavailable or unbound, and attaches the availability reason as data rather than removing the row. Help never filters unavailable actions out. The `focus.region.*` actions are included in Help and the palette but are not emitted as footer hints, so nine jump hints never crowd out the per-region hints.
+7. `keymap.describe.ts` reads the resolved map and produces two distinct outputs from the same resolution. `describeFooterHints(keymap, context, options)` returns footer hints filtered by the focused region and current availability. `describeHelpRows()` returns every implemented action, including actions that are currently unavailable or unbound, and attaches the availability reason as data rather than removing the row. Help never filters unavailable actions out. The `focus.region.*` actions are included in Help and the palette but are not emitted as footer hints, so nine jump hints never crowd out the per-region hints.
 
 Action catalogue and command boundary:
 
@@ -170,7 +194,7 @@ Precedence at runtime: open overlay, then text input mode, then native list widg
 - Error: invalid JSON ignores the file, keeps defaults, and warns with the file and parse error; an invalid version ignores the file with a warning; an invalid field keeps the previous value; an invalid keybindings file leaves `config.json` keybindings applied and defaults elsewhere; an invalid theme file keeps the base theme.
 - Disabled: a config that unbinds quit, help, and the palette still loads but shows a prominent warning. Actions with no binding render as "Unbound" in help. Unbinding a direct region jump is not warned about, because `Tab` and the palette command remain available.
 - Unavailable versus unbound: an action that is bound but cannot run now stays in help with its effective keys, description, and availability reason. Only `describeFooterHints()` drops it from the footer; `describeHelpRows()` never drops it. Unbound is a separate state rendered as "Unbound" and is still listed, searchable, and palette-visible.
-- Warnings surface: a non-blocking message in the top bar status strip, plus a detailed entry in Help > Configuration and the console.
+- Warnings surface: a non-blocking message in the top bar status strip, plus a detailed entry in Help > Configuration and the console. Configuration warnings and theme resolution warnings share that surface, stay distinguishable by the `Theme:` prefix on theme messages, and are reported once per distinct combined set.
 
 ## 10. Performance and bounds
 
@@ -209,8 +233,11 @@ Precedence at runtime: open overlay, then text input mode, then native list widg
 - `src/domain/keymap/keymap.parse.test.ts`: modifier aliases, `mod` per platform, named keys, uppercase handling, unsupported keys, the literal space rejected while `space` is accepted, and `enter` plus `Ctrl/Cmd+Enter` staying distinct.
 - `src/domain/keymap/keymap.describe.test.ts`: `formatBinding` uppercases a modified single-letter base key (`ctrl+p` becomes `Ctrl+P`, `mod+p` becomes `Cmd+P`, `ctrl+c` becomes `Ctrl+C`), keeps a plain `q` lowercase, renders a shifted letter as the uppercase letter, leaves symbols and named keys alone, and omits `Shift` for symbols and digits whose Shift lookup ignores.
 - `src/domain/config/config.validate.test.ts`: per-field fallback, unknown fields, unknown action IDs, version handling, safety fields ignored; every new action ID (`remote.pushForceSafe`, `remote.pushForceOverwrite`, `remote.pushNoVerify`, `commit.submitNoVerify`, `commit.amend`, `commit.amendNoVerify`, `diff.deleteUntracked`, `diff.deleteAllUntracked`, `form.submit`) is accepted; internal command IDs (`graph.selectCommit`, `stash.select`, `worktree.select`, `graph.selectPending`) are reported as unknown action IDs and ignored.
-- `src/domain/config/config.paths.test.ts`: `GITMINAL_CONFIG`, XDG, home, Windows APPDATA, keybindings and theme resolution.
+- `src/domain/config/config.paths.test.ts`: `GITMINAL_CONFIG`, XDG, home, Windows APPDATA, keybindings and theme resolution, including relative and absolute environment values on POSIX and Windows.
 - `src/domain/config/config.loader.test.ts`: malformed JSON, unreadable file, missing file silent.
+- `src/domain/config/config.errors.test.ts`: a missing-file error is detected by its `ENOENT` code and every other value is not, and a thrown message is flattened to one line.
+- `src/domain/config/config.atomic.test.ts`: the temp-name predicate matches the `<digits>-<base36 token>` shape and rejects a differently shaped sibling, another target's temp file, an empty token, and uppercase letters; the age predicate treats an old file as stale, a recent file as still in flight, a file exactly at the 60 000 ms bound or one millisecond under it as still in flight while one millisecond past the bound is stale, and a missing file as not stale.
+- `src/domain/config/config.writer.test.ts`: writes only the theme field and preserves every other field; creates a minimal configuration when the file is absent; refuses an oversized, malformed, or non-object file and leaves it untouched; creates a missing configuration directory and leaves no temp file behind; keeps the original file and removes the temp file when the rename fails; fails without throwing when the parent path is not a directory or no config path resolves; writes through a symlinked config, including a dangling link into a directory that does not exist yet, and keeps the link a symlink; sweeps a matching temp file older than the age bound while keeping a recent one, a differently shaped sibling, and unrelated files; fails without touching the original file in a read-only directory; preserves the mode of an existing file.
 - `src/app/providers/ConfigProvider.test.tsx` and `KeymapProvider.test.tsx`: reload applies in place; footer, help, and palette agree.
 - `src/domain/keymap/keymap.describe.test.ts`: `describeHelpRows()` returns every implemented action regardless of availability, including unavailable actions with their reason and unbound actions labeled "Unbound"; `describeFooterHints()` drops unavailable actions; the `focus.region.*` actions appear in Help and the palette with their effective keys but never in the footer hint list; both outputs agree on effective keys.
 - `src/app/hooks/useHotkeys.test.ts`: precedence order; printable suppressed in inputs; `field`, `search`, and `form` routing; `form.submit` on `Ctrl/Cmd+Enter`; the allowlist fires only when the effective binding has a modifier.
@@ -219,6 +246,5 @@ Precedence at runtime: open overlay, then text input mode, then native list widg
 
 ## 14. Open questions
 
-- Whether `config.writer.ts` should be shared with the theme picker persistence path or remain theme-only (the picker writes the `theme` field; see `20-theme-and-colors.md`).
 - The exact cap for displayed warnings.
 - Whether an unbind (`[]`) should also be reported in the footer as a dimmed unavailable hint or omitted entirely.

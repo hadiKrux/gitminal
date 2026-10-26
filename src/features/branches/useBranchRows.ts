@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef } from "react";
+import { useAction } from "@/app/hooks/useAction";
 import { useCommandRunner } from "@/app/hooks/useCommandRunner";
 import { useListCursor } from "@/app/hooks/useListCursor";
 import { useScrollSelectedRow } from "@/app/hooks/useScrollSelectedRow";
@@ -26,7 +27,9 @@ const MAX_RENDERED_ROWS = 2000;
  * behind counts are the repository's, never recomputed here. Navigation, the persisted cursor, and
  * double click come from `useListCursor`; the selected row is scrolled into view through the shell
  * frame. Checkout runs through the shared command runner after the same target-aware availability
- * pre-check the rest of the panel uses, so this hook never calls git directly.
+ * pre-check the rest of the panel uses, so this hook never calls git directly. The same
+ * `branch.checkout` path is registered in the `branches` scope, so the palette, help, and direct
+ * dispatch reach the identical activation instead of a second checkout implementation.
  *
  * @param input - Repository context and the region whose cursor the rows use.
  * @returns Rendered rows, counts, selection, and the row click handler.
@@ -69,7 +72,19 @@ export function useBranchRows(input: {
     [regionId, repository, runCommand, setStatus],
   );
 
-  /** Checks out the active row, or explains why no row is active. */
+  /**
+   * Checks out the active row, or explains why no row is active.
+   *
+   * The palette reaches this handler for `branch.checkout` with the target it captured at open, but
+   * handlers take no argument, so the row is re-read from the live branches cursor here. That is
+   * the documented delivery mechanism: the palette re-derived the same target and compared it for
+   * equality with the captured one before dispatching, so this handler is safe as long as the
+   * cursor index still names the row that identity names. The index and identity are projected
+   * together in one render and `useListCursor` repairs the index in an effect after the row list
+   * changes, so that agreement is an assumption of the post-restore dispatch, not a second
+   * validation. A background refresh that lands between the palette's validation and that dispatch
+   * can still rewrite the row list in that window, which is the residual risk.
+   */
   const checkoutSelected = useCallback((): void => {
     const branch = itemsRef.current[cursorIndexRef.current]?.branch ?? null;
 
@@ -97,6 +112,8 @@ export function useBranchRows(input: {
   });
 
   cursorIndexRef.current = cursor.index;
+
+  useAction("branch.checkout", { scope: regionId, targetKind: "branch" }, checkoutSelected);
 
   const selected = items[cursor.index]?.branch ?? null;
   const activeRowId = selected === null ? null : `${BRANCH_ROW_ID_PREFIX}${selected.name}`;

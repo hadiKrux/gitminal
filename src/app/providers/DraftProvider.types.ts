@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 /**
  * Value exposed by `DraftProvider` and read through `useDraft`.
  *
- * The draft is the single owner of the composer message. The composer writes it and the shell's
- * quit confirmation reads `hasUnsavedDraft`, so neither surface keeps a second copy.
+ * The draft is the single owner of the composer message, so neither surface keeps a second copy.
+ * The composer writes it and is its only reader today; the shell's quit confirmation will read
+ * `hasUnsavedDraft` once draft-based quit lands.
  */
 export interface DraftContextValue {
   /** Current composer draft, exactly as the textarea holds it. */

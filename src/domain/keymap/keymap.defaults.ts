@@ -58,7 +58,7 @@ export const ACTION_CATALOGUE = [
     defaults: ["q"],
     label: "Quit",
     category: "app",
-    description: "Quit Gitminal, confirming when work is unsaved or an operation is running.",
+    description: "Quit Gitminal; a running operation is cancelled first.",
   },
   {
     id: "app.help",

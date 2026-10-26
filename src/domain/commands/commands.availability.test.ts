@@ -64,6 +64,9 @@ function createContext(overrides: Partial<CommandContext> = {}): CommandContext 
     readOnly: overrides.readOnly,
     panel: overrides.panel,
     formValues: overrides.formValues,
+    composerVisible: overrides.composerVisible,
+    fetchScope: overrides.fetchScope,
+    currentBranchHasUpstream: overrides.currentBranchHasUpstream,
   };
 }
 
@@ -308,6 +311,49 @@ describe("getAvailability", () => {
       available: false,
       reason: "no-local-upstreams",
     });
+  });
+
+  it("applies the current fetch scope to both fetch commands", () => {
+    for (const commandId of ["remote.fetch", "remote.fetchPrune"]) {
+      expect(
+        getAvailability(
+          commandId,
+          createContext({ fetchScope: "current", currentBranchHasUpstream: true }),
+        ),
+        commandId,
+      ).toEqual({ available: true });
+
+      expect(
+        getAvailability(
+          commandId,
+          createContext({ fetchScope: "current", currentBranchHasUpstream: false }),
+        ),
+        commandId,
+      ).toEqual({ available: false, reason: "no-current-upstream" });
+    }
+  });
+
+  it("keeps the local fetch scope independent of the current branch upstream", () => {
+    for (const commandId of ["remote.fetch", "remote.fetchPrune"]) {
+      expect(
+        getAvailability(
+          commandId,
+          createContext({ fetchScope: "local", currentBranchHasUpstream: false }),
+        ),
+        commandId,
+      ).toEqual({ available: true });
+    }
+  });
+
+  it("reports no-current-upstream over no-local-upstreams in the current scope", () => {
+    const signals = createSignals({ hasUpstreamBranches: false });
+
+    expect(
+      getAvailability(
+        "remote.fetch",
+        createContext({ signals, fetchScope: "current", currentBranchHasUpstream: false }),
+      ),
+    ).toEqual({ available: false, reason: "no-current-upstream" });
   });
 
   it("blocks a mutation while another operation is running", () => {
@@ -952,6 +998,83 @@ describe("commit command availability", () => {
 
   it("stays permissive when no status projection exists", () => {
     expect(getAvailability("commit.submit", createContext())).toEqual({ available: true });
+  });
+});
+
+describe("navigation command availability", () => {
+  const navigationCommandIds = [
+    "app.help",
+    "app.palette",
+    "app.console",
+    "app.quit",
+    "app.reloadConfig",
+    "app.themePicker",
+    "commit.focus",
+    "focus.region.topBar",
+    "focus.region.branches",
+    "focus.region.remotes",
+    "focus.region.tags",
+    "focus.region.stashes",
+    "focus.region.worktrees",
+    "focus.region.graph",
+    "focus.region.rightPane",
+    "focus.region.diff",
+    "focus.region.console",
+  ];
+
+  it("stays available in every repository primary state", () => {
+    const states = [
+      createSignals({ loaded: false }),
+      createSignals({ gitAvailable: false }),
+      createSignals({ notARepository: true }),
+      createSignals({ permissionError: true }),
+      createSignals({ bare: true }),
+      createSignals({ headExists: false, branch: null, upstream: null, upstreamCheck: "none" }),
+      createSignals(),
+      createSignals({ cwd: "/repo/sub" }),
+    ];
+
+    for (const signals of states) {
+      const context = createContext({ signals });
+
+      for (const commandId of navigationCommandIds) {
+        const availability = getAvailability(commandId, context);
+
+        expect(availability, commandId).toEqual({ available: true });
+      }
+    }
+  });
+
+  it("stays available while another mutation runs", () => {
+    const signals = createSignals({ operationRunning: true });
+    const context = createContext({ signals, operation: "running" });
+
+    for (const commandId of navigationCommandIds) {
+      const availability = getAvailability(commandId, context);
+
+      expect(availability, commandId).toEqual({ available: true });
+    }
+  });
+
+  it("takes no target", () => {
+    const context = createContext({ target: CURRENT_BRANCH });
+
+    for (const commandId of navigationCommandIds) {
+      const availability = getAvailability(commandId, context);
+
+      expect(availability, commandId).toEqual({ available: false, reason: "invalid-target" });
+    }
+  });
+
+  it("gates commit.focus on the right-pane composer", () => {
+    expect(getAvailability("commit.focus", createContext({ composerVisible: true }))).toEqual({
+      available: true,
+    });
+    expect(getAvailability("commit.focus", createContext({ composerVisible: false }))).toEqual({
+      available: false,
+      reason: "composer-hidden",
+    });
+    expect(getAvailability("commit.focus", createContext())).toEqual({ available: true });
   });
 });
 

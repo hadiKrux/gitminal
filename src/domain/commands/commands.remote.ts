@@ -11,12 +11,12 @@ import {
   PUSH_AUTO_CREATE_REMOTE,
   parseLsRemoteHeads,
   planPruneDeletions,
-  readUpstreamGroups,
 } from "@/domain/git/git.remotes";
 import type { PushMode, RemoteFetchGroup } from "@/domain/git/git.remotes.types";
 import type { GitInvocationResult, GitProgressParser } from "@/domain/git/git.types";
 import type { UpstreamDescriptor } from "@/domain/repository/repository.types";
 import { parseUpstreamAtoms } from "@/domain/repository/repository.upstream";
+import { readEmptyFetchScopeReason, readScopedUpstreamGroups } from "./commands.fetch.scope";
 import type {
   RemoteHeadsCheck,
   RemotePruneDeleteRun,
@@ -154,8 +154,11 @@ export async function executeRemotePush(
 /**
  * Executes the two-phase Fetch --prune.
  *
- * Phase one confirms each affected remote's heads with `git ls-remote --heads`. Phase two fetches
- * the still-advertised in-scope refs and deletes only the tracking refs whose absence was confirmed.
+ * The request's effective scope narrows the read exactly like `remote.fetch`: `local` uses the
+ * upstreams of every local branch and `current` uses only the checked-out branch's upstream, with
+ * `no-current-upstream` when it has none. Phase one confirms each affected remote's heads with
+ * `git ls-remote --heads`. Phase two fetches the still-advertised in-scope refs and deletes only the
+ * tracking refs whose absence was confirmed.
  * A failed check or fetch makes that group unknown, skips its delete phase, and keeps its refs out of
  * `prunedUpstreamRefs`, so the app layer can record failure evidence instead of claiming a deletion.
  * Other groups still run. A group failure is marked non-fatal, which turns partial success into a
@@ -178,10 +181,13 @@ export async function executeRemoteFetchPrune(
     return { steps: [toCommandStep(groupsRead)], failed: true };
   }
 
-  const groups = readUpstreamGroups(groupsRead.stdout);
+  const groups = readScopedUpstreamGroups(groupsRead.stdout, context.request.formValues);
 
   if (groups.length === 0) {
-    return { steps: [], blockedReason: "no-local-upstreams" };
+    return {
+      steps: [],
+      blockedReason: readEmptyFetchScopeReason(context.request.formValues),
+    };
   }
 
   const run = createPruneRun();

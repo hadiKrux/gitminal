@@ -17,8 +17,10 @@ const REGION_ID = "branches" as const;
  * assembles their output and derives the read states the panel renders, so no single function
  * carries the whole panel.
  *
- * The hook registers exactly `branch.create` and `branch.delete` in the `branches` scope, through
- * the action hook. Navigation comes from `useListCursor` with `nav.first` and `nav.last` enabled.
+ * The hook registers `branch.create` and `branch.delete` in the `branches` scope through
+ * `useBranchActions`, and `branch.checkout` through `useBranchRows` so the palette and help reach
+ * the same row-activation path. Navigation comes from `useListCursor` with `nav.first` and
+ * `nav.last` enabled.
  *
  * @param options - Renderers for the two modals the panel owns.
  * @returns Rows, panel state, selection, availability text, and the row and action callbacks.
