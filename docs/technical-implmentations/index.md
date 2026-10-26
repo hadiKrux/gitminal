@@ -155,7 +155,7 @@ Why here: the panels are independent of the graph and diff work and can be built
 
 ## M8 - Main workflows
 
-Status: Ready for dev
+Status: Done
 
 Tickets: [`08-commit-graph.md`](08-commit-graph.md), [`11-diffs-and-file-actions.md`](11-diffs-and-file-actions.md), [`09-commit-composer.md`](09-commit-composer.md), [`10-commit-details.md`](10-commit-details.md)
 
@@ -166,9 +166,11 @@ Recommended order:
 3. 09: composer, identity, commit.
 4. 10: commit details, parents, refs, and the commit diff.
 
-Observable outcome: the user can inspect history, select the Pending Changes row, review and stage files, write and submit a commit, then inspect the resulting commit.
+Done: `CommitGraph` renders the paged history with lanes, ref badges, the Pending Changes row, loading, empty, error, bounded-miss, and end-of-history states, and the commit search input in `search` input mode; it owns the commit navigator and the graph-window refresher. `DiffPanel` renders the three pending sections with lazy per-file `<diff>` reads, hunk collapse, the conflict banner, per-file and bulk stage, unstage, discard, and delete with their confirmations, and a read-only file list for a commit or stash selection. `CommitComposer` owns the composer surface through `DraftProvider`, the identity line, the auto-growing multiline message, the four commit variants menu, amend message loading, and the shared enablement rule. `CommitDetails` renders the hashes, author and committer, ref badges, parent selection through the graph's bounded `ensureLoaded`, the capped stats row, and the collapsible message. `App.tsx` mounts `DraftProvider` inside `RepositoryProvider` and around `FocusProvider`; `AppShellHost` derives the right pane from `selection.kind`, keeps the graph mounted across mode changes, mounts the diff and commit executors once through `useMainCommands`, and registers `commit.focus` as the app-owned global action; `MainArea` is layout-only and every surface owns its own `Panel`, region frame, and scroll container. The last `PlaceholderSurface` use is gone and the component is deleted.
 
-Deferred: broader commit actions that the product spec defers beyond v1.
+Deferred: command palette and help integration, because both surfaces are M9 and still absent, so the new commands and effective bindings are not discoverable from a palette or help. Parent subjects in commit details: parent rows show the short hash because the loaded graph window belongs to the graph feature, and reading a subject per parent would add a read to a pane that must stay responsive. Commit stats cap behavior: the stats read stops at `COMMIT_STATS_FILE_CAP` and reports "stats truncated" instead of reading an unbounded commit. `form` input mode (modal forms and footer action traversal) and every `search` mode beyond commit search, so a modal text field still owns its keys and a select is reached through the modal control cycle. Draft-based quit confirmation: `app.quit` still aborts the in-flight command and destroys the renderer without asking about `DraftProvider.hasUnsavedDraft`. Remaining caveats: the right column reserves 11 rows for the composer at the enforced 80x24 minimum and the target 100x30 (clamped only when the console drawer leaves less room, and the composer fills the clamped slot down to a one-row message field), so at those sizes the message field is capped at about four rows and the diff takes the remaining rows down to its three-row minimum; the composer never draws over the diff and keeps its one-cell gutter in both console states, and its More and Commit controls stay visible, and the message field grows toward eight rows as the one-fifth right-pane share exceeds the reservation, and the right-pane summaries still render repository text without the command-output sanitizer recorded in M7.
+
+Observable outcome: the user can inspect history, select the Pending Changes row, review and stage files, write and submit a commit, then inspect the resulting commit.
 
 Why this order: staging is the input to committing, and commit details need the graph selection plus the diff surface.
 

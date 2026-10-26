@@ -1,5 +1,6 @@
 import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
+import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useRepository } from "@/app/hooks/useRepository";
 import type { WorktreeRecord } from "@/domain/git/git.types";
 import {
@@ -15,15 +16,18 @@ import { shortenPath, toHomeRelativePath } from "@/lib/paths";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { Panel } from "@/ui/Panel";
+import { ScrollableList } from "@/ui/ScrollableList";
 
 /**
  * Renders the read-only right-pane summary of the selected worktree.
  *
  * The component renders only for `RepositoryProvider.selection.kind === "worktree"`; every other
- * selection leaves the right pane to its other mode. The panel names the branch or the detached
- * short hash, the full and shortened path, the HEAD short hash, and the current, locked, prunable,
- * and dirty state with its reported reason. It never shows diff content and never writes the
- * selection or the repository root, so opening it cannot switch the active repository.
+ * selection leaves the right pane to its other mode. It owns the `right-pane` region frame, the
+ * border title, and its scroll container, so the shell's main area only sizes it. The panel names
+ * the branch or the detached short hash, the full and shortened path, the HEAD short hash, and the
+ * current, locked, prunable, and dirty state with its reported reason. It never shows diff content
+ * and never writes the selection or the repository root, so opening it cannot switch the active
+ * repository.
  *
  * A selected path that is gone from the latest snapshot renders "Worktree no longer exists" instead
  * of a stale summary. The exact read-only notice stays visible in both cases.
@@ -32,6 +36,7 @@ import { Panel } from "@/ui/Panel";
  */
 export function WorktreeDetails(): ReactNode {
   const repository = useRepository();
+  const region = useFocusRegion("right-pane");
   const tokens = useTokens();
   const dimensions = useTerminalDimensions();
   const selection = repository.selection;
@@ -49,45 +54,61 @@ export function WorktreeDetails(): ReactNode {
 
   if (worktree === null) {
     return (
-      <Panel title="Worktree" flexDirection="column" flexGrow={1}>
-        <box flexDirection="column" paddingLeft={1} paddingRight={1}>
-          <text fg={tokens.warning} wrapMode="word">
-            {`${ICONS.warning} ${WORKTREE_DETAILS_MISSING_TEXT}`}
-          </text>
-          <text fg={tokens.dim} wrapMode="word">
-            {WORKTREE_DETAILS_READ_ONLY_TEXT}
-          </text>
-        </box>
+      <Panel
+        {...region.regionProps}
+        focused={region.focused}
+        title="Worktree"
+        flexGrow={1}
+        flexBasis={0}
+      >
+        <ScrollableList>
+          <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+            <text fg={tokens.warning} wrapMode="word">
+              {`${ICONS.warning} ${WORKTREE_DETAILS_MISSING_TEXT}`}
+            </text>
+            <text fg={tokens.dim} wrapMode="word">
+              {WORKTREE_DETAILS_READ_ONLY_TEXT}
+            </text>
+          </box>
+        </ScrollableList>
       </Panel>
     );
   }
 
   return (
-    <Panel title="Worktree" flexDirection="column" flexGrow={1}>
-      <box flexDirection="column" paddingLeft={1} paddingRight={1}>
-        <text fg={tokens.text} wrapMode="none">
-          {`Worktree: ${readWorktreeLabel(worktree)}`}
-        </text>
-        <text fg={tokens.muted} wrapMode="word">
-          {`Path: ${worktree.path}`}
-        </text>
-        <text fg={tokens.muted} wrapMode="none">
-          {`Short path: ${shortenPath(
-            toHomeRelativePath(worktree.path),
-            pathBudget,
-            ICONS.ellipsis,
-          )}`}
-        </text>
-        <text fg={tokens.muted} wrapMode="none">
-          {`HEAD: ${readShortOid(worktree.headOid)}`}
-        </text>
-        <text fg={tokens.muted} wrapMode="word">
-          {`State: ${readStateText(worktree)}`}
-        </text>
-        <text fg={tokens.dim} wrapMode="word">
-          {WORKTREE_DETAILS_READ_ONLY_TEXT}
-        </text>
-      </box>
+    <Panel
+      {...region.regionProps}
+      focused={region.focused}
+      title="Worktree"
+      flexGrow={1}
+      flexBasis={0}
+    >
+      <ScrollableList>
+        <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+          <text fg={tokens.text} wrapMode="none">
+            {`Worktree: ${readWorktreeLabel(worktree)}`}
+          </text>
+          <text fg={tokens.muted} wrapMode="word">
+            {`Path: ${worktree.path}`}
+          </text>
+          <text fg={tokens.muted} wrapMode="none">
+            {`Short path: ${shortenPath(
+              toHomeRelativePath(worktree.path),
+              pathBudget,
+              ICONS.ellipsis,
+            )}`}
+          </text>
+          <text fg={tokens.muted} wrapMode="none">
+            {`HEAD: ${readShortOid(worktree.headOid)}`}
+          </text>
+          <text fg={tokens.muted} wrapMode="word">
+            {`State: ${readStateText(worktree)}`}
+          </text>
+          <text fg={tokens.dim} wrapMode="word">
+            {WORKTREE_DETAILS_READ_ONLY_TEXT}
+          </text>
+        </box>
+      </ScrollableList>
     </Panel>
   );
 }

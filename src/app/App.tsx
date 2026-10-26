@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useState } from "react";
 import { AppShellHost } from "@/app/AppShellHost";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
+import { DraftProvider } from "@/app/providers/DraftProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
 import { OverlayProvider } from "@/app/providers/OverlayProvider";
@@ -18,10 +19,10 @@ import type { CheckForUpdate } from "@/domain/update/update.types";
  *
  * Owns the one-way `splashDismissed` state and the splash-only quit callback that destroys the
  * renderer. The splash runs before any provider mounts; after dismissal the configuration, theme,
- * keymap, repository, focus, status, and console providers wrap the shell, which owns `app.quit` and
- * the centralized keyboard dispatcher from then on. `App` does not subscribe to keys itself:
- * `SplashGate` owns the splash subscription and `useHotkeys` owns every key after the shell mounts,
- * so exactly one keyboard handler is mounted at a time.
+ * keymap, repository, draft, focus, status, and console providers wrap the shell, which owns
+ * `app.quit` and the centralized keyboard dispatcher from then on. `App` does not subscribe to keys
+ * itself: `SplashGate` owns the splash subscription and `useHotkeys` owns every key after the shell
+ * mounts, so exactly one keyboard handler is mounted at a time.
  *
  * @param props - Git client, cwd, watcher, update check, and an optional test probe.
  * @returns The splash gate or the provider-backed shell.
@@ -56,16 +57,18 @@ export function App(
               gitClient={props.gitClient}
               enableWatcher={props.enableWatcher}
             >
-              <FocusProvider>
-                <OverlayProvider>
-                  <StatusProvider>
-                    <ConsoleProvider>
-                      <AppShellHost />
-                      {props.probe}
-                    </ConsoleProvider>
-                  </StatusProvider>
-                </OverlayProvider>
-              </FocusProvider>
+              <DraftProvider>
+                <FocusProvider>
+                  <OverlayProvider>
+                    <StatusProvider>
+                      <ConsoleProvider>
+                        <AppShellHost />
+                        {props.probe}
+                      </ConsoleProvider>
+                    </StatusProvider>
+                  </OverlayProvider>
+                </FocusProvider>
+              </DraftProvider>
             </RepositoryProvider>
           </KeymapProvider>
         </ThemeProvider>

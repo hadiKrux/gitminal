@@ -1,7 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { formatThrownFailure, reportUnexpectedFailure } from "@/app/hooks/commandRunner.report";
+import {
+  appendHookHint,
+  buildErrorDetails,
+  formatThrownFailure,
+  isHookFailureText,
+  reportUnexpectedFailure,
+} from "@/app/hooks/commandRunner.report";
 import type { CommandFailureReport } from "@/app/hooks/useCommandRunner.types";
-import type { CommandRequest } from "@/domain/commands/commands.types";
+import type { CommandRequest, CommandResult } from "@/domain/commands/commands.types";
 import type { ConsoleEntry } from "@/domain/console/console.types";
 
 /** Request used by the reporting tests. */
@@ -128,5 +134,76 @@ describe("reportUnexpectedFailure", () => {
     expect(result.reports[0]?.operationLabel).toBe("Refresh after Fetch");
     expect(result.reports[0]?.message).toBe("refresh\nexploded");
     expect(result.reports[0]?.consoleEntryId).toBe("entry-1");
+  });
+});
+
+describe("hook failure hint", () => {
+  /**
+   * Builds a failed commit result with the supplied stderr.
+   *
+   * @param stderr - Captured standard error.
+   * @returns The command result.
+   */
+  function failedCommit(stderr: string): CommandResult {
+    return {
+      commandId: "commit.submit",
+      status: "failure",
+      operationLabel: "Commit",
+      steps: [
+        {
+          argv: ["git", "commit", "-m", "fix"],
+          exitCode: 1,
+          durationMs: 2,
+          stdout: "",
+          stderr,
+        },
+      ],
+      cwd: "/repo",
+      progress: [],
+    };
+  }
+
+  it("names the hook and the bypass in the error details", () => {
+    const details = buildErrorDetails(failedCommit("husky - pre-commit hook failed"));
+
+    expect(details).toContain("pre-commit hook failed");
+    expect(details).toContain("--no-verify");
+  });
+
+  it("appends nothing for a non-hook failure", () => {
+    const details = buildErrorDetails(failedCommit("fatal: nothing to commit"));
+
+    expect(details).not.toContain("--no-verify");
+    expect(isHookFailureText("fatal: nothing to commit")).toBe(false);
+  });
+
+  it("recognizes the commit hooks and their runner output only", () => {
+    for (const text of [
+      "pre-commit hook declined",
+      "prepare-commit-msg hook failed",
+      "commit-msg hook failed",
+      "post-commit hook failed",
+      ".git/hooks/pre-commit exited 1",
+    ]) {
+      expect(isHookFailureText(text), text).toBe(true);
+    }
+
+    for (const text of ["pre-push hook failed", "husky - command failed", "branch hook failed"]) {
+      expect(isHookFailureText(text), text).toBe(false);
+    }
+  });
+
+  it("keeps the commit hint off a failed push with the same hook family", () => {
+    const push: CommandResult = {
+      ...failedCommit("husky - pre-push hook failed"),
+      commandId: "remote.push",
+    };
+
+    expect(buildErrorDetails(push)).toContain("pre-push hook failed");
+    expect(buildErrorDetails(push)).not.toContain("--no-verify");
+  });
+
+  it("leaves the details unchanged for an empty failure text", () => {
+    expect(appendHookHint("details", "")).toBe("details");
   });
 });

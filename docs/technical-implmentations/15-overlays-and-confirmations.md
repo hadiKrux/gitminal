@@ -37,7 +37,7 @@ Consumed paths (not owned):
 In scope:
 - The standard modal structure: title, short description, optional fields or list, footer actions with their keys, a focus trap while open, and `Esc` cancel.
 - Destructive confirmations defaulting focus to Cancel.
-- The exact confirm button labels: "Discard changes", "Delete local branch", "Delete local and remote branch", "Drop stash", "Delete tag", "Delete worktree", "Force push safely", "Overwrite remote".
+- The exact confirm button labels: "Discard changes", "Delete untracked file", "Delete local branch", "Delete local and remote branch", "Drop stash", "Delete tag", "Delete worktree", "Force push safely", "Overwrite remote", plus the count-naming bulk untracked delete label `Delete <N> untracked files`.
 - No generic "OK" or "Yes" confirms a destructive action. A destructive entry whose label is outside the exact table keeps the visible warning and disables its primary action, so the generic action cannot run.
 - Inline validation that keeps the modal open on error.
 - `Enter` submitting single-line forms through the input's native `onSubmit`/`onEnter` callback and `form.submit` (`Ctrl/Cmd+Enter`) submitting multiline forms.
@@ -213,7 +213,7 @@ Focus behavior:
 ## 11. Safety and confirmations
 
 - Destructive confirmations default focus to Cancel and state the exact scope and consequence.
-- Exact confirm labels: "Discard changes", "Delete local branch", "Delete local and remote branch", "Drop stash", "Delete tag", "Delete worktree", "Force push safely", "Overwrite remote".
+- Exact confirm labels: "Discard changes", "Delete untracked file", "Delete local branch", "Delete local and remote branch", "Drop stash", "Delete tag", "Delete worktree", "Force push safely", "Overwrite remote". The bulk untracked delete label names its count: `Delete <N> untracked files` (`Delete <N> untracked file` for one).
 - Generic "OK" and "Yes" labels never confirm a destructive action. A destructive entry that receives any other label renders the supplied label with the warning and disables its primary action with a reason, so `nav.activate` and a click do nothing.
 - Configuration cannot disable destructive confirmations, force-push warnings, credential prompt protection, or hook execution defaults.
 - On failure, the user's input is preserved when retry is meaningful: the retry closure captures the original request, so drafts or staged files are never cleared and no duplicate input state is stored.
@@ -224,7 +224,7 @@ Focus behavior:
 
 - "All modals use the same structure: title, short description, optional fields or list, footer with actions and their keys, focus trap, `Esc` cancels" -> `src/ui/ModalFrame.tsx` plus `src/ui/ModalActions.tsx`, wrapped by `src/features/overlays/OverlayHost.tsx`.
 - "Destructive confirmations default focus to Cancel" -> `ConfirmModal.tsx` plus the `destructive` flag in `OverlayProvider.tsx`.
-- "Confirm buttons use specific labels" -> the shared table in `domain/commands/confirm.labels.ts`; the eight labels above.
+- "Confirm buttons use specific labels" -> the shared table in `domain/commands/confirm.labels.ts`; the nine fixed labels above plus the count-naming bulk untracked delete label from `formatDeleteAllUntrackedLabel`.
 - "Simple OK and Yes labels are not used for destructive actions" -> the exact-label validation at entry creation in `OverlayProvider` plus `ConfirmModal`, which renders a visible warning and disables the primary action so the generic action cannot run.
 - "Destructive confirmations state the exact scope and consequence" -> the description built by the calling feature and rendered by `ConfirmModal.tsx`.
 - "Text input modals validate inline and keep the modal open on error" -> `src/ui/FormField.tsx` plus validation state owned by the calling feature.
@@ -242,7 +242,7 @@ Colocated per architecture section 5:
 - `src/app/providers/OverlayProvider.test.tsx`: only one modal at a time; a second error replaces the first instead of stacking; close on success closes only the originating entry; an unrelated entry stays open; opening captures and blurs the focused renderable, and closing restores that renderable if it is still mounted, otherwise its region frame; a stale `showError` captured before a modal opened cannot blur the modal's focused field; an invalid destructive label produces a visible warning and a disabled primary action instead of a crash; success and informational results add no overlay entry.
 - `OverlayHost.test.tsx`: `overlay.close` cancels; the focus trap keeps `focus.next` inside the modal even when another field is focusable; destructive default focus is Cancel; an exact destructive label leaves the primary enabled and Enter runs `onConfirm`; a non-exact destructive label cannot be confirmed with Enter; a queued error does not pull focus back to the modal's initial field; Open console entry moves focus into the console region; the footer shows the modal keys; `form.submit` fires from a multiline field; `Enter` still activates a focused footer button. `src/app/hooks/useCommandRunner.test.tsx` covers an unrelated confirmation staying open while a command settles, and `src/app/AppShellHost.test.tsx` covers a confirmation that keeps native focus when an in-flight failure arrives.
 - Keyboard ownership test: while an overlay is open outside a modal text field, `app.quit` and that overlay's own toggle resolve, and every other global action, including `app.console`, `app.palette` in a non-palette modal, `remote.pull`, `app.themePicker`, and `app.reloadConfig`, does not resolve.
-- `ConfirmModal.test.tsx`: each of the eight labels renders for its action; the explicit label-to-destructiveness table drives label rendering and the Cancel-first check for every label; no "OK" or "Yes" appears for destructive actions; scope text is present; a non-exact destructive label renders the warning and the disabled reason. `src/domain/commands/confirm.labels.test.ts` pins the literal eight-label set.
+- `ConfirmModal.test.tsx`: each of the exact labels renders for its action; the explicit label-to-destructiveness table drives label rendering and the Cancel-first check for every label; no "OK" or "Yes" appears for destructive actions; scope text is present; a non-exact destructive label renders the warning and the disabled reason. `src/domain/commands/confirm.labels.test.ts` pins the literal label set and the count-naming bulk label.
 - `ErrorOverlay.test.tsx`: persistence until dismissed; details are redacted; "Open console entry" selects the entry; a new error replaces the visible details.
 - Status message tests: success and informational results render in the top bar status strip and append to the console; they never mount an overlay, take focus, or block keys.
 - Form submit tests: `Enter` reaches a single-line input and its `onSubmit`/`onEnter` callback runs the form submit action; `nav.activate` still activates footer buttons; `form.submit` fires on the mapped `Ctrl/Cmd+Enter` binding for a textarea; inline validation keeps the modal open.

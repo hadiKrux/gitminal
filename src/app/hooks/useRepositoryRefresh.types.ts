@@ -1,11 +1,14 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type {
+  CommitNavigator,
+  GraphWindowRefresher,
   RepositoryRefreshOptions,
   RepositoryRefreshResult,
   RepositoryStore,
 } from "@/app/providers/RepositoryProvider.types";
 import type { GitClient } from "@/domain/git/git.types";
-import type { UpstreamEvidence } from "@/domain/repository/repository.types";
+import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
+import type { RepositorySelection, UpstreamEvidence } from "@/domain/repository/repository.types";
 
 /** Inputs accepted by `useRepositoryRefreshCycle`. */
 export interface RepositoryRefreshCycleInput {
@@ -21,6 +24,12 @@ export interface RepositoryRefreshCycleInput {
   readonly mountedRef: MutableRefObject<boolean>;
   /** Shared upstream deletion and failure evidence. */
   readonly evidenceRef: MutableRefObject<UpstreamEvidence>;
+  /**
+   * Replaces the right-pane selection.
+   *
+   * @param selection - New selection value.
+   */
+  readonly setSelection: (selection: RepositorySelection) => void;
 }
 
 /** Refresh operations exposed by `useRepositoryRefreshCycle`. */
@@ -48,9 +57,22 @@ export interface RepositoryRefreshCycle {
   /**
    * Registers the graph feature's loaded-window reloader.
    *
-   * @param refresher - Reloader, or null to clear it.
+   * @param refresher - Reloader that reports success, or null to clear it.
    */
-  registerGraphWindowRefresher(refresher: (() => Promise<void>) | null): void;
+  registerGraphWindowRefresher(refresher: GraphWindowRefresher | null): void;
+  /**
+   * Registers the graph feature's bounded commit loader.
+   *
+   * @param navigator - Loader, or null to clear it.
+   */
+  registerCommitNavigator(navigator: CommitNavigator | null): void;
+  /**
+   * Selects a commit after the graph has loaded it.
+   *
+   * @param oid - Commit OID to select.
+   * @returns The bounded load outcome; `loaded` when the commit became the selection.
+   */
+  selectCommit(oid: string): Promise<EnsureLoadedResult>;
 }
 
 /** Store flag that one coalescing task owns while it is in flight. */
@@ -70,8 +92,10 @@ export interface RefreshFlagTaskInput {
 export interface RepositoryRefreshRefs {
   /** Last generation reserved by any read. */
   readonly generationRef: MutableRefObject<number>;
-  /** Registered graph-window reloader, or null. */
-  readonly graphRefresherRef: MutableRefObject<(() => Promise<void>) | null>;
+  /** Registered graph-window reloader that reports success, or null. */
+  readonly graphRefresherRef: MutableRefObject<GraphWindowRefresher | null>;
+  /** Registered bounded commit navigator, or null. */
+  readonly commitNavigatorRef: MutableRefObject<CommitNavigator | null>;
   /** Controller of the last status read. */
   readonly readControllerRef: MutableRefObject<AbortController | null>;
   /** Controller of the queued follow-up read, or null when no follow-up is queued. */

@@ -1,16 +1,11 @@
-import { useRenderer } from "@opentui/react";
 import type { ReactNode } from "react";
-import { useAction } from "@/app/hooks/useAction";
-import { useCommandRunner } from "@/app/hooks/useCommandRunner";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
-import { useFocusState } from "@/app/hooks/useFocusState";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
-import { clearFocusedInput } from "@/app/hooks/useInputEscapeClear";
-import { useOverlay } from "@/app/hooks/useOverlay";
+import { useMainCommands } from "@/app/hooks/useMainCommands";
 import { usePanelCommands } from "@/app/hooks/usePanelCommands";
 import { useRemoteCommands } from "@/app/hooks/useRemoteCommands";
 import { useRepository, useRepositoryRefreshAction } from "@/app/hooks/useRepository";
-import { useStatus } from "@/app/hooks/useStatus";
+import { useShellActions } from "@/app/hooks/useShellActions";
 import { selectRepositoryPath, selectTagRows } from "@/domain/repository/repository.selectors";
 import type {
   RemoteTagChecks,
@@ -18,12 +13,15 @@ import type {
   RepositorySnapshot,
 } from "@/domain/repository/repository.types";
 import { BranchesPanel } from "@/features/branches/BranchesPanel";
+import { CommitDetails } from "@/features/commit-details/CommitDetails";
+import { CommitComposer } from "@/features/composer/CommitComposer";
 import { ConsoleDrawer } from "@/features/console/ConsoleDrawer";
+import { DiffPanel } from "@/features/diff/DiffPanel";
+import { CommitGraph } from "@/features/graph/CommitGraph";
 import { OverlayHost } from "@/features/overlays/OverlayHost";
 import { RemotesPanel } from "@/features/remotes/RemotesPanel";
 import { AppShell } from "@/features/shell/AppShell";
-import type { RegionId, SidebarPanel } from "@/features/shell/focus.types";
-import { PlaceholderSurface } from "@/features/shell/PlaceholderSurface";
+import type { SidebarPanel } from "@/features/shell/focus.types";
 import { ResponsiveGate } from "@/features/shell/ResponsiveGate";
 import { StashDetails } from "@/features/stashes/StashDetails";
 import { StashesPanel } from "@/features/stashes/StashesPanel";
@@ -33,82 +31,35 @@ import { WorktreeDetails } from "@/features/worktrees/WorktreeDetails";
 import { WorktreesPanel } from "@/features/worktrees/WorktreesPanel";
 
 /**
- * Composes the shell with the current feature surfaces.
+ * Composes the shell with the real feature surfaces.
  *
  * This is the only module allowed to import the shell together with feature surfaces. It owns
- * composition and global action registration only: the real top bar lives in `features/top-bar`,
- * the five sidebar panels in `features/branches`, `features/remotes`, `features/tags`,
- * `features/stashes`, and `features/worktrees`, the console drawer in `features/console`, the
- * overlay host in `features/overlays`, and the generic placeholder for the graph, composer, and diff
- * milestones in `features/shell`. It installs the single keyboard dispatcher, registers the panel
- * command executors once, and applies quit and close behaviour against the focus, status, repository,
- * overlay, and console providers.
+ * composition and global action registration only: the real top bar lives in `features/top-bar`, the
+ * five sidebar panels in `features/branches`, `features/remotes`, `features/tags`,
+ * `features/stashes`, and `features/worktrees`, the commit graph in `features/graph`, the right-pane
+ * modes in `features/composer`, `features/commit-details`, `features/stashes`, and
+ * `features/worktrees`, the diff panel in `features/diff`, the console drawer in `features/console`,
+ * and the overlay host in `features/overlays`.
+ *
+ * It installs the single keyboard dispatcher and registers the panel and main-area command
+ * executors once. Global quit, close, console, and commit-focus behaviour lives in
+ * `useShellActions`, which applies it against the focus, status, repository, overlay, console, and
+ * draft providers; refresh keeps its own `useRepositoryRefreshAction` handler. The graph is mounted
+ * for the lifetime of the shell because it owns the commit navigator and the graph-window refresher;
+ * only the right pane changes with `RepositoryProvider.selection`.
  *
  * @returns The responsive shell.
  */
 export function AppShellHost(): ReactNode {
-  const renderer = useRenderer();
-  const { status, clearStatus } = useStatus();
-  const overlay = useOverlay();
-  const { state, focusRegion } = useFocusState();
   const consoleLog = useConsoleLog();
-  const commandRunner = useCommandRunner();
   const repository = useRepository();
 
   useHotkeys();
   useRepositoryRefreshAction();
   useRemoteCommands();
   usePanelCommands();
-
-  useAction("app.quit", { scope: "global", owner: "app" }, () => {
-    void (async () => {
-      // Draft confirmation lands with the overlay stack. Until then quit always aborts the child
-      // and waits for it to settle before tearing down the renderer.
-      await commandRunner.abort();
-      renderer.destroy();
-    })();
-  });
-
-  useAction("overlay.close", { scope: "global", owner: "app" }, () => {
-    if (overlay.isOpen) {
-      overlay.close();
-      return;
-    }
-
-    closeTransientSurface({
-      hasStatus: status !== null,
-      clearStatus,
-      consoleOpen: consoleLog.isOpen,
-      closeConsole: () => {
-        consoleLog.close();
-        returnFromConsoleFocus(state.previousRegion, focusRegion);
-      },
-      clearFocusedInput: () => clearFocusedInput(state.focusedRenderableId),
-      returnFromTextInput: () => {
-        if (state.textInputFocused && state.activeRegion !== null) {
-          focusRegion(state.activeRegion);
-          return true;
-        }
-
-        return false;
-      },
-      returnToPreviousRegion: () => {
-        if (state.previousRegion !== null && state.previousRegion !== state.activeRegion) {
-          focusRegion(state.previousRegion);
-        }
-      },
-    });
-  });
-
-  useAction("app.console", { scope: "global", owner: "app" }, () => {
-    if (consoleLog.isOpen && state.focusInsideRegion && state.activeRegion === "console") {
-      consoleLog.close();
-      returnFromConsoleFocus(state.previousRegion, focusRegion);
-      return;
-    }
-
-    consoleLog.toggle();
-  });
+  useMainCommands();
+  useShellActions();
 
   return (
     <ResponsiveGate
@@ -118,19 +69,9 @@ export function AppShellHost(): ReactNode {
           topBar={<TopBar />}
           topBarTitle={selectRepositoryPath(repository.snapshot, repository.signals)}
           sidebarPanels={buildSidebarPanels(repository.snapshot, repository.remoteTagChecks)}
-          graph={
-            <PlaceholderSurface
-              title="Commit graph"
-              detail="History, refs, and the pending changes row arrive with the commit graph milestone."
-            />
-          }
+          graph={<CommitGraph />}
           rightPane={buildRightPane(repository.selection)}
-          diffPanel={
-            <PlaceholderSurface
-              title="Diffs"
-              detail="Working, staged, and untracked diffs arrive with the diff milestone."
-            />
-          }
+          diffPanel={<DiffPanel />}
           console={<ConsoleDrawer />}
           consoleOpen={consoleLog.isOpen}
           onOpenConsole={consoleLog.open}
@@ -197,14 +138,20 @@ function buildSidebarPanels(
 /**
  * Derives the right-pane surface from the repository selection.
  *
- * A stash or worktree selection renders its read-only summary. Every other selection keeps the
- * composer placeholder until the M8 composer and commit details land. The selection is provider
- * state keyed by stable identity, so the pane never keeps a second mode flag.
+ * The selection is the only source of the right-pane mode, so no provider or feature keeps a second
+ * sub-mode flag. A commit selection renders commit details, a stash selection its summary, and a
+ * worktree selection its summary. Every remaining selection, including the pending changes row,
+ * renders the composer; a diff-file selection is treated as the composer as a safe fallback because
+ * the diff panel keeps its cursor local and does not write that selection.
  *
  * @param selection - Current right-pane selection.
  * @returns The right-pane surface.
  */
 function buildRightPane(selection: RepositorySelection): ReactNode {
+  if (selection.kind === "commit") {
+    return <CommitDetails />;
+  }
+
   if (selection.kind === "stash") {
     return <StashDetails />;
   }
@@ -213,67 +160,5 @@ function buildRightPane(selection: RepositorySelection): ReactNode {
     return <WorktreeDetails />;
   }
 
-  return (
-    <PlaceholderSurface
-      title="Commit composer"
-      detail="The composer and commit details follow the repository foundation."
-    />
-  );
-}
-
-/**
- * Closes the transient surface Esc owns when no overlay is open.
- *
- * A status message is cleared first, then an open console drawer closes, then a focused text input
- * that registered a first-Esc clear clears and keeps focus, then a focused text input returns focus
- * to its region, and finally focus returns to the previous region. The callbacks own the provider
- * writes so this function stays a small, testable branch table.
- *
- * @param input - Whether each surface is active plus the callbacks that close it.
- */
-function closeTransientSurface(input: {
-  readonly hasStatus: boolean;
-  readonly clearStatus: () => void;
-  readonly consoleOpen: boolean;
-  readonly closeConsole: () => void;
-  readonly clearFocusedInput: () => boolean;
-  readonly returnFromTextInput: () => boolean;
-  readonly returnToPreviousRegion: () => void;
-}): void {
-  if (input.hasStatus) {
-    input.clearStatus();
-  }
-
-  if (input.consoleOpen) {
-    input.closeConsole();
-    return;
-  }
-
-  if (input.clearFocusedInput()) {
-    return;
-  }
-
-  if (input.returnFromTextInput()) {
-    return;
-  }
-
-  input.returnToPreviousRegion();
-}
-
-/**
- * Returns focus to the region that owned it before the console opened.
- *
- * The console region unmounts when the drawer closes, so waiting for the next focus action would
- * leave focus nowhere. The console itself is never a valid restore target.
- *
- * @param previousRegion - Region active before the console opened, or null.
- * @param focusRegion - Native focus helper for a region frame.
- */
-function returnFromConsoleFocus(
-  previousRegion: RegionId | null,
-  focusRegion: (region: RegionId) => void,
-): void {
-  if (previousRegion !== null && previousRegion !== "console") {
-    focusRegion(previousRegion);
-  }
+  return <CommitComposer />;
 }

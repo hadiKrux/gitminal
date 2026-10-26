@@ -126,7 +126,7 @@ key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(re
 | repository refresh (list) | `git.remote-branches.ts` `readRemoteBranches()` -> `parseRemoteBranches()` | `git for-each-ref refs/remotes --format=%(refname)%00%(objectname)%00%(committerdate:iso-strict)%00%(subject)%00%(symref)` |
 | grouping and sorting | `git.remote-branches.ts` `groupByRemote()` (pure) | none; sorts by remote name, then branch name, and drops the `origin/HEAD` symbolic ref |
 | freshness classification | `repository.selectors.ts` | none; derived from each remote's last successful remote check or fetch timestamp compared with the current clock, never from ref committer dates |
-| `remote.createLocal` with checkout | `git.remote-branches.ts` `planCreateLocalBranchFromRemote()` | One atomic command: `git switch -c <name> <remoteRef>`. The documented Git floor is 2.30, so there is no `checkout -b` fallback and a failed checkout leaves no branch behind. |
+| `remote.createLocal` with checkout | `git.remote-branches.ts` `planCreateLocalBranchFromRemote()` | One atomic command: `git switch -c <name> <remoteRef>`. The documented Git floor is 2.31, so there is no `checkout -b` fallback and a failed checkout leaves no branch behind. |
 | `remote.createLocal` without checkout | `git.remote-branches.ts` `planCreateLocalBranchFromRemote()` | `git branch <name> <remoteRef>` |
 | `nav.activate` | none | none; the action is unavailable in v1 (see section 9) |
 | repository refresh | `git.remote-branches.ts` `readRemoteBranches()` via repository refresh | the list read above; `app.refresh` is a global action owned outside this feature |
@@ -183,7 +183,7 @@ Notes: double click on a row performs the same action as `remote.createLocal`, u
 ## 11. Safety and confirmations
 
 - Creating a local branch from a remote ref is non-destructive and requires no confirmation beyond the modal.
-- Create with checkout is atomic. It uses `git switch -c <name> <remoteRef>`, never `git branch` followed by `git checkout`, so a failed checkout cannot leave an orphan branch. The documented Git floor is 2.30, so no `checkout -b` fallback exists. Without checkout it uses `git branch <name> <remoteRef>`.
+- Create with checkout is atomic. It uses `git switch -c <name> <remoteRef>`, never `git branch` followed by `git checkout`, so a failed checkout cannot leave an orphan branch. The documented Git floor is 2.31, so no `checkout -b` fallback exists. Without checkout it uses `git branch <name> <remoteRef>`.
 - The modal validates the name inline and keeps the modal open on error (F-15).
 - Navigating the list, filtering, and focusing the region never mutate repository state.
 - The panel never initiates a fetch, prune, or delete, so it cannot lose remote state as a side effect.

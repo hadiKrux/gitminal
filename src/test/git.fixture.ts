@@ -6,7 +6,7 @@ import { createGitClient } from "@/domain/git/git.client";
 import type { GitClient, GitInvocationResult, GitOperationClass } from "@/domain/git/git.types";
 
 /** Minimum git version the integration suite runs against. */
-const MINIMUM_GIT_VERSION = "2.30.0";
+const MINIMUM_GIT_VERSION = "2.31.0";
 
 /** Options accepted when creating a temporary repository. */
 export interface GitFixtureOptions {
@@ -251,7 +251,7 @@ function resolveFixtureRoot(options: GitFixtureOptions): { root: string; ownsRoo
  * remotes while a fixture runs. The production environment matrix is untouched. `GIT_CONFIG_GLOBAL`
  * and `GIT_CONFIG_SYSTEM` need git 2.32, so the fixture also sets `GIT_CONFIG_NOSYSTEM` and points
  * `HOME` and `XDG_CONFIG_HOME` at a per-fixture temporary directory, which is ignored on every
- * supported version including the 2.30 floor.
+ * supported version including the 2.31 floor.
  */
 interface FixtureEnvironment {
   /** Environment additions applied to every fixture invocation. */

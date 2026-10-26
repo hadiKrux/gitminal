@@ -113,6 +113,7 @@ export async function runCommand(
     target: options.target,
     region: options.region,
     operation: "idle",
+    readOnly: options.readOnly,
     formValues: request.formValues,
   });
 
@@ -152,6 +153,7 @@ export async function runCommand(
       cwd,
       client,
       signal: controller.signal,
+      readOnly: options.readOnly === true,
       notifyProgress,
     });
 

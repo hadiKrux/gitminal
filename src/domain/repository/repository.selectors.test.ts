@@ -6,10 +6,13 @@ import type {
   WorktreeRecord,
 } from "@/domain/git/git.types";
 import {
+  isReadOnlySelection,
   REMOTE_STALE_AFTER_MS,
   selectAheadBehind,
   selectBranchDisplay,
   selectBranchRows,
+  selectCommitRefs,
+  selectGraphScopeTips,
   selectPendingCounts,
   selectRemoteBranchGroups,
   selectRemoteFreshness,
@@ -92,6 +95,54 @@ describe("repository selectors", () => {
       untracked: 2,
       total: 6,
     });
+  });
+
+  it("classifies only a commit or stash selection as read-only", () => {
+    expect(isReadOnlySelection({ kind: "commit", oid: "abc123" })).toBe(true);
+    expect(isReadOnlySelection({ kind: "stash", objectName: "stash@{0}" })).toBe(true);
+    expect(isReadOnlySelection({ kind: "pending" })).toBe(false);
+    expect(isReadOnlySelection({ kind: "worktree", path: "/repo-feature" })).toBe(false);
+    expect(isReadOnlySelection({ kind: "diffFile", section: "working", path: "src/app.ts" })).toBe(
+      false,
+    );
+  });
+
+  it("reads deduplicated graph scope tips for all, local, and current", () => {
+    const tipsSnapshot = snapshot({
+      headOid: "head001",
+      branches: [
+        branch({ name: "main", tipOid: "abc123" }),
+        branch({ name: "old", tipOid: "old001" }),
+        branch({ name: "duplicate", tipOid: "abc123" }),
+      ],
+      remoteBranches: [
+        { ...remoteBranch("origin", "main"), tipOid: "abc123" },
+        { ...remoteBranch("origin", "topic"), tipOid: "remote001" },
+      ],
+    });
+
+    expect(selectGraphScopeTips(tipsSnapshot, "all")).toEqual([
+      "abc123",
+      "old001",
+      "remote001",
+      "head001",
+    ]);
+    expect(selectGraphScopeTips(tipsSnapshot, "local")).toEqual(["abc123", "old001", "head001"]);
+    expect(selectGraphScopeTips(tipsSnapshot, "current")).toEqual(["head001"]);
+    expect(selectGraphScopeTips(null, "all")).toEqual([]);
+  });
+
+  it("skips an empty graph scope tip", () => {
+    expect(
+      selectGraphScopeTips(
+        snapshot({
+          headOid: "",
+          branches: [branch({ tipOid: "" })],
+          remoteBranches: [{ ...remoteBranch("origin", "topic"), tipOid: "" }],
+        }),
+        "all",
+      ),
+    ).toEqual([]);
   });
 
   it("shows the work-tree root, bare git directory, or launch directory as the repository path", () => {
@@ -418,5 +469,67 @@ describe("panel selectors", () => {
     expect(selectStashRows(null)).toEqual([]);
     expect(selectWorktreeRows(null)).toEqual([]);
     expect(selectWorktreeBranchMap(null).size).toBe(0);
+  });
+});
+
+describe("selectCommitRefs", () => {
+  it("combines snapshot refs with full decoration entries in badge order", () => {
+    const current = snapshot({
+      branches: [branch({ name: "main" }), branch({ name: "feature", tipOid: "other00" })],
+      remoteBranches: [remoteBranch("origin", "main"), remoteBranch("origin", "release/1.0")],
+      tags: [
+        { name: "v1.0.0", objectType: "commit", targetOid: "abc123", subject: "release" },
+        { name: "old", objectType: "commit", targetOid: "other00", subject: "old" },
+      ],
+    });
+
+    const refs = selectCommitRefs(current, "abc123", [
+      "HEAD -> refs/heads/main",
+      "tag: refs/tags/v1.0.0",
+      "refs/remotes/origin/main",
+    ]);
+
+    expect(refs).toEqual({
+      tags: ["v1.0.0"],
+      local: ["main"],
+      remote: ["origin/main", "origin/release/1.0"],
+    });
+  });
+
+  it("adds a decoration ref that the snapshot does not list", () => {
+    const refs = selectCommitRefs(snapshot(), "abc123", [
+      "refs/heads/hotfix",
+      "tag: refs/tags/v2.0.0",
+      "refs/remotes/upstream/topic",
+    ]);
+
+    expect(refs).toEqual({
+      tags: ["v2.0.0"],
+      local: ["hotfix"],
+      remote: ["upstream/topic"],
+    });
+  });
+
+  it("skips a detached HEAD decoration and returns empty groups", () => {
+    expect(selectCommitRefs(snapshot(), "abc123", ["HEAD"])).toEqual({
+      tags: [],
+      local: [],
+      remote: [],
+    });
+    expect(selectCommitRefs(null, "abc123", [])).toEqual({
+      tags: [],
+      local: [],
+      remote: [],
+    });
+  });
+
+  it("matches a remote name that contains a slash before the first slash", () => {
+    const current = snapshot({
+      remotes: [{ name: "team/origin", fetchUrl: null, pushUrl: null }],
+    });
+
+    const refs = selectCommitRefs(current, "abc123", ["refs/remotes/team/origin/main"]);
+
+    expect(refs.remote).toEqual(["team/origin/main"]);
   });
 });

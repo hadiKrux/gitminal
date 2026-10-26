@@ -35,6 +35,9 @@ import { EMPTY_REF_READ_ANSWERS } from "@/test/git.fake";
 /** Latest runner handle captured by the probe. */
 let latestRunner: CommandRunnerHook | undefined;
 
+/** Latest repository context captured by the probe. */
+let latestRepository: ReturnType<typeof useRepository> | undefined;
+
 /** Latest status context captured by the probe. */
 let latestStatus: StatusContextValue | undefined;
 
@@ -178,7 +181,7 @@ function RunnerProbe(props: { withDefaultSink?: boolean }): ReactNode {
   latestStatus = useStatus();
   latestConsole = useConsoleLog();
   latestOverlay = useOverlay();
-  useRepository();
+  latestRepository = useRepository();
   useRepositoryRefreshAction();
 
   const captureError =
@@ -208,6 +211,7 @@ async function renderRunner(
   fake: ReturnType<typeof createFakeGit>;
 }> {
   latestRunner = undefined;
+  latestRepository = undefined;
   latestStatus = undefined;
   latestConsole = undefined;
   latestOverlay = undefined;
@@ -353,6 +357,57 @@ describe("useCommandRunner", () => {
     expect(latestStatus?.status).toEqual({ kind: "success", message: "Fetch completed" });
     expect(latestStatus?.operation).toBeNull();
     expect(errorReports).toHaveLength(0);
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("blocks a diff write from a commit selection and passes readOnly in the pending context", async () => {
+    const seen: boolean[] = [];
+    const cleanup = registerCommandHandler({
+      commandId: "diff.stage",
+      operationLabel: "Stage file",
+      handler: async (context) => {
+        seen.push(context.readOnly === true);
+
+        return { steps: [okStep({ argv: ["git", "add", "--", ":(literal)a.txt"] })] };
+      },
+    });
+    const { setup, fake } = await renderRunner();
+
+    await waitForInitialRead(setup, fake);
+
+    const target = { kind: "diffFile" as const, section: "working", path: "a.txt" };
+    const request: CommandRequest = { commandId: "diff.stage", target };
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "commit", oid: "abc123" });
+    });
+
+    let blocked: Awaited<ReturnType<CommandRunnerHook["runCommand"]>> | undefined;
+
+    await act(async () => {
+      blocked = await latestRunner?.runCommand(request);
+    });
+
+    expect(blocked?.status).toBe("blocked");
+    expect(blocked?.blockedReason).toBe("read-only");
+    expect(seen).toEqual([]);
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "pending" });
+    });
+
+    let writable: Awaited<ReturnType<CommandRunnerHook["runCommand"]>> | undefined;
+
+    await act(async () => {
+      writable = await latestRunner?.runCommand(request);
+    });
+
+    expect(writable?.status).toBe("success");
+    expect(seen).toEqual([false]);
 
     cleanup();
     await act(async () => {

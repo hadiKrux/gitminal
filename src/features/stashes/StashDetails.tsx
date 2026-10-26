@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useRepository } from "@/app/hooks/useRepository";
 import type { StashRecord } from "@/domain/git/git.types";
 import { selectStashRows } from "@/domain/repository/repository.selectors";
@@ -12,14 +13,17 @@ import { readStashMessage } from "@/features/stashes/stash.prefill";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { Panel } from "@/ui/Panel";
+import { ScrollableList } from "@/ui/ScrollableList";
 
 /**
  * Renders the right-pane summary for the selected stash.
  *
  * The component is composed by `AppShellHost` when `RepositoryProvider.selection.kind` is `stash`.
- * It reads the selection and the snapshot itself, so it takes no props. The summary names the stash
- * message, source branch, relative age, and short object name, and it states that the surface is
- * read-only. The diff itself belongs to the Diff panel; no patch content is duplicated here.
+ * It reads the selection and the snapshot itself, so it takes no props. It owns the `right-pane`
+ * region frame, the border title, and its scroll container, so the shell's main area only sizes it.
+ * The summary names the stash message, source branch, relative age, and short object name, and it
+ * states that the surface is read-only. The diff itself belongs to the Diff panel; no patch content
+ * is duplicated here.
  *
  * A selection whose object name is no longer in the snapshot renders "Stash no longer exists" so a
  * vanished stash is explained instead of silently blanking the pane.
@@ -28,6 +32,7 @@ import { Panel } from "@/ui/Panel";
  */
 export function StashDetails(): ReactNode {
   const repository = useRepository();
+  const region = useFocusRegion("right-pane");
   const tokens = useTokens();
   const selection = repository.selection;
 
@@ -42,31 +47,44 @@ export function StashDetails(): ReactNode {
 
   if (stash === null) {
     return (
-      <Panel title="Stash" flexDirection="column" flexShrink={0} padding={1}>
-        <text fg={tokens.warning} wrapMode="word">
-          {STASH_DETAILS_MISSING_TEXT}
-        </text>
+      <Panel
+        {...region.regionProps}
+        focused={region.focused}
+        title="Stash"
+        flexGrow={1}
+        flexBasis={0}
+        padding={1}
+      >
+        <ScrollableList>
+          <text fg={tokens.warning} wrapMode="word">
+            {STASH_DETAILS_MISSING_TEXT}
+          </text>
+        </ScrollableList>
       </Panel>
     );
   }
 
   return (
     <Panel
+      {...region.regionProps}
+      focused={region.focused}
       title={`Stash ${readStashMessage(stash)}`}
-      flexDirection="column"
-      flexShrink={0}
+      flexGrow={1}
+      flexBasis={0}
       padding={1}
     >
-      <text fg={tokens.text} wrapMode="word">
-        <span fg={tokens.muted}>Source branch: </span>
-        <span>{stash.sourceBranch ?? "not recorded"}</span>
-      </text>
-      <text fg={tokens.muted} wrapMode="word">
-        {`Age: ${formatStashAge(stash.committedAt)} ${ICONS.hintSeparator} Object: ${readShortObjectName(stash)}`}
-      </text>
-      <text fg={tokens.text} wrapMode="word">
-        {STASH_DETAILS_READ_ONLY_TEXT}
-      </text>
+      <ScrollableList>
+        <text fg={tokens.text} wrapMode="word">
+          <span fg={tokens.muted}>Source branch: </span>
+          <span>{stash.sourceBranch ?? "not recorded"}</span>
+        </text>
+        <text fg={tokens.muted} wrapMode="word">
+          {`Age: ${formatStashAge(stash.committedAt)} ${ICONS.hintSeparator} Object: ${readShortObjectName(stash)}`}
+        </text>
+        <text fg={tokens.text} wrapMode="word">
+          {STASH_DETAILS_READ_ONLY_TEXT}
+        </text>
+      </ScrollableList>
     </Panel>
   );
 }

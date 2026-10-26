@@ -1,4 +1,11 @@
-import type { DiffLimitResult, DiffLimits } from "./diff.types";
+import { formatHunkHeader } from "./diff.collapse";
+import type {
+  DiffHunk,
+  DiffLimitResult,
+  DiffLimits,
+  FileDiff,
+  FileDiffLimitResult,
+} from "./diff.types";
 
 /** Default caps for one file diff. */
 export const DIFF_LIMIT_DEFAULTS: DiffLimits = Object.freeze({
@@ -118,4 +125,111 @@ function splitDiffBlocks(lines: readonly string[]): {
  */
 function bufferBytes(value: string): number {
   return Buffer.byteLength(value, "utf8");
+}
+
+/**
+ * Applies the line and byte caps to one parsed file diff.
+ *
+ * The file header is always kept and a hunk is kept whole or dropped whole, so the retained patch
+ * never ends with a dangling `@@` header. Every retained hunk is re-serialized with an explicit
+ * `@@ -oldStart,oldCount +newStart,newCount @@` header, which makes the returned `raw` a valid
+ * unified patch even when git used its `,1` shorthand.
+ *
+ * @param file - Parsed file diff.
+ * @param limits - Cap overrides, defaulting to `DIFF_LIMIT_DEFAULTS`.
+ * @returns The retained file and truncation metadata.
+ */
+export function applyFileDiffLimits(
+  file: FileDiff,
+  limits: Partial<DiffLimits> = {},
+): FileDiffLimitResult {
+  const maxLines = Math.max(1, limits.maxLines ?? DIFF_LIMIT_DEFAULTS.maxLines);
+  const maxBytes = Math.max(1, limits.maxBytes ?? DIFF_LIMIT_DEFAULTS.maxBytes);
+  const retainedLines: string[] = [...file.headerLines];
+  const retainedHunks: DiffHunk[] = [];
+  let truncated = false;
+
+  for (const hunk of file.hunks) {
+    const hunkLines = [
+      formatHunkHeader(hunk, hunk.heading),
+      ...hunk.lines.map((line) => line.text),
+    ];
+    const candidate = [...retainedLines, ...hunkLines];
+
+    if (candidate.length > maxLines || bufferBytes(candidate.join("\n")) > maxBytes) {
+      truncated = true;
+      break;
+    }
+
+    retainedLines.push(...hunkLines);
+    retainedHunks.push(hunk);
+  }
+
+  if (file.hunks.length === 0 && exceedsCaps(retainedLines, maxLines, maxBytes)) {
+    truncated = true;
+  }
+
+  const text = retainedLines.length === 0 ? "" : `${retainedLines.join("\n")}\n`;
+  const retainedFile: FileDiff = { ...file, hunks: retainedHunks, raw: text };
+
+  return {
+    file: retainedFile,
+    truncated,
+    totalLines: countFileLines(file),
+    shownLines: retainedLines.length,
+    totalBytes: bufferBytes(file.raw),
+    shownBytes: bufferBytes(text),
+  };
+}
+
+/**
+ * Reports whether a file size exceeds the preview byte cap.
+ *
+ * An unknown size (`null`) is never oversized on its own: the caller keeps the bounded read and this
+ * module's caps instead of claiming the file is small. A negative or non-finite size is likewise
+ * treated as unknown.
+ *
+ * @param sizeBytes - Probed size in bytes, or null when unknown.
+ * @param limits - Cap overrides, defaulting to `DIFF_LIMIT_DEFAULTS`.
+ * @returns True when the size is known and exceeds the byte cap.
+ */
+export function isDiffOversized(
+  sizeBytes: number | null,
+  limits: Partial<DiffLimits> = {},
+): boolean {
+  if (sizeBytes === null || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
+    return false;
+  }
+
+  const maxBytes = Math.max(1, limits.maxBytes ?? DIFF_LIMIT_DEFAULTS.maxBytes);
+
+  return sizeBytes > maxBytes;
+}
+
+/**
+ * Counts the physical lines of a parsed patch.
+ *
+ * @param file - Parsed file diff.
+ * @returns Header lines plus one header and its body lines per hunk.
+ */
+function countFileLines(file: FileDiff): number {
+  let total = file.headerLines.length;
+
+  for (const hunk of file.hunks) {
+    total += 1 + hunk.lines.length;
+  }
+
+  return total;
+}
+
+/**
+ * Reports whether a set of physical lines exceeds either cap.
+ *
+ * @param lines - Physical lines.
+ * @param maxLines - Line cap.
+ * @param maxBytes - Byte cap.
+ * @returns True when the line count or the joined byte length exceeds its cap.
+ */
+function exceedsCaps(lines: readonly string[], maxLines: number, maxBytes: number): boolean {
+  return lines.length > maxLines || bufferBytes(lines.join("\n")) > maxBytes;
 }

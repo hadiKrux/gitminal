@@ -1,0 +1,217 @@
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { type ReactNode, useRef } from "react";
+import { useScrollContentWidth } from "@/app/hooks/useScrollContentWidth";
+import type { DiffFileView } from "@/domain/repository/repository.types";
+import { ConflictBanner } from "@/features/diff/ConflictBanner";
+import { DiffContent } from "@/features/diff/DiffContent";
+import { DiffFileRow } from "@/features/diff/DiffFileRow";
+import { DiffSection } from "@/features/diff/DiffSection";
+import { useDiffPanel } from "@/features/diff/useDiffPanel";
+import { ICONS } from "@/theme/icons";
+import { useTokens } from "@/theme/useTokens";
+import { EmptyState } from "@/ui/EmptyState";
+import { ErrorState } from "@/ui/ErrorState";
+import { LoadingRow } from "@/ui/LoadingRow";
+import { Panel } from "@/ui/Panel";
+
+/** Loading label while the first status read is in flight. */
+const DIFF_SECTIONS_LOADING_LABEL = "loading changes";
+
+/** Loading label while a commit or stash diff is in flight. */
+const DIFF_READ_ONLY_LOADING_LABEL = "loading diff";
+
+/** Text shown while another mutation owns the write slot. */
+const DIFF_BUSY_MESSAGE = "operation in progress - actions are disabled";
+
+/** Status error message. */
+const DIFF_STATUS_ERROR_MESSAGE = "Could not read status";
+
+/** Read-only diff error message. */
+const DIFF_READ_ONLY_ERROR_MESSAGE = "Could not read diff";
+
+/** Read-only empty message. */
+const DIFF_READ_ONLY_EMPTY_MESSAGE = "No changed files";
+
+/**
+ * Renders the Diff panel.
+ *
+ * The panel owns its `diff` region frame, its border, and one culled scrollbox, so the shell
+ * composition root must place it directly instead of wrapping it in another frame. In pending mode
+ * it renders the three sections in F-11 order with their file rows and expanded content. In read-only
+ * mode it renders one list of the selected commit's or stash's changed files, expanded, with no
+ * stage, unstage, discard, or delete actions. Loading, empty, error, busy, conflict, and operation
+ * notices all render as text.
+ *
+ * @returns The composed diff panel.
+ */
+export function DiffPanel(): ReactNode {
+  const panel = useDiffPanel();
+  const tokens = useTokens();
+  const scrollRef = useRef<ScrollBoxRenderable | null>(null);
+  const { width, onSizeChange } = useScrollContentWidth(scrollRef);
+
+  return (
+    <Panel
+      {...panel.region.regionProps}
+      focused={panel.region.focused}
+      title={panel.readOnly ? panel.readOnlyTitle : "Diffs"}
+      flexGrow={1}
+      flexBasis={0}
+      minHeight={3}
+    >
+      <box flexDirection="column" flexGrow={1} flexShrink={1}>
+        {panel.busy ? (
+          <text id="diff-busy" fg={tokens.warning} wrapMode="word">
+            {`${ICONS.warning} ${DIFF_BUSY_MESSAGE}`}
+          </text>
+        ) : null}
+        {panel.error === null ? null : (
+          <ErrorState
+            message={DIFF_STATUS_ERROR_MESSAGE}
+            details={panel.error}
+            onRetry={panel.retry}
+          />
+        )}
+        {panel.loading ? <LoadingRow label={DIFF_SECTIONS_LOADING_LABEL} /> : null}
+        {panel.readOnly ? null : (
+          <ConflictBanner conflictedFiles={panel.conflictedFiles} operation={panel.operation} />
+        )}
+        <scrollbox
+          ref={scrollRef}
+          onSizeChange={onSizeChange}
+          flexGrow={1}
+          flexShrink={1}
+          focusable={false}
+          viewportCulling
+          scrollbarOptions={{ trackOptions: { foregroundColor: tokens.scrollbar } }}
+        >
+          {panel.readOnly ? renderReadOnly(panel, width) : renderSections(panel, width)}
+        </scrollbox>
+      </box>
+    </Panel>
+  );
+}
+
+/**
+ * Renders the read-only commit or stash file list.
+ *
+ * @param panel - Diff panel handle.
+ * @param width - Measured panel content width.
+ * @returns The loading, error, empty, or file list body.
+ */
+function renderReadOnly(panel: ReturnType<typeof useDiffPanel>, width: number): ReactNode {
+  if (panel.readOnlyState.status === "idle" || panel.readOnlyState.status === "loading") {
+    return <LoadingRow label={DIFF_READ_ONLY_LOADING_LABEL} />;
+  }
+
+  if (panel.readOnlyState.status === "error") {
+    return (
+      <ErrorState
+        message={DIFF_READ_ONLY_ERROR_MESSAGE}
+        details={panel.readOnlyState.message ?? undefined}
+        onRetry={panel.retryReadOnly}
+      />
+    );
+  }
+
+  if (panel.readOnlyFiles.length === 0) {
+    return <EmptyState message={DIFF_READ_ONLY_EMPTY_MESSAGE} />;
+  }
+
+  return (
+    <box flexDirection="column" flexShrink={0}>
+      {panel.readOnlyFiles.map((file) => (
+        <box key={file.id} flexDirection="column" flexShrink={0}>
+          <DiffFileRow
+            file={file}
+            width={width}
+            selected={panel.selectedId === file.id}
+            focused={panel.region.focused}
+            expanded={panel.isFileExpanded(file)}
+            counts={panel.countsFor(file)}
+            actions={panel.fileActions(file)}
+            onToggle={() => panel.toggleFile(file)}
+            onMouseDown={() => panel.clickRow(file.id)}
+          />
+          {panel.isFileExpanded(file) ? (
+            <box flexDirection="column" flexShrink={0} paddingLeft={1}>
+              <DiffContent
+                path={file.path}
+                state={panel.readOnlyFileState(file)}
+                onRetry={panel.retryReadOnly}
+              />
+            </box>
+          ) : null}
+        </box>
+      ))}
+    </box>
+  );
+}
+
+/**
+ * Renders the three pending-change sections.
+ *
+ * @param panel - Diff panel handle.
+ * @param width - Measured panel content width.
+ * @returns The section list.
+ */
+function renderSections(panel: ReturnType<typeof useDiffPanel>, width: number): ReactNode {
+  return (
+    <box flexDirection="column" flexShrink={0}>
+      {panel.sections.map((section) => (
+        <DiffSection
+          key={section.section}
+          view={section}
+          width={width}
+          expanded={panel.expandedSections[section.section]}
+          selected={panel.selectedId === `section::${section.section}`}
+          focused={panel.region.focused}
+          emptyText={panel.sectionEmptyText(section.section)}
+          bulkActions={panel.sectionActions(section)}
+          onToggle={() => panel.toggleSection(section.section)}
+          onMouseDown={() => panel.clickRow(`section::${section.section}`)}
+          renderFile={(file) => renderFile(panel, file, width)}
+        />
+      ))}
+    </box>
+  );
+}
+
+/**
+ * Renders one file row and its expanded content.
+ *
+ * @param panel - Diff panel handle.
+ * @param file - File row.
+ * @param width - Measured panel content width.
+ * @returns The row and, when expanded, its diff content.
+ */
+function renderFile(
+  panel: ReturnType<typeof useDiffPanel>,
+  file: DiffFileView,
+  width: number,
+): ReactNode {
+  return (
+    <box key={file.id} flexDirection="column" flexShrink={0}>
+      <DiffFileRow
+        file={file}
+        width={width}
+        selected={panel.selectedId === file.id}
+        focused={panel.region.focused}
+        expanded={panel.isFileExpanded(file)}
+        counts={panel.countsFor(file)}
+        actions={panel.fileActions(file)}
+        onToggle={() => panel.toggleFile(file)}
+        onMouseDown={() => panel.clickRow(file.id)}
+      />
+      {panel.isFileExpanded(file) ? (
+        <box flexDirection="column" flexShrink={0} paddingLeft={1}>
+          <DiffContent
+            path={file.path}
+            state={panel.fileState(file)}
+            onRetry={() => panel.retryFile(file)}
+          />
+        </box>
+      ) : null}
+    </box>
+  );
+}

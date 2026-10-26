@@ -1,3 +1,5 @@
+import type { DiffFilesReadResult } from "@/domain/diff/diff.types";
+import { resolveDiffReadContextLines } from "./git.diff";
 import { classifyGitFailure } from "./git.errors";
 import { planGitArgs, planGitError } from "./git.plan";
 import { createTruncatedOutputFailure, isTruncatedOutput } from "./git.remotes";
@@ -10,6 +12,7 @@ import type {
   StashRefResolution,
   StatusSnapshot,
 } from "./git.types";
+import { parseDiff } from "./parsers/parse.diff";
 import { parseSourceBranch, parseStashes } from "./parsers/parse.stash";
 
 /**
@@ -260,6 +263,103 @@ export function buildShowStashArgs(index: string): GitArgPlan {
   }
 
   return planGitArgs(["stash", "show", "-p", "--no-color", index]);
+}
+
+/**
+ * Plans the read-only diff of one stash with the collapse read window.
+ *
+ * `buildStashDiffArgs` uses the same read window as every other text diff so a long unchanged run
+ * exists in the patch, and the panel then collapses it to `diff.contextLines`.
+ *
+ * @param index - Current stash selector such as `stash@{0}`.
+ * @param contextLines - Configured context lines.
+ * @returns The planned argument array, or the reason the plan cannot run.
+ */
+export function buildStashDiffArgs(index: string, contextLines: number): GitArgPlan {
+  if (!isStashRef(index)) {
+    return planGitError(`invalid stash selector "${index}"`);
+  }
+
+  return planGitArgs([
+    "stash",
+    "show",
+    "-p",
+    "--no-color",
+    `-U${resolveDiffReadContextLines(contextLines)}`,
+    index,
+  ]);
+}
+
+/**
+ * Reads the read-only diff of one stash and parses every changed file.
+ *
+ * @param client - Git client bound to the configured executable.
+ * @param options - Stash selector, context lines, working directory, and cancellation signal.
+ * @returns Parsed files or the classified failure. Never throws.
+ */
+export async function readStashDiff(
+  client: GitClient,
+  options: {
+    readonly stashRef: string;
+    readonly contextLines: number;
+    readonly cwd: string;
+    readonly signal: AbortSignal;
+  },
+): Promise<DiffFilesReadResult> {
+  const plan = buildStashDiffArgs(options.stashRef, options.contextLines);
+
+  if (!plan.ok) {
+    return {
+      ok: false,
+      files: [],
+      failure: {
+        kind: "unknown",
+        exitCode: null,
+        message: plan.error,
+        stderr: "",
+        cancelled: false,
+        timedOut: false,
+      },
+    };
+  }
+
+  const result = await client.invoke({
+    args: plan.args,
+    cwd: options.cwd,
+    signal: options.signal,
+    operationClass: "read",
+  });
+
+  if (!result.ok) {
+    return { ok: false, files: [], failure: classifyGitFailure(result) };
+  }
+
+  if (isTruncatedOutput(result)) {
+    return {
+      ok: false,
+      files: [],
+      failure: createTruncatedOutputFailure(result, "git stash show output was truncated"),
+    };
+  }
+
+  const parsed = parseDiff(result.stdout);
+
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      files: parsed.files,
+      failure: {
+        kind: "unknown",
+        exitCode: null,
+        message: parsed.error.message,
+        stderr: "",
+        cancelled: false,
+        timedOut: false,
+      },
+    };
+  }
+
+  return { ok: true, files: parsed.files, failure: null };
 }
 
 /**

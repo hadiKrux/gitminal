@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { type BoxRenderable, RGBA, type TabSelectRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useState } from "react";
+import { RIGHT_PANE_MIN_ROWS } from "@/app/hooks/rightPane.layout";
 import { resetActionRegistry } from "@/app/hooks/useAction";
+import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
 import { DEFAULT_THEME_NAME } from "@/domain/theme/theme.catppuccin";
@@ -11,9 +13,39 @@ import { AppShell } from "@/features/shell/AppShell";
 import type { FocusContextValue, SidebarPanel } from "@/features/shell/focus.types";
 import { SIDEBAR_SWITCHER_ID } from "@/features/shell/regions";
 import { ShellTestProviders } from "@/test/shell.harness";
+import { Panel } from "@/ui/Panel";
 
 /** Latest focus context captured by the probe. */
 let latestFocus: FocusContextValue | undefined;
+
+/**
+ * Renders a stand-in main-area surface that owns its frame, like the real features do.
+ *
+ * The shell test cannot import a feature, so it supplies small surfaces that follow the same
+ * contract: each surface owns its `Panel`, its region identity, and its body.
+ *
+ * @param props - Region id, border title, and visible body text.
+ * @returns The mock surface panel.
+ */
+function MockMainSurface(props: {
+  readonly regionId: "graph" | "right-pane" | "diff";
+  readonly title: string;
+  readonly body: string;
+}): ReactNode {
+  const region = useFocusRegion(props.regionId);
+
+  return (
+    <Panel
+      {...region.regionProps}
+      focused={region.focused}
+      title={props.title}
+      flexGrow={1}
+      flexBasis={0}
+    >
+      <text>{props.body}</text>
+    </Panel>
+  );
+}
 
 /** Sidebar surfaces used by the shell test. */
 const PANELS: readonly SidebarPanel[] = [
@@ -58,9 +90,11 @@ function ShellHarness(props: {
         topBar={<text> Gitminal branch main</text>}
         topBarTitle={props.topBarTitle ?? "Gitminal"}
         sidebarPanels={props.panels ?? PANELS}
-        graph={<text>graph body</text>}
-        rightPane={<text>composer body</text>}
-        diffPanel={<text>diff body</text>}
+        graph={<MockMainSurface regionId="graph" title="Commits" body="graph body" />}
+        rightPane={
+          <MockMainSurface regionId="right-pane" title="Right pane" body="composer body" />
+        }
+        diffPanel={<MockMainSurface regionId="diff" title="Diffs" body="diff body" />}
         console={<text>console body</text>}
         consoleOpen={consoleOpen}
         onOpenConsole={() => setConsoleOpen(true)}
@@ -284,7 +318,7 @@ describe("AppShell", () => {
     });
   });
 
-  it("gives the diff region at least three times the right-pane height", async () => {
+  it("gives the diff the remaining right-column height above the right-pane minimum", async () => {
     const setup = await renderShell();
 
     await act(async () => {
@@ -298,7 +332,8 @@ describe("AppShell", () => {
 
     expect(rightPane).toBeDefined();
     expect(diff).toBeDefined();
-    expect(diff?.height ?? 0).toBeGreaterThanOrEqual((rightPane?.height ?? 0) * 3);
+    expect(rightPane?.height ?? 0).toBeGreaterThanOrEqual(RIGHT_PANE_MIN_ROWS);
+    expect(diff?.height ?? 0).toBeGreaterThan(0);
 
     await act(async () => {
       await setup.dispose();
@@ -317,9 +352,8 @@ describe("AppShell", () => {
       | undefined;
     const diff = setup.renderer.root.findDescendantById("region-diff") as BoxRenderable | undefined;
 
-    expect(rightPane?.height ?? 0).toBeGreaterThanOrEqual(3);
+    expect(rightPane?.height ?? 0).toBeGreaterThanOrEqual(RIGHT_PANE_MIN_ROWS);
     expect(diff?.height ?? 0).toBeGreaterThanOrEqual(3);
-    expect(diff?.height ?? 0).toBeGreaterThan(rightPane?.height ?? 0);
     expect(setup.captureCharFrame()).toContain("Diffs");
 
     await act(async () => {

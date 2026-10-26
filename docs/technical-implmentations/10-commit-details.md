@@ -4,7 +4,7 @@
 
 - Spec reference: `docs/product-spec.md` F-10 (lines 805-837), F-11 (lines 838-953), F-16 (lines 1067-1095), decision D3 (section 9, refs on commits), the keyboard map (lines 1539-1704), action IDs (lines 1705-1742).
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`.
-- Region id: `right-pane` (`src/features/shell/regions.ts`), owned by `MainArea.tsx`. Commit details is the right-pane mode when `RepositoryProvider.selection.kind === "commit"`. The full mode map is pending -> composer, commit -> commit details, stash -> stash details, worktree -> worktree details; there is no separate sub-mode flag.
+- Region id: `right-pane` (`src/features/shell/regions.ts`), owned by `CommitDetails.tsx`, which renders the focusable frame. Commit details is the right-pane mode when `RepositoryProvider.selection.kind === "commit"`. The full mode map is pending -> composer, commit -> commit details, stash -> stash details, worktree -> worktree details, and a diff-file selection falls back to the composer; there is no separate sub-mode flag.
 - Dependencies: F-01 (shell, focus, region order), F-06 (a stash selection shows stash details in the same right-pane mode), F-07 (a worktree selection shows worktree details in the same right-pane mode), F-08 (graph selection and parent loading), F-09 (the composer replaces details when Pending Changes is selected), F-11 (the Diff panel shows the commit diff), F-15 (error overlay and Retry), F-16 (detached HEAD, empty repository), F-17 (debounced async reads, single in-flight request), F-18 (read-only, redaction), F-19 (keymap overrides).
 - Owned paths:
   - `src/features/commit-details/CommitDetails.tsx`
@@ -40,7 +40,7 @@ Hooks used:
 | `useAction` | `useCommitDetails.ts` registers right-pane scoped `nav.up`, `nav.down`, and `nav.activate` for the parent list. | Features receive action IDs, never raw key strings. Global actions such as `app.refresh`, `commit.focus`, `focus.next`, `focus.previous`, and `overlay.close` are owned by the app, the shell, or `useRepository`, never by this feature. |
 | `useListCursor` | `useCommitDetails.ts` for the parent list cursor and double click detection. | Shared cursor and double click logic for custom rows. |
 | `useDebouncedValue` | `useCommitDetails.ts` debounces the details read as the graph selection moves. | Selection updates details promptly without a read per keypress (F-17). |
-| `useTerminalDimensions` | `CommitDetails.tsx` and `CommitMetaRow.tsx` compute truncation budgets. | Budget-aware truncation via `@/lib/text.ts`. |
+| `useScrollContentWidth` | `CommitDetails.tsx` measures its scrollbox viewport width and passes it to `CommitMetaRow.tsx` for truncation budgets. | Budget-aware truncation via `@/lib/text.ts` against the cells the rows actually get. |
 | `useTimeline` | The `Spinner` shown while details load. | Animation only. |
 
 `<code>` versus `<text>`: the full hash, tree hash, and the message body are rendered with `<code>` because they are read-only monospace blocks where alignment and highlighting help. Short labels, dates, and stats use `<text>`; ref badges use `<span>` runs.
@@ -71,7 +71,7 @@ MainArea                            (src/features/shell/MainArea.tsx)
    DiffPanel                        (F-11, the commit diff grouped by file, below the details)
 ```
 
-`CommitDetails`, `CommitComposer`, stash details, and worktree details are mutually exclusive right-pane modes selected by `RepositoryProvider.selection.kind`. When `selection.kind` is `"pending"` `MainArea` renders `CommitComposer`; `"commit"` renders `CommitDetails`; `"stash"` renders stash details (F-06); `"worktree"` renders worktree details (F-07). No second sub-mode flag exists in a provider or a feature.
+`CommitDetails`, `CommitComposer`, stash details, and worktree details are mutually exclusive right-pane modes selected by `RepositoryProvider.selection.kind`. `AppShellHost` selects the surface; when `selection.kind` is `"pending"` it renders `CommitComposer`, `"commit"` renders `CommitDetails`, `"stash"` renders stash details (F-06), `"worktree"` renders worktree details (F-07), and a diff-file selection falls back to the composer. Each surface owns its `right-pane` region frame. No second sub-mode flag exists in a provider or a feature.
 
 ## 5. Enforced files and folders
 
@@ -133,7 +133,7 @@ The details read is debounced as the graph selection moves, and only one read is
 
 For merge commits, both the stats read and the commit diff pass `--diff-merges=first-parent`, so the commit is compared with its first parent. Without it git prints no file stats and an empty diff for a merge, which would show "0 files changed" and a blank panel. The details pane still lists every parent from `%P`, and selecting a non-first parent changes only the graph selection.
 
-Parent selection: `nav.activate` on a `ParentRef` moves the graph selection to that parent OID through the graph's selection command with an explicit `{ kind: "commit", oid }` target. When the parent is already loaded, the selection moves immediately and the details pane updates. When it is not loaded, `graph.paginate.ts` `ensureLoaded(parentOid)` runs a bounded load capped by a fixed page count and a fixed time budget, with the visible loading state described in F-08, and the graph selection moves only once the parent is loaded. If the cap is reached first, the pane shows the bounded-load reason and keeps the graph selection unchanged rather than loading unbounded history.
+Parent selection: `nav.activate` on a `ParentRef` moves the graph selection to that parent OID through the graph's selection command with an explicit `{ kind: "commit", oid }` target. When the parent is already loaded, the selection moves immediately and the details pane updates. When it is not loaded, `graph.paginate.ts` `ensureLoaded(parentOid)` runs a bounded load capped by a fixed page count and a fixed time budget, with the visible loading state described in F-08, and the graph selection moves only once the parent is loaded. If the cap is reached first, the pane shows the bounded-load reason and keeps the graph selection unchanged rather than loading unbounded history. A walk cancelled by a refresh is neutral: it neither shows the bounded-miss reason nor claims the parent is outside the loaded history. A walk that fails a page read keeps the graph selection and shows the graph feature's distinct walk-error notice, not the page-load error; the next successful selection clears it.
 
 Returning to the composer: selecting the Pending Changes row sets `RepositoryProvider.selection.kind` to `"pending"`, which switches the right pane back to `CommitComposer` and the working tree diffs; the draft itself lives in `DraftProvider` (F-08, F-09).
 
@@ -160,7 +160,7 @@ Moving the graph selection is the only way to change which commit is detailed, s
 
 ## 9. Loading, empty, error, and disabled states
 
-- Loading: a `LoadingRow` with the marker `[..]` and "Loading commit details..." while the debounced read is in flight. The previous details stay visible until the new read resolves, so the pane does not flash empty during fast navigation.
+- Loading: a `LoadingRow` with the marker `[..]` and "Loading commit details..." while the debounced read is in flight. The previous details stay visible until the new read resolves, so the pane does not flash empty during fast navigation. A settled failure clears the previous details, so the error state never shows another commit's hashes, stats, or parents beside the new selection's title and diff.
 - Empty, root commit: the parent section shows the text "No parents" instead of a `ParentRef` list. The rest of the details render normally.
 - Empty, no refs: the refs row shows the text "No refs" so the row is never blank.
 - Error: a persistent `ErrorState` with "Could not load commit details", the git message, and a Retry button. The graph selection is unchanged.
@@ -176,7 +176,7 @@ Every state carries a text marker; color is never the only signal.
 - The stats read sums `--numstat` output in `git.log.ts` with `--diff-merges=first-parent`; for commits with very many files the row is bounded to a line count and shows a "stats truncated" note when the cap is hit.
 - The message body is collapsed to a bounded number of lines by default and rendered in a `<code>` block inside a `<scrollbox>`; the full body is available on expand.
 - The parent list is bounded by the number of parents (normally one or two, up to the octopus case) and is rendered in a `<scrollbox>` with `viewportCulling`.
-- Truncation of hashes, dates, and metadata uses `@/lib/text.ts` with a budget from `useTerminalDimensions`. Truncation never hides the short hash or the parent hashes.
+- Truncation of hashes, dates, and metadata uses `@/lib/text.ts` with the measured scrollbox viewport width from `useScrollContentWidth`. Truncation never hides the short hash or the parent hashes.
 - The pane adds no unbounded list: the commit diff below it is bounded by F-11.
 
 ## 11. Safety and confirmations
@@ -194,8 +194,8 @@ Every state carries a text marker; color is never the only signal.
 | All requested fields are present and accurate | `CommitDetails.tsx` and `CommitMetaRow.tsx` from `git.log.ts` `readCommitDetails()` and `readCommitStats()` |
 | The diff matches the selected commit | F-11 `DiffPanel` and `useFileDiff.ts` keyed by the selected OID, with `--diff-merges=first-parent` |
 | Merge commits show real file stats and a non-empty diff | `readCommitStats()` and the commit diff both pass `--diff-merges=first-parent` |
-| The composer is not visible while a commit is selected | `MainArea.tsx` renders `CommitDetails` when `RepositoryProvider.selection.kind === "commit"` |
-| Returning to Pending Changes restores the composer state | `DraftProvider` holds the draft; `MainArea.tsx` switches mode from `selection.kind` (F-08, F-09) |
+| The composer is not visible while a commit is selected | `AppShellHost.tsx` renders `CommitDetails` only when `RepositoryProvider.selection.kind === "commit"` |
+| Returning to Pending Changes restores the composer state | `DraftProvider` holds the draft; `AppShellHost.tsx` switches mode from `selection.kind` (F-08, F-09) |
 | Short and full hash with the short hash prominent | `CommitDetails.tsx` `<text>` short hash and `<code>` full hash |
 | Tree hash | `CommitDetails.tsx` `<code>` tree hash from `%T` |
 | Author name, email, and date with timezone | `CommitMetaRow.tsx` from `%an`, `%ae`, `%aI` |

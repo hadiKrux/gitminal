@@ -7,6 +7,8 @@ import type {
   RepositoryRefreshRefs,
 } from "@/app/hooks/useRepositoryRefresh.types";
 import type {
+  CommitNavigator,
+  GraphWindowRefresher,
   RepositoryRefreshResult,
   RepositoryStore,
 } from "@/app/providers/RepositoryProvider.types";
@@ -21,7 +23,8 @@ import type {
  */
 export function useRepositoryRefreshRefs(): RepositoryRefreshRefs {
   const generationRef = useRef(0);
-  const graphRefresherRef = useRef<(() => Promise<void>) | null>(null);
+  const graphRefresherRef = useRef<GraphWindowRefresher | null>(null);
+  const commitNavigatorRef = useRef<CommitNavigator | null>(null);
   const readControllerRef = useRef<AbortController | null>(null);
   const followUpControllerRef = useRef<AbortController | null>(null);
   const followUpStatusRef = useRef<Promise<RepositoryRefreshResult> | null>(null);
@@ -38,6 +41,7 @@ export function useRepositoryRefreshRefs(): RepositoryRefreshRefs {
   return {
     generationRef,
     graphRefresherRef,
+    commitNavigatorRef,
     readControllerRef,
     followUpControllerRef,
     followUpStatusRef,

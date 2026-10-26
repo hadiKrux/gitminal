@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { applyReadToStore, createInitialStore } from "@/app/providers/RepositoryProvider.store";
+import {
+  applyReadToStore,
+  createInitialStore,
+  writeRepositoryGeneration,
+} from "@/app/providers/RepositoryProvider.store";
+import type { RepositoryStore } from "@/app/providers/RepositoryProvider.types";
 import { getAvailability } from "@/domain/commands/commands.availability";
 import type { CommandContext } from "@/domain/commands/commands.types";
 import type {
@@ -223,12 +228,28 @@ function failureResult(): RepositoryReadResult {
 }
 
 /**
+ * Applies one read with operation state idle and the supplied generation.
+ *
+ * @param store - Current store.
+ * @param result - Read result.
+ * @param generation - Generation reserved for the read.
+ * @returns The next store.
+ */
+function applyRead(
+  store: RepositoryStore,
+  result: RepositoryReadResult,
+  generation: number = 1,
+): RepositoryStore {
+  return applyReadToStore(store, result, false, generation);
+}
+
+/**
  * Builds a store that already applied one successful read.
  *
  * @returns The store.
  */
 function loadedStore() {
-  return applyReadToStore(
+  return applyRead(
     createInitialStore("/repo", INITIAL_SELECTION, false),
     successResult(
       snapshot({
@@ -239,13 +260,12 @@ function loadedStore() {
         currentWorktreePath: "/repo",
       }),
     ),
-    false,
   );
 }
 
 describe("applyReadToStore", () => {
   it("keeps the previous value of a failed list and applies every successful list", () => {
-    const next = applyReadToStore(
+    const next = applyRead(
       loadedStore(),
       successResult(
         snapshot({
@@ -269,7 +289,6 @@ describe("applyReadToStore", () => {
         { stashes: "fatal: unable to read logs" },
         { untrackedCount: 3 },
       ),
-      false,
     );
 
     expect(next.snapshot?.branches.map((record) => record.name)).toEqual(["feature"]);
@@ -282,12 +301,11 @@ describe("applyReadToStore", () => {
   });
 
   it("keeps the current worktree path together with a kept worktree list", () => {
-    const next = applyReadToStore(
+    const next = applyRead(
       loadedStore(),
       successResult(snapshot({ worktrees: [], currentWorktreePath: null }), {
         worktrees: "fatal: cannot read worktrees",
       }),
-      false,
     );
 
     expect(next.snapshot?.worktrees).toEqual([]);
@@ -299,7 +317,7 @@ describe("applyReadToStore", () => {
       worktree("/repo", "main", true),
       worktree("/repo-feature", "feature", false),
     ];
-    const before = applyReadToStore(
+    const before = applyRead(
       createInitialStore("/repo", INITIAL_SELECTION, false),
       successResult(
         snapshot({
@@ -307,15 +325,13 @@ describe("applyReadToStore", () => {
           worktrees: retainedWorktrees,
         }),
       ),
-      false,
     );
-    const next = applyReadToStore(
+    const next = applyRead(
       before,
       successResult(
         snapshot({ branches: [branch("feature")], worktrees: [], currentWorktreePath: null }),
         { worktrees: "fatal: cannot read worktrees" },
       ),
-      false,
     );
     const feature = next.snapshot?.branches.find((record) => record.name === "feature");
 
@@ -340,7 +356,7 @@ describe("applyReadToStore", () => {
   });
 
   it("re-derives branch worktree attribution from newly read worktrees when the branch read fails", () => {
-    const before = applyReadToStore(
+    const before = applyRead(
       createInitialStore("/repo", INITIAL_SELECTION, false),
       successResult(
         snapshot({
@@ -348,18 +364,16 @@ describe("applyReadToStore", () => {
           worktrees: [worktree("/repo", "main", true)],
         }),
       ),
-      false,
     );
     const nextWorktrees = [
       worktree("/repo", "main", true),
       worktree("/repo-feature", "feature", false),
     ];
-    const next = applyReadToStore(
+    const next = applyRead(
       before,
       successResult(snapshot({ branches: [], worktrees: nextWorktrees }), {
         branches: "fatal: cannot read branches",
       }),
-      false,
     );
     const feature = next.snapshot?.branches.find((record) => record.name === "feature");
     const stale = next.snapshot?.branches.find((record) => record.name === "stale");
@@ -387,13 +401,12 @@ describe("applyReadToStore", () => {
   });
 
   it("keeps a failed remote-branch or tag list when the other lists read", () => {
-    const next = applyReadToStore(
+    const next = applyRead(
       loadedStore(),
       successResult(snapshot({ remoteBranches: [], tags: [] }), {
         remoteBranches: "fatal: cannot read remote branches",
         tags: "fatal: cannot read tags",
       }),
-      false,
     );
 
     expect(next.listFailures).toEqual({
@@ -411,7 +424,7 @@ describe("applyReadToStore", () => {
       worktree("/repo", "main", true),
       worktree("/repo-feature", "feature", false),
     ];
-    const before = applyReadToStore(
+    const before = applyRead(
       createInitialStore("/repo", INITIAL_SELECTION, false),
       successResult(
         snapshot({
@@ -423,15 +436,13 @@ describe("applyReadToStore", () => {
           worktrees: retainedWorktrees,
         }),
       ),
-      false,
     );
-    const next = applyReadToStore(
+    const next = applyRead(
       before,
       successResult(snapshot({ branches: [], worktrees: [], currentWorktreePath: null }), {
         branches: "fatal: cannot read branches",
         worktrees: "fatal: cannot read worktrees",
       }),
-      false,
     );
     const feature = next.snapshot?.branches.find((record) => record.name === "feature");
     const stale = next.snapshot?.branches.find((record) => record.name === "stale");
@@ -452,28 +463,50 @@ describe("applyReadToStore", () => {
   });
 
   it("clears the failure map after a fully successful read", () => {
-    const partial = applyReadToStore(
+    const partial = applyRead(
       loadedStore(),
       successResult(snapshot({ stashes: [] }), { stashes: "fatal: unable to read logs" }),
-      false,
     );
-    const next = applyReadToStore(partial, successResult(snapshot()), false);
+    const next = applyRead(partial, successResult(snapshot()));
 
     expect(partial.listFailures).toEqual({ stashes: "fatal: unable to read logs" });
     expect(next.listFailures).toEqual({});
   });
 
   it("keeps the previous snapshot, lists, and failure map when the whole read fails", () => {
-    const partial = applyReadToStore(
+    const partial = applyRead(
       loadedStore(),
       successResult(snapshot({ stashes: [] }), { stashes: "fatal: unable to read logs" }),
-      false,
     );
-    const next = applyReadToStore(partial, failureResult(), false);
+    const next = applyRead(partial, failureResult());
 
     expect(next.snapshot).toBe(partial.snapshot);
     expect(next.listFailures).toEqual({ stashes: "fatal: unable to read logs" });
     expect(next.lastRefreshError).toBe("fatal: unable to read index");
     expect(next.signals.operationRunning).toBeFalse();
+  });
+
+  it("stores the reserved generation on success and failure without moving backwards", () => {
+    const loaded = applyRead(loadedStore(), successResult(snapshot()), 4);
+
+    expect(loaded.generation).toBe(4);
+
+    const failed = applyRead(loaded, failureResult(), 5);
+
+    expect(failed.generation).toBe(5);
+    expect(failed.snapshot).toBe(loaded.snapshot);
+
+    const older = applyRead(failed, successResult(snapshot()), 3);
+
+    expect(older.generation).toBe(5);
+  });
+
+  it("writes a generation only when it advances, preserving store identity otherwise", () => {
+    const initial = createInitialStore("/repo", INITIAL_SELECTION, false);
+    const store = applyRead(initial, successResult(snapshot()), 2);
+
+    expect(writeRepositoryGeneration(store, 2)).toBe(store);
+    expect(writeRepositoryGeneration(store, 1)).toBe(store);
+    expect(writeRepositoryGeneration(store, 3)).toEqual({ ...store, generation: 3 });
   });
 });

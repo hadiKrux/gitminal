@@ -312,6 +312,132 @@ export interface RemoteReadResult {
   readonly failure: GitFailure | null;
 }
 
+/** Reason a commit write was rejected before any git invocation. */
+export type CommitActionReason = "empty-message";
+
+/** Options for one commit or amend write. */
+export interface CommitWriteOptions extends GitReadOptions {
+  /** Commit message passed as one argv value, including any embedded newlines. */
+  readonly message: string;
+  /** True to add `--no-verify` for this invocation only. */
+  readonly noVerify?: boolean;
+}
+
+/**
+ * Result of one commit or amend write.
+ *
+ * `reason` is set only for a request the planner refused, so `failure` stays null in that case.
+ */
+export interface CommitActionResult {
+  /** True when git exited cleanly. */
+  readonly ok: boolean;
+  /** Classified git failure, or null on success or a refused request. */
+  readonly failure: GitFailure | null;
+  /** Ordered invocations the write made, empty for a refused request. */
+  readonly steps: readonly GitInvocationResult[];
+  /** Machine-readable rejection reason, or null when the request reached git. */
+  readonly reason: CommitActionReason | null;
+}
+
+/**
+ * Result of a single-value commit metadata read.
+ *
+ * `text` is the trimmed value on success and an empty string on failure. A truncated read is a
+ * failure because the value cannot be trusted.
+ */
+export interface CommitTextReadResult {
+  /** True when the read produced a complete value. */
+  readonly ok: boolean;
+  /** Value read from git, or an empty string on failure. */
+  readonly text: string;
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/**
+ * One commit read for the Commit details pane.
+ *
+ * The record is produced by the versioned single-record format in `git.log.ts`, so every field comes
+ * from the same `git log -1` invocation and cannot describe a different commit.
+ */
+export interface CommitDetailsRecord {
+  /** Full commit id from `%H`. */
+  readonly oid: string;
+  /** Abbreviated commit id from `%h`, as git abbreviates it for this repository. */
+  readonly shortOid: string;
+  /** Tree id from `%T`. */
+  readonly treeOid: string;
+  /** Parent commit ids from `%P`, in git order; empty for a root commit. */
+  readonly parents: readonly string[];
+  /** Author name from `%an`. */
+  readonly authorName: string;
+  /** Author email from `%ae`. */
+  readonly authorEmail: string;
+  /** Author date in strict ISO 8601 with timezone from `%aI`. */
+  readonly authorDate: string;
+  /** Committer name from `%cn`. */
+  readonly committerName: string;
+  /** Committer email from `%ce`. */
+  readonly committerEmail: string;
+  /** Committer date in strict ISO 8601 with timezone from `%cI`. */
+  readonly committerDate: string;
+  /** Raw decoration entries from `%D` under `--decorate=full`, in git order. */
+  readonly decorations: readonly string[];
+  /** Full commit message from `%B`, without git's trailing newline. */
+  readonly message: string;
+}
+
+/** Options for one commit details read. */
+export interface CommitDetailsReadOptions extends GitReadOptions {
+  /** Commit id to read. */
+  readonly oid: string;
+}
+
+/** Result of one commit details read. */
+export interface CommitDetailsReadResult {
+  /** True when git exited cleanly and the single record parsed. */
+  readonly ok: boolean;
+  /** Parsed details, or null on failure. */
+  readonly details: CommitDetailsRecord | null;
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/**
+ * Summed `--numstat` stats for one commit.
+ *
+ * Binary files count as changed files but contribute no line counts. When `truncated` is true the
+ * read stopped at the file cap, so the totals describe only the entries that were read.
+ */
+export interface CommitStatsRecord {
+  /** Changed file entries that were read, including binary files. */
+  readonly filesChanged: number;
+  /** Sum of the added-line columns; binary files contribute zero. */
+  readonly insertions: number;
+  /** Sum of the removed-line columns; binary files contribute zero. */
+  readonly deletions: number;
+  /** Number of entries reported as binary by `--numstat`. */
+  readonly binaryFiles: number;
+  /** True when the output had more file entries than the read cap. */
+  readonly truncated: boolean;
+}
+
+/** Options for one commit stats read. */
+export interface CommitStatsReadOptions extends GitReadOptions {
+  /** Commit id to read. */
+  readonly oid: string;
+}
+
+/** Result of one commit stats read. */
+export interface CommitStatsReadResult {
+  /** True when git exited cleanly. */
+  readonly ok: boolean;
+  /** Summed stats, or null on failure. */
+  readonly stats: CommitStatsRecord | null;
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
 /** Local identity used for commits. */
 export interface GitIdentity {
   /** Configured `user.name`, or null when unset. */

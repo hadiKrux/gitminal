@@ -42,6 +42,7 @@ import { createConsoleEntryId, formatCommandResult } from "@/domain/console/cons
 import { sanitizeCommandResult } from "@/domain/console/console.sanitize";
 import type { ConsoleEntry } from "@/domain/console/console.types";
 import { redactCommandResult } from "@/domain/git/git.redact";
+import { isReadOnlySelection } from "@/domain/repository/repository.selectors";
 
 /**
  * Runs commands through the single domain executor and applies every result effect.
@@ -218,6 +219,7 @@ async function executeRequest(input: {
       signals: repository.signals,
       target: request.target,
       region,
+      readOnly: isReadOnlySelection(repository.selection),
       signal: controller.signal,
       onProgress: (progress) => input.updateOperation(progress),
       client: repository.gitClient,

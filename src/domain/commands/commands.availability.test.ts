@@ -61,6 +61,7 @@ function createContext(overrides: Partial<CommandContext> = {}): CommandContext 
     target: overrides.target ?? NO_TARGET,
     region: overrides.region ?? "graph",
     operation: overrides.operation ?? "idle",
+    readOnly: overrides.readOnly,
     panel: overrides.panel,
     formValues: overrides.formValues,
   };
@@ -330,7 +331,7 @@ describe("getAvailability", () => {
 
     expect(getAvailability("diff.stageAll", createContext({ signals }))).toEqual({
       available: false,
-      reason: "merge-in-progress",
+      reason: "merge-state",
     });
   });
 
@@ -345,7 +346,7 @@ describe("getAvailability", () => {
         "diff.unstage",
         createContext({
           signals,
-          target: { kind: "diffFile", section: "working", path: "shared.txt" },
+          target: { kind: "diffFile", section: "staged", path: "shared.txt" },
         }),
       ),
     ).toEqual({ available: false, reason: "merge-state" });
@@ -696,11 +697,264 @@ describe("getAvailability", () => {
   });
 });
 
+describe("diff command availability", () => {
+  it("keeps each action on its own section", () => {
+    const file = (section: string) => ({ kind: "diffFile" as const, section, path: "a.txt" });
+
+    expect(
+      getAvailability("diff.stage", createContext({ target: file("working"), region: "diff" })),
+    ).toEqual({ available: true });
+    expect(
+      getAvailability("diff.unstage", createContext({ target: file("staged"), region: "diff" })),
+    ).toEqual({ available: true });
+    expect(
+      getAvailability("diff.discard", createContext({ target: file("working"), region: "diff" })),
+    ).toEqual({ available: true });
+    expect(
+      getAvailability(
+        "diff.deleteUntracked",
+        createContext({ target: file("untracked"), region: "diff" }),
+      ),
+    ).toEqual({ available: true });
+
+    expect(
+      getAvailability("diff.unstage", createContext({ target: file("working"), region: "diff" })),
+    ).toEqual({ available: false, reason: "invalid-target" });
+    expect(
+      getAvailability("diff.discard", createContext({ target: file("untracked"), region: "diff" })),
+    ).toEqual({ available: false, reason: "invalid-target" });
+    expect(
+      getAvailability(
+        "diff.deleteUntracked",
+        createContext({ target: file("working"), region: "diff" }),
+      ),
+    ).toEqual({ available: false, reason: "invalid-target" });
+  });
+
+  it("blocks a diff action from the authoritative selection flag without any form value", () => {
+    const target = { kind: "diffFile" as const, section: "working", path: "a.txt" };
+
+    expect(
+      getAvailability("diff.stage", createContext({ target, region: "diff", readOnly: true })),
+    ).toEqual({ available: false, reason: "read-only" });
+    expect(
+      getAvailability(
+        "diff.unstage",
+        createContext({
+          target: { kind: "diffFile", section: "staged", path: "a.txt" },
+          region: "diff",
+          readOnly: true,
+        }),
+      ),
+    ).toEqual({ available: false, reason: "read-only" });
+    expect(
+      getAvailability(
+        "diff.discardAll",
+        createContext({
+          region: "diff",
+          readOnly: true,
+          formValues: { section: "working", paths: ["a.txt"] },
+        }),
+      ),
+    ).toEqual({ available: false, reason: "read-only" });
+  });
+
+  it("blocks every diff action in read-only mode with the exact reason", () => {
+    const target = { kind: "diffFile" as const, section: "working", path: "a.txt" };
+
+    expect(
+      getAvailability(
+        "diff.stage",
+        createContext({ target, region: "diff", formValues: { readOnly: true } }),
+      ),
+    ).toEqual({ available: false, reason: "read-only" });
+    expect(
+      getAvailability(
+        "diff.deleteAllUntracked",
+        createContext({
+          region: "diff",
+          formValues: { readOnly: true, section: "untracked", paths: ["a.txt"] },
+        }),
+      ),
+    ).toEqual({ available: false, reason: "read-only" });
+  });
+
+  it("blocks all eight diff actions from the authoritative read-only flag", () => {
+    const cases: readonly {
+      readonly commandId: string;
+      readonly target?: CommandTarget;
+      readonly formValues?: Readonly<Record<string, string | boolean | readonly string[]>>;
+    }[] = [
+      { commandId: "diff.stage", target: { kind: "diffFile", section: "working", path: "a.txt" } },
+      { commandId: "diff.unstage", target: { kind: "diffFile", section: "staged", path: "a.txt" } },
+      {
+        commandId: "diff.discard",
+        target: { kind: "diffFile", section: "working", path: "a.txt" },
+      },
+      {
+        commandId: "diff.deleteUntracked",
+        target: { kind: "diffFile", section: "untracked", path: "a.txt" },
+      },
+      { commandId: "diff.stageAll", formValues: { section: "working", paths: ["a.txt"] } },
+      { commandId: "diff.unstageAll", formValues: { section: "staged", paths: ["a.txt"] } },
+      { commandId: "diff.discardAll", formValues: { section: "working", paths: ["a.txt"] } },
+      {
+        commandId: "diff.deleteAllUntracked",
+        formValues: { section: "untracked", paths: ["a.txt"] },
+      },
+    ];
+
+    for (const entry of cases) {
+      expect(
+        getAvailability(
+          entry.commandId,
+          createContext({
+            target: entry.target,
+            region: "diff",
+            readOnly: true,
+            formValues: entry.formValues,
+          }),
+        ),
+      ).toEqual({ available: false, reason: "read-only" });
+    }
+  });
+
+  it("blocks a bulk action on an empty section with no-files", () => {
+    expect(
+      getAvailability(
+        "diff.stageAll",
+        createContext({
+          region: "diff",
+          formValues: { section: "working", paths: [] },
+        }),
+      ),
+    ).toEqual({ available: false, reason: "no-files" });
+
+    expect(
+      getAvailability(
+        "diff.stageAll",
+        createContext({
+          region: "diff",
+          formValues: { section: "working", paths: ["a.txt"] },
+        }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("blocks bulk staging and unstaging during a merge", () => {
+    const signals = createSignals({ mergeInProgress: true });
+
+    expect(
+      getAvailability(
+        "diff.stageAll",
+        createContext({
+          signals,
+          region: "diff",
+          formValues: { section: "working", paths: ["a.txt"] },
+        }),
+      ),
+    ).toEqual({ available: false, reason: "merge-state" });
+    expect(
+      getAvailability(
+        "diff.unstageAll",
+        createContext({
+          signals,
+          region: "diff",
+          formValues: { section: "staged", paths: ["a.txt"] },
+        }),
+      ),
+    ).toEqual({ available: false, reason: "merge-state" });
+  });
+
+  it("keeps per-file staging available during a merge so a resolved file can be staged", () => {
+    const signals = createSignals({ mergeInProgress: true });
+
+    expect(
+      getAvailability(
+        "diff.stage",
+        createContext({
+          signals,
+          region: "diff",
+          target: { kind: "diffFile", section: "working", path: "resolved.txt" },
+        }),
+      ),
+    ).toEqual({ available: true });
+  });
+});
+
 /**
  * Builds a status snapshot with one change per bucket zeroed.
  *
  * @returns The status snapshot.
  */
+describe("commit command availability", () => {
+  it("blocks a normal commit with no staged files and allows one with a staged file", () => {
+    expect(
+      getAvailability(
+        "commit.submit",
+        createContext({ panel: createPanel({ status: emptyStatus() }) }),
+      ),
+    ).toEqual({ available: false, reason: "nothing-to-commit" });
+    expect(
+      getAvailability(
+        "commit.submitNoVerify",
+        createContext({ panel: createPanel({ status: { ...emptyStatus(), stagedCount: 1 } }) }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("allows amend without staged files and blocks it with no commits", () => {
+    expect(
+      getAvailability(
+        "commit.amend",
+        createContext({ panel: createPanel({ status: emptyStatus() }) }),
+      ),
+    ).toEqual({ available: true });
+    expect(
+      getAvailability(
+        "commit.amendNoVerify",
+        createContext({ signals: createSignals({ headExists: false }) }),
+      ),
+    ).toEqual({ available: false, reason: "no-commits-yet" });
+  });
+
+  it("blocks every commit variant without a configured identity", () => {
+    for (const commandId of [
+      "commit.submit",
+      "commit.submitNoVerify",
+      "commit.amend",
+      "commit.amendNoVerify",
+    ]) {
+      expect(
+        getAvailability(
+          commandId,
+          createContext({
+            signals: createSignals({ identity: { name: null, email: null } }),
+            panel: createPanel({ status: { ...emptyStatus(), stagedCount: 1 } }),
+          }),
+        ),
+        commandId,
+      ).toEqual({ available: false, reason: "missing-git-identity" });
+    }
+  });
+
+  it("blocks every commit variant while a mutation runs", () => {
+    expect(
+      getAvailability(
+        "commit.submit",
+        createContext({
+          operation: "running",
+          panel: createPanel({ status: { ...emptyStatus(), stagedCount: 1 } }),
+        }),
+      ),
+    ).toEqual({ available: false, reason: "operation-in-progress" });
+  });
+
+  it("stays permissive when no status projection exists", () => {
+    expect(getAvailability("commit.submit", createContext())).toEqual({ available: true });
+  });
+});
+
 function emptyStatus() {
   return {
     headOid: "abc123",

@@ -109,6 +109,16 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
     false,
   ],
   [
+    "graph.selectPending",
+    "navigation",
+    "graph",
+    "pending",
+    "graph",
+    "Select pending changes",
+    "Show the commit composer",
+    false,
+  ],
+  [
     "branch.create",
     "mutation",
     "branches",
@@ -288,6 +298,7 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
  */
 const INTERNAL_NAVIGATION_COMMANDS: ReadonlySet<string> = new Set([
   "graph.selectCommit",
+  "graph.selectPending",
   "stash.select",
   "worktree.select",
 ]);

@@ -75,7 +75,9 @@ export function createInactiveWatch(worktreeWatch: boolean): GitWatchStatus {
  * A failed read keeps the previous snapshot and records the message. A genuine environment failure
  * (`missing-git`, `permission`) updates the signals that decide the whole-shell state; a transient or
  * unresolved failure keeps the previous signals so a cancelled, timed-out, auth-network, or unknown
- * read can never become `not-a-repository` or `empty`.
+ * read can never become `not-a-repository` or `empty`. Both outcomes store the read's reserved
+ * generation, so a failed read still invalidates consumers of the previous snapshot and the token
+ * never moves backwards.
  *
  * A successful read replaces the snapshot, including the null snapshot of a bare or non-repository
  * directory, and merges remote check records by name so their timestamps survive a refresh. Optional
@@ -87,12 +89,14 @@ export function createInactiveWatch(worktreeWatch: boolean): GitWatchStatus {
  * @param previous - Current store.
  * @param result - Read result.
  * @param operationRunning - True while a mutation holds the runner latch.
+ * @param generation - Generation reserved for this read.
  * @returns The next store.
  */
 export function applyReadToStore(
   previous: RepositoryStore,
   result: RepositoryReadResult,
   operationRunning: boolean,
+  generation: number,
 ): RepositoryStore {
   if (!result.ok) {
     const environmentFailure =
@@ -108,6 +112,7 @@ export function applyReadToStore(
       ...previous,
       signals,
       lastRefreshError: result.error ?? "repository read failed",
+      generation: advanceGeneration(previous.generation, generation),
     };
   }
 
@@ -120,7 +125,41 @@ export function applyReadToStore(
     remoteTagChecks: mergeRemoteTagChecks(previous.remoteTagChecks, result.signals.remotes),
     listFailures: result.listFailures,
     lastRefreshError: null,
+    generation: advanceGeneration(previous.generation, generation),
   };
+}
+
+/**
+ * Writes a reserved repository generation without ever moving the token backwards.
+ *
+ * The graph-window refresh writes its generation before and after the reloader, and a status read
+ * may settle in between with an older reservation. The token therefore only advances, and the store
+ * identity is preserved when the value does not move, because a repeated write is not a change.
+ *
+ * @param store - Current store.
+ * @param generation - Reserved generation to publish.
+ * @returns The same store, or a copy with the advanced generation.
+ */
+export function writeRepositoryGeneration(
+  store: RepositoryStore,
+  generation: number,
+): RepositoryStore {
+  if (generation <= store.generation) {
+    return store;
+  }
+
+  return { ...store, generation };
+}
+
+/**
+ * Chooses the larger of the current and the reserved generation.
+ *
+ * @param current - Generation already in the store.
+ * @param reserved - Generation reserved by a read.
+ * @returns The generation to store.
+ */
+function advanceGeneration(current: number, reserved: number): number {
+  return Math.max(current, reserved);
 }
 
 /**

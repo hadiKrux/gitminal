@@ -216,7 +216,9 @@ export function readKeyEvent(event: KeyEventLike): ParsedBinding {
     ctrl: event.ctrl,
     shift: event.shift || (base?.shift ?? false),
     alt: event.option,
-    meta: event.meta || event.super === true,
+    // Kitty and modifyOtherKeys report an Alt chord as both `option` and `meta`. Alt must win so an
+    // `alt+...` binding still matches; a real Meta/Cmd chord has `option` false.
+    meta: (event.meta && !event.option) || event.super === true,
   };
 }
 

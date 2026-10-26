@@ -4,7 +4,7 @@
 
 - Spec reference: `docs/product-spec.md` F-09 (lines 740-804), F-10 (lines 805-837), F-11 (lines 838-953), F-16 (lines 1067-1095), the keyboard map (lines 1539-1704), action IDs (lines 1705-1742).
 - Architecture contract: `docs/technical-implmentations/00-project-architecture.md`.
-- Region id: `right-pane` (`src/features/shell/regions.ts`), owned by `MainArea.tsx`. The composer is the right-pane mode when `RepositoryProvider.selection.kind === "pending"`. The other right-pane modes are commit details for a commit selection, stash details for a stash selection, and worktree details for a worktree selection (F-10).
+- Region id: `right-pane` (`src/features/shell/regions.ts`), owned by `CommitComposer.tsx`, which renders the focusable frame. The composer is the right-pane mode when `RepositoryProvider.selection.kind === "pending"`. The other right-pane modes are commit details for a commit selection, stash details for a stash selection, and worktree details for a worktree selection (F-10).
 - Dependencies: F-01 (shell, focus, region order, quit confirmation reading `hasUnsavedDraft` from `DraftProvider`), F-08 (the Pending Changes row selects the composer through `RepositoryProvider.selection`), F-10 (the right-pane mode switch), F-11 (staged file list and working tree diffs), F-15 (error overlay and the More menu overlay), F-16 (empty repository, missing git identity), F-17 (refresh after commit), F-18 (safety, hook execution), F-19 (keymap overrides for `commit.submit` and `commit.options`).
 - Owned paths:
   - `src/features/composer/CommitComposer.tsx`
@@ -13,7 +13,7 @@
   - `src/features/composer/useComposer.ts`
   - `src/app/providers/DraftProvider.tsx`
   - `src/domain/git/git.commit.ts`
-- Read-only references: `src/domain/git/git.log.ts` (amend message and short hash), `src/domain/git/git.repo.ts` (identity), `src/domain/git/git.status.ts` and `src/domain/git/parsers/parse.status.ts` (staged and pending counts), `src/domain/git/git.errors.ts` (hook-failure classification), `src/domain/repository/repository.selectors.ts`, `src/lib/text.ts` (`TEXT_INDENT_UNIT`).
+- Read-only references: `src/domain/git/git.log.ts` (amend message and short hash), `src/domain/git/git.repo.ts` (identity), `src/domain/git/git.status.ts` and `src/domain/git/parsers/parse.status.ts` (staged and pending counts), `src/app/hooks/commandRunner.report.ts` (commit hook-failure hint), `src/domain/repository/repository.selectors.ts`, `src/lib/text.ts` (`TEXT_INDENT_UNIT`).
 
 ## 2. Scope and non-goals
 
@@ -41,7 +41,7 @@ Hooks used:
 | `useAction` | `useComposer.ts` registers only composer-scoped handlers (`scope: "right-pane"`): `commit.submit`, `commit.submitNoVerify`, `commit.amend`, `commit.amendNoVerify`, `commit.options`, `form.submit`, and the composer's own `nav.left`, `nav.right`, and `nav.activate`. | Features receive action IDs, never raw key strings. Global actions such as `app.quit`, `commit.focus`, `focus.next`, `focus.previous`, `overlay.close`, and `app.refresh` are owned by the app, the shell, or `useRepository`, never by this feature. |
 | `useDraft` | `useComposer.ts` reads and writes the message through `DraftProvider`; the shell quit handler reads `hasUnsavedDraft` from the same provider. | The draft has exactly one owner, so the composer and the quit confirmation cannot disagree. |
 | `usePaste` | `CommitComposer.tsx` for paste into the textarea. | Commit message and field paste handling is a named `usePaste` use in architecture section 6. |
-| `useTerminalDimensions` | `CommitComposer.tsx` computes the auto-grow height and truncation budget. | Budget-aware layout and truncation. |
+| `useBoxRows` | `CommitComposer.tsx` measures the laid-out panel body and derives the message row cap. | The right-pane slot changes with the terminal height and the console drawer, so the field budget follows the measured body rather than estimating it. |
 | `useFocusRegion` | `CommitComposer.tsx` reads `focused` and calls `focus()` for `right-pane`. | Region focus is derived from native focus; cursor persistence per region. |
 | `useOverlay` | `useComposer.ts` pushes `CommitOptionsMenu` and the error overlay. | Modal stack and error overlay ownership. |
 | `useStatus` | `CommitComposer.tsx` renders progress and the success status. | Transient status and operation progress. |
@@ -129,15 +129,17 @@ key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(re
 | amend short hash for the indicator | `git.log.ts` `readShortHash()` | `git log -1 --format=%h HEAD` |
 | identity line | `git.repo.ts` `readIdentity()` | `git config --get user.name` and `git config --get user.email` |
 | staged count and file list | `parsers/parse.status.ts` via `git.status.ts` | `git status --porcelain=v2 --branch -z --untracked-files=all` |
-| refresh after commit | `RepositoryProvider.refresh()` | re-reads status and the first graph page |
+| refresh after commit | `RepositoryProvider.refresh()` | re-reads status and the loaded graph window (the same page count) |
 
 The four menu rows are separate action IDs and commands, not parameters of `commit.submit`. `commit.submit` stays the `Ctrl/Cmd+S` default and always runs a normal commit; the menu's Run button dispatches the highlighted row's action ID, and the palette exposes each row as its own command. `form.submit` is the multiline-form action (`Ctrl/Cmd+Enter`); in the composer it runs the same normal commit as `commit.submit`.
 
+An amend variant prepares through one path regardless of where it is dispatched. The menu's Run button, a directly bound `commit.amend` or `commit.amendNoVerify` action, and a palette dispatch all ensure an amend session exists, load HEAD's message and short hash, apply the message when the live draft is empty, set the "Amending <short hash>" indicator, and only then start the write. When the load is already in flight, Run awaits it instead of aborting it. A cancelled or superseded load stays silent; a real load failure reports a warning and sends no amend write. The menu's Cancel still restores the pre-menu draft snapshot.
+
 The message is passed as a single argument with embedded newlines; git's default `whitespace` cleanup for `-m` strips leading and trailing blank lines and trailing whitespace. Only staged files are committed: the builder passes no pathspec and no `-a` or `-A` flag, so untracked and unstaged files are never included. `--no-verify` is added only for the two variants that request it; there is no setting that applies it by default (product spec line 1201). The status read uses `--untracked-files=all` so staged and pending counts include files inside untracked directories.
 
-After a successful commit `useCommandRunner` refreshes `RepositoryProvider`, which re-reads status, staged files, and the first graph page. The runner itself does not refresh. The new commit appears at the top of the graph above the Pending Changes row. The app does not automatically select the new commit; it stays on Pending Changes so the next action is obvious, and the composer clears, including after amend.
+After a successful commit `useCommandRunner` refreshes `RepositoryProvider`, which re-reads status, staged files, and the loaded graph window at its current page count. The runner itself does not refresh. The new commit appears at the top of the commit list even when a graph-window reload was already in flight when it landed: the tips path reloads the window again while the current tip key differs from the recorded key, bounded to three attempts per loop and one re-arm. If the tip keeps changing past that bound, the graph may stay behind the newest tips until the next page append, search toggle, successful external window reload, or manual refresh, which reset the bound. The Pending Changes row stays first, so Pending Changes remains selected while the composer clears, including after amend.
 
-Failure classification for the hook case lives in `git.errors.ts`: when git exits non-zero and stderr names a `pre-commit`, `commit-msg`, or other hook, the error is classified as `hook-failure`. The error overlay then names the hook output and states that `--no-verify` can bypass the hook. The draft message and staged files are preserved in every failure case, and the command plus its output are recorded in the console (F-13).
+The `--no-verify` hint is applied in `src/app/hooks/commandRunner.report.ts`. It is restricted to the four commit commands (`commit.submit`, `commit.submitNoVerify`, `commit.amend`, `commit.amendNoVerify`) and to output that names a commit hook (`pre-commit`, `prepare-commit-msg`, `commit-msg`, `post-commit`) or the `.git/hooks/` path those runners print. A failed push with a `pre-push` hook receives no commit advice, and a bare `hook` or `husky` word does not trigger the hint. `git.errors.ts` performs no hook classification. The error overlay names the hook output and states that `--no-verify` can bypass the commit hook. The draft message and staged files are preserved in every failure case, and the command plus its output are recorded in the console (F-13).
 
 ### Command registration and targets
 
@@ -186,7 +188,7 @@ Every state carries a text marker; color is never the only signal.
 
 ## 10. Performance and bounds
 
-- The textarea auto-grows up to 8 rows and then scrolls inside a `<scrollbox>`; the height is `min(8, messageLineCount)` and is recomputed on edit and on resize from `useTerminalDimensions`.
+- The textarea auto-grows up to 8 rows and then scrolls inside a `<scrollbox>`; the height is `min(8, messageLineCount)` capped by the rows the right-pane slot actually leaves for the field. `MainArea` reserves 11 rows for the composer whenever the column can spare them and clamps the reservation when the console drawer leaves less room than both surfaces need, and the composer panel fills the slot it is given instead of enforcing its own minimum. `CommitComposer` reads the laid-out body height through `useBoxRows` (one row before the first layout) and subtracts the staged, identity, label, button, and reason rows, so the cap drops to one row in the 8-row slot the console leaves at 80x24. The identity line, message label, More, and Commit therefore stay inside the panel, and the diff keeps its one-cell gutter, at 80x24, 80x25, and 100x30.
 - No git call runs per keystroke. Identity is read once per repository refresh, and the amend message and short hash are read once when amend is selected.
 - The identity and counts come from the repository snapshot, so the composer does not add a read per render.
 - Commit is a single write serialized by `commands.runner.ts`; a second write while one is running returns a blocked result with a reason. The composer does not optimistically mutate the graph or the staged list.

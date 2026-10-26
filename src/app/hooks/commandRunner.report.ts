@@ -35,6 +35,38 @@ const RETRYABLE_COMMANDS: ReadonlySet<string> = new Set([
 const ERROR_DETAIL_MAX_LINES = 60;
 
 /**
+ * Commit commands whose failure can be bypassed with `--no-verify`.
+ *
+ * The hint is worded for "this commit", so it must never reach a push, fetch, or any other command
+ * whose hook, such as `pre-push`, has a different bypass.
+ */
+const COMMIT_HOOK_COMMANDS: ReadonlySet<string> = new Set([
+  "commit.submit",
+  "commit.submitNoVerify",
+  "commit.amend",
+  "commit.amendNoVerify",
+]);
+
+/**
+ * Text fragments that identify a commit hook or its runner output.
+ *
+ * Only the hook names a commit invokes are matched, plus the `.git/hooks/` path those runners print.
+ * A bare "hook" or "husky" match is deliberately absent: a branch name or an unrelated failure that
+ * happens to contain the word must not receive commit advice.
+ */
+const HOOK_FAILURE_PATTERNS: readonly RegExp[] = Object.freeze([
+  /pre-commit/i,
+  /prepare-commit-msg/i,
+  /commit-msg/i,
+  /post-commit/i,
+  /\.git\/hooks\//i,
+]);
+
+/** Hint appended to a hook failure so the user knows the documented bypass. */
+const HOOK_BYPASS_HINT =
+  "This looks like a git hook failure. --no-verify bypasses the hook for this commit; the hook output above names the reason.";
+
+/**
  * Applies the status or error effect for a settled result.
  *
  * Cancellation and timeout are warnings. A successful result with warnings, such as a missing
@@ -124,7 +156,61 @@ export function buildErrorDetails(result: CommandResult): string {
     lines.push(result.blockedReason ?? "command failed without output");
   }
 
-  return capErrorDetails(lines.join("\n"));
+  return capErrorDetails(appendCommitHookHint(result, lines.join("\n")));
+}
+
+/**
+ * Appends the `--no-verify` hint only for a commit command that failed in a commit hook.
+ *
+ * The command gate keeps push and every other failure free of wording about "this commit", and the
+ * narrowed pattern keeps a failure that merely contains the word "hook" from receiving advice.
+ *
+ * @param result - Redacted failed result.
+ * @param details - Detail block built from the settled result.
+ * @returns The details, with the hint appended for a commit hook failure.
+ */
+function appendCommitHookHint(result: CommandResult, details: string): string {
+  return COMMIT_HOOK_COMMANDS.has(result.commandId)
+    ? appendHookHint(details, readFailureOutput(result))
+    : details;
+}
+
+/**
+ * Reads the combined failure output of a result.
+ *
+ * @param result - Redacted failed result.
+ * @returns The stderr of every failed step, joined with newlines.
+ */
+function readFailureOutput(result: CommandResult): string {
+  return result.steps
+    .filter((step) => step.exitCode !== 0)
+    .map((step) => step.stderr)
+    .join("\n");
+}
+
+/**
+ * Appends the documented `--no-verify` hint when the failure names a git hook.
+ *
+ * The hint is additive: a non-hook failure and an empty failure text return the details unchanged,
+ * so the overlay keeps its exact existing content. It names the bypass without hiding the hook
+ * output, which stays in the detail block above the hint.
+ *
+ * @param details - Detail block built from the settled result.
+ * @param failureText - Decisive failure text such as a step's stderr.
+ * @returns The details, with the hint appended for a hook failure.
+ */
+export function appendHookHint(details: string, failureText: string): string {
+  return isHookFailureText(failureText) ? `${details}\n${HOOK_BYPASS_HINT}` : details;
+}
+
+/**
+ * Reports whether a failure text names a git hook.
+ *
+ * @param failureText - Decisive failure text such as a step's stderr.
+ * @returns True when the text names a hook or a hook runner.
+ */
+export function isHookFailureText(failureText: string): boolean {
+  return HOOK_FAILURE_PATTERNS.some((pattern) => pattern.test(failureText));
 }
 
 /**

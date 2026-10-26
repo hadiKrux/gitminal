@@ -6,6 +6,7 @@ import type {
   CommandTarget,
 } from "@/domain/commands/commands.types";
 import type { GitClient, GitWatcherFactory, GitWatchStatus } from "@/domain/git/git.types";
+import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
 import type {
   BranchRiskRead,
   RemoteCheckKind,
@@ -30,6 +31,23 @@ export interface RepositoryRefreshResult {
   /** Repository generation after the request settled. */
   readonly generation: number;
 }
+
+/**
+ * Loads a commit OID into the graph's loaded window before it is selected.
+ *
+ * The graph registers this seam on mount, so a parent or search-result selection can ask the
+ * paginator for a bounded `ensureLoaded` walk without any feature importing another feature.
+ */
+export type CommitNavigator = (oid: string) => Promise<EnsureLoadedResult>;
+
+/**
+ * Reloads the graph feature's loaded window and reports whether the reload succeeded.
+ *
+ * A false result means the feature rolled back to its captured checkpoint after a page read
+ * failure, so the provider can report `ok: false` for the request and the page Retry can re-run the
+ * window reload instead of treating the failed tip as handled.
+ */
+export type GraphWindowRefresher = () => Promise<boolean>;
 
 /** Options accepted by the repository refresh entry points. */
 export interface RepositoryRefreshOptions {
@@ -101,9 +119,30 @@ export interface RepositoryContextValue {
    * `useCommitGraph` registers on mount and clears on unmount; the provider owns the in-flight flag
    * and the generation token, while the graph owns the page reads.
    *
-   * @param refresher - Reloader, or null to clear it.
+   * @param refresher - Reloader that reports success, or null to clear it.
    */
-  registerGraphWindowRefresher(refresher: (() => Promise<void>) | null): void;
+  registerGraphWindowRefresher(refresher: GraphWindowRefresher | null): void;
+  /**
+   * Registers the graph feature's bounded commit loader.
+   *
+   * `useCommitGraph` registers on mount and clears on unmount. The provider never reads history
+   * itself; it only asks the graph whether an OID is loaded before it changes the selection.
+   *
+   * @param navigator - Loader, or null to clear it.
+   */
+  registerCommitNavigator(navigator: CommitNavigator | null): void;
+  /**
+   * Selects a commit after the graph has loaded it.
+   *
+   * The selection changes only when the registered navigator reports `loaded`. The detailed
+   * `notFound`, `exceeded`, `cancelled`, and `error` outcomes keep the current selection and let a
+   * caller distinguish a genuine bounded miss from a walk cancelled by a refresh or a page read
+   * failure.
+   *
+   * @param oid - Commit OID to select.
+   * @returns The bounded load outcome; `loaded` when the commit became the selection.
+   */
+  selectCommit(oid: string): Promise<EnsureLoadedResult>;
   /**
    * Replaces the right-pane selection.
    *

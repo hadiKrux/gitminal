@@ -72,28 +72,48 @@ export function useListCursor(options: UseListCursorOptions): ListCursorHandle {
   );
 
   const moveUp = useCallback((): void => {
+    if (options.delegateAction?.("up") === true) {
+      return;
+    }
+
     setIndex((current) => clampIndex(current - 1, options.items.length));
-  }, [options.items.length]);
+  }, [options.delegateAction, options.items.length]);
 
   const moveDown = useCallback((): void => {
+    if (options.delegateAction?.("down") === true) {
+      return;
+    }
+
     setIndex((current) => clampIndex(current + 1, options.items.length));
-  }, [options.items.length]);
+  }, [options.delegateAction, options.items.length]);
 
   const moveFirst = useCallback((): void => {
+    if (options.delegateAction?.("first") === true) {
+      return;
+    }
+
     setIndex(clampIndex(0, options.items.length));
-  }, [options.items.length]);
+  }, [options.delegateAction, options.items.length]);
 
   const moveLast = useCallback((): void => {
+    if (options.delegateAction?.("last") === true) {
+      return;
+    }
+
     setIndex(clampIndex(options.items.length - 1, options.items.length));
-  }, [options.items.length]);
+  }, [options.delegateAction, options.items.length]);
 
   const activate = useCallback((): void => {
+    if (options.delegateAction?.("activate") === true) {
+      return;
+    }
+
     if (options.items.length === 0) {
       return;
     }
 
     options.onActivate();
-  }, [options.items.length, options.onActivate]);
+  }, [options.delegateAction, options.items.length, options.onActivate]);
 
   const handleRowClick = useRowClickHandler(select, options.onDoubleClick);
 

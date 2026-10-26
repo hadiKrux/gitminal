@@ -20,6 +20,8 @@ let activations = 0;
 let doubleClickIndexes: number[] = [];
 let setItems: (items: readonly { readonly id: string }[]) => void = () => {};
 let setVisible: (visible: boolean) => void = () => {};
+let setDelegateResult: (handled: boolean) => void = () => {};
+const delegateCalls: string[] = [];
 
 function CursorPanel(props: {
   items: readonly { readonly id: string }[];
@@ -44,6 +46,32 @@ function CursorPanel(props: {
       <box id="outside" focusable width={10} height={1}>
         <text>outside</text>
       </box>
+      <text>{handle.activeId ?? "none"}</text>
+    </box>
+  );
+}
+
+function DelegatingPanel(): ReactNode {
+  const region = useFocusRegion("branches");
+  const [handled, setHandled] = useState(true);
+
+  setDelegateResult = setHandled;
+
+  handle = useListCursor({
+    regionId: "branches",
+    items: DEFAULT_ITEMS,
+    onActivate: () => {
+      activations += 1;
+    },
+    delegateAction: (action) => {
+      delegateCalls.push(action);
+
+      return handled;
+    },
+  });
+
+  return (
+    <box {...region.regionProps} flexDirection="column" width={30} height={5}>
       <text>{handle.activeId ?? "none"}</text>
     </box>
   );
@@ -111,6 +139,8 @@ beforeEach(() => {
   doubleClickIndexes = [];
   setItems = () => {};
   setVisible = () => {};
+  setDelegateResult = () => {};
+  delegateCalls.length = 0;
 });
 
 describe("useListCursor registration", () => {
@@ -284,6 +314,32 @@ describe("useListCursor navigation", () => {
     await runAction("nav.activate");
 
     expect(activations).toBe(1);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+});
+
+describe("useListCursor delegation", () => {
+  it("lets a delegate handle actions before the cursor moves or activates", async () => {
+    const setup = await renderHarness(<DelegatingPanel />);
+
+    await runAction("nav.down");
+    await runAction("nav.first");
+    await runAction("nav.activate");
+
+    expect(delegateCalls).toEqual(["down", "first", "activate"]);
+    expect(handle?.activeId).toBe("main");
+    expect(activations).toBe(0);
+
+    await act(async () => {
+      setDelegateResult(false);
+    });
+    await runAction("nav.down");
+
+    expect(delegateCalls).toEqual(["down", "first", "activate", "down"]);
+    expect(handle?.activeId).toBe("develop");
 
     await act(async () => {
       await setup.dispose();

@@ -4,7 +4,10 @@ import { act, type ReactNode } from "react";
 import { useRepository } from "@/app/hooks/useRepository";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
-import type { RepositoryContextValue } from "@/app/providers/RepositoryProvider.types";
+import type {
+  RepositoryContextValue,
+  RepositoryRefreshResult,
+} from "@/app/providers/RepositoryProvider.types";
 import { buildBranchRiskArgs, buildListLocalBranchesArgs } from "@/domain/git/git.branches";
 import { buildListRemoteBranchesArgs } from "@/domain/git/git.remote-branches";
 import { buildListStashesArgs } from "@/domain/git/git.stashes";
@@ -263,6 +266,24 @@ async function waitForLoad(setup: Awaited<ReturnType<typeof testRender>>): Promi
   }
 }
 
+/**
+ * Runs one refresh entry point and reads the generation it reported and the one it published.
+ *
+ * @param run - Refresh call owned by the captured context.
+ * @returns The published store generation and the generation the result reported.
+ */
+async function refreshGeneration(
+  run: () => Promise<RepositoryRefreshResult> | undefined,
+): Promise<{ readonly store: number; readonly reported: number }> {
+  let reported = -1;
+
+  await act(async () => {
+    reported = (await run())?.generation ?? -1;
+  });
+
+  return { store: latest?.generation ?? -1, reported };
+}
+
 beforeEach(() => {
   latest = undefined;
 });
@@ -278,6 +299,59 @@ describe("RepositoryProvider", () => {
     expect(latest?.upstreamStatus).toBe("healthy");
     expect(latest?.snapshot?.status?.untrackedCount).toBe(1);
     expect(latest?.watch.watching).toBe(false);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("advances the repository generation after the initial read and every refresh path", async () => {
+    const setup = await renderRepository(createFakeGit().client);
+
+    await waitForLoad(setup);
+
+    const initial = latest?.generation ?? 0;
+
+    expect(initial).toBeGreaterThan(0);
+
+    const status = await refreshGeneration(() => latest?.refreshStatus());
+
+    expect(status.store).toBeGreaterThan(initial);
+    expect(status.reported).toBe(status.store);
+
+    const graph = await refreshGeneration(() => latest?.refreshGraphWindow());
+
+    expect(graph.store).toBeGreaterThan(status.store);
+    expect(graph.reported).toBe(graph.store);
+
+    const combined = await refreshGeneration(() => latest?.refresh());
+
+    expect(combined.store).toBeGreaterThan(graph.store);
+    expect(combined.reported).toBe(combined.store);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps advancing the generation after a failed status read", async () => {
+    const fake = createFakeGit();
+    const setup = await renderRepository(fake.client);
+
+    await waitForLoad(setup);
+    fake.setStatusFailure(true);
+
+    const before = latest?.generation ?? 0;
+    let outcome: Awaited<ReturnType<RepositoryContextValue["refreshStatus"]>> | undefined;
+
+    await act(async () => {
+      outcome = await latest?.refreshStatus();
+    });
+
+    expect(outcome?.ok).toBe(false);
+    expect(latest?.generation).toBeGreaterThan(before);
+    expect(outcome?.generation).toBe(latest?.generation);
+    expect(latest?.snapshot?.branch).toBe("main");
 
     await act(async () => {
       await setup.dispose();
@@ -895,6 +969,8 @@ describe("RepositoryProvider", () => {
       latest?.registerGraphWindowRefresher(async () => {
         calls += 1;
         await gate;
+
+        return true;
       });
     });
 
@@ -915,6 +991,84 @@ describe("RepositoryProvider", () => {
 
     await act(async () => {
       latest?.registerGraphWindowRefresher(null);
+      await setup.dispose();
+    });
+  });
+
+  it("reports ok false when the registered refresher rolled back a page failure", async () => {
+    const setup = await renderRepository(createFakeGit().client);
+
+    await waitForLoad(setup);
+
+    let outcome: Awaited<ReturnType<RepositoryContextValue["refreshGraphWindow"]>> | undefined;
+
+    await act(async () => {
+      latest?.registerGraphWindowRefresher(async () => false);
+      outcome = await latest?.refreshGraphWindow();
+    });
+
+    expect(outcome?.ok).toBe(false);
+    expect(outcome?.error).toBeNull();
+
+    await act(async () => {
+      latest?.registerGraphWindowRefresher(null);
+      await setup.dispose();
+    });
+  });
+
+  it("selects a commit only when the registered navigator reports it loaded", async () => {
+    const setup = await renderRepository(createFakeGit().client);
+    const requested: string[] = [];
+
+    await waitForLoad(setup);
+
+    await act(async () => {
+      latest?.registerCommitNavigator(async (oid) => {
+        requested.push(oid);
+
+        return oid === "abc123" ? "loaded" : "notFound";
+      });
+    });
+
+    let found: Awaited<ReturnType<RepositoryContextValue["selectCommit"]>> | undefined;
+    let missing: Awaited<ReturnType<RepositoryContextValue["selectCommit"]>> | undefined;
+
+    await act(async () => {
+      found = await latest?.selectCommit("abc123");
+    });
+    await act(async () => {
+      missing = await latest?.selectCommit("deadbee");
+    });
+
+    expect(requested).toEqual(["abc123", "deadbee"]);
+    expect(found).toBe("loaded");
+    expect(missing).toBe("notFound");
+    expect(latest?.selection).toEqual({ kind: "commit", oid: "abc123" });
+
+    await act(async () => {
+      latest?.registerCommitNavigator(null);
+      await setup.dispose();
+    });
+  });
+
+  it("keeps the current selection when no commit navigator is registered", async () => {
+    const setup = await renderRepository(createFakeGit().client);
+
+    await waitForLoad(setup);
+    await act(async () => {
+      latest?.setSelection({ kind: "commit", oid: "abc123" });
+    });
+
+    let selected: Awaited<ReturnType<RepositoryContextValue["selectCommit"]>> | undefined;
+
+    await act(async () => {
+      selected = await latest?.selectCommit("def456");
+    });
+
+    expect(selected).toBe("cancelled");
+    expect(latest?.selection).toEqual({ kind: "commit", oid: "abc123" });
+
+    await act(async () => {
       await setup.dispose();
     });
   });
@@ -984,6 +1138,38 @@ describe("RepositoryProvider", () => {
         includeUntracked: "true",
       }),
     ).toEqual({ available: true });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("derives authoritative read-only diff availability from the selection", async () => {
+    const setup = await renderRepository(createFakeGit().client);
+
+    await waitForLoad(setup);
+
+    const working = { kind: "diffFile" as const, section: "working", path: "a.txt" };
+    const staged = { kind: "diffFile" as const, section: "staged", path: "a.txt" };
+
+    await act(async () => {
+      latest?.setSelection({ kind: "commit", oid: "abc123" });
+    });
+
+    expect(latest?.getAvailability("diff.stage", working, "diff")).toEqual({
+      available: false,
+      reason: "read-only",
+    });
+    expect(latest?.getAvailability("diff.unstage", staged, "diff")).toEqual({
+      available: false,
+      reason: "read-only",
+    });
+
+    await act(async () => {
+      latest?.setSelection({ kind: "pending" });
+    });
+
+    expect(latest?.getAvailability("diff.stage", working, "diff")).toEqual({ available: true });
 
     await act(async () => {
       await setup.dispose();

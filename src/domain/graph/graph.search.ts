@@ -1,3 +1,4 @@
+import { buildSearchPageArgs } from "@/domain/git/git.log";
 import type {
   GraphCommit,
   GraphPage,
@@ -48,47 +49,39 @@ export function parseSearchTerms(query: string): readonly string[] {
 }
 
 /**
- * Builds the `git log` argument array for a bounded search page.
+ * Builds the `git log` argument array for a bounded fixed-string search page.
  *
- * The region after the options is the scope, followed by the cursor frontier as positive
- * revisions. `--skip` is never produced: continuation is anchored on the frontier, so a search page
- * cannot re-walk or skip the loaded prefix.
+ * The region after the options is always the fixed scope. Continuation is a stable result offset
+ * rather than a parent frontier: search results are append-only and never trimmed, so skipping the
+ * matches already returned over the same scope and query is stable. `--skip` is emitted only when
+ * the offset is greater than zero, and the scope is never combined with a frontier. The versioned
+ * log format, `--raw`, and `--numstat` are part of the shared builder in `git.log.ts`, so every
+ * result carries the subject, body, refs, file count, author, and date the search UI renders.
  *
- * @param input - Scope arguments, terms, limit, and frontier.
+ * @param input - Scope arguments, terms, limit, and result offset.
  * @returns The git argument array without the executable.
  */
 export function buildSearchArgs(input: {
   readonly scopeArgs: readonly string[];
   readonly terms: readonly string[];
   readonly limit: number;
-  readonly frontier: readonly string[];
+  readonly offset: number;
 }): readonly string[] {
-  return [
-    "log",
-    "--topo-order",
-    "--decorate=full",
-    "--raw",
-    "--numstat",
-    "-z",
-    "--diff-merges=first-parent",
-    "--root",
-    "--fixed-strings",
-    "-i",
-    "--all-match",
-    ...input.terms.flatMap((term) => ["--grep", term]),
-    `--max-count=${Math.max(1, Math.floor(input.limit))}`,
-    ...input.scopeArgs,
-    ...input.frontier,
-  ];
+  return buildSearchPageArgs(input);
 }
 
 /**
  * Creates the stateful search engine.
  *
- * Each query owns a generation. Starting a new query bumps the generation, so a slower older query
- * resolves as `stale` and is never merged into the current results. Result pages continue from the
- * frontier of the rows already loaded, coalesce into one in-flight request, and reject a repeated
- * OID, which keeps pagination monotonic without `--skip`.
+ * Each query owns a generation. Starting a new query bumps the generation and resets the offset, so
+ * a slower older query resolves as `stale` and is never merged into the current results. Result
+ * pages coalesce into one in-flight request and continue from the stable offset of matching commits
+ * already returned. The offset advances by the number of commits git returned for the page, before
+ * de-duplication, because git counted every returned match. A repeated OID is rejected, and only git
+ * exhaustion or an empty page ends the query; a page that adds no new rows advances the offset and
+ * continues, so a shifted scope cannot hide an older match behind the loaded prefix. The offset is
+ * stable only for an unchanged repository, so a match inserted above the current offset after the
+ * first page can be skipped while older matches are still returned.
  *
  * @param options - Scope, page size, and injected loader.
  * @returns The search engine.
@@ -160,7 +153,7 @@ export function createGraphSearch(options: GraphSearchOptions): GraphSearch {
     const request: GraphSearchRequest = {
       scopeKey: state.scopeKey,
       terms: state.terms,
-      frontier: state.frontier,
+      offset: state.offset,
       limit: pageSize,
     };
     const promise = runSearchRequest(token, request);
@@ -220,7 +213,7 @@ function createEmptySearchState(scopeKey: string): GraphSearchState {
  * @param scopeKey - Scope the search runs in.
  * @param query - Raw query.
  * @param terms - Parsed terms.
- * @returns The fresh state.
+ * @returns The fresh state with a zero offset.
  */
 function createSearchState(
   scopeKey: string,
@@ -233,7 +226,7 @@ function createSearchState(
     terms,
     rows: [],
     pagesLoaded: 0,
-    frontier: [],
+    offset: 0,
     done: terms.length === 0,
   };
 }
@@ -252,7 +245,13 @@ function countNewCommits(rows: readonly GraphCommit[], page: GraphPage): number 
 }
 
 /**
- * Merges one search page, rejecting repeated OIDs and advancing the cursor.
+ * Merges one search page, rejecting repeated OIDs and advancing the stable offset.
+ *
+ * The offset advances by every commit git returned, including a repeated OID, because git counted
+ * that match in the page it produced. History is exhausted only when git says so or the page is
+ * empty. A page whose rows are all already loaded still moves the offset forward, so a result set
+ * that shifted between pages continues past the loaded prefix instead of ending the query early;
+ * non-matching parents are part of git's traversal and are never consulted here.
  *
  * @param state - Current search state.
  * @param page - Page returned by the loader.
@@ -269,23 +268,7 @@ function mergeSearchPage(state: GraphSearchState, page: GraphPage): GraphSearchS
     terms: state.terms,
     rows,
     pagesLoaded: state.pagesLoaded + 1,
-    frontier: computeSearchFrontier(rows),
-    done: state.done || page.done || added.length === 0,
+    offset: state.offset + page.commits.length,
+    done: state.done || page.done || page.commits.length === 0,
   };
-}
-
-/**
- * Computes the frontier for the next search page.
- *
- * Search results are a filtered subset, so every result that has not been emitted yet is a valid
- * continuation point. Only the last result is used, because git's search walk continues from it
- * without `--skip`.
- *
- * @param rows - Loaded search rows.
- * @returns The last loaded OID as the frontier, or an empty list.
- */
-function computeSearchFrontier(rows: readonly GraphCommit[]): readonly string[] {
-  const last = rows.at(-1);
-
-  return last === undefined ? [] : [last.oid];
 }

@@ -1,3 +1,4 @@
+import type { InputMode } from "@/app/hooks/inputMode.types";
 import type { ActionScope } from "@/app/hooks/useAction.types";
 import type { KeyEventLike, ResolvedKeymap } from "@/domain/keymap/keymap.types";
 import type { RegionId } from "@/features/shell/focus.types";
@@ -12,6 +13,13 @@ export interface HotkeyResolutionInput {
   readonly activeRegion: RegionId | null;
   /** True while an editor owns focus. */
   readonly textInputFocused: boolean;
+  /**
+   * Routing mode declared by the focused text input, or null when it declares none.
+   *
+   * A `search` input keeps printable and editing keys, while the documented navigation keys resolve
+   * to the owning region scope.
+   */
+  readonly textInputMode?: InputMode | null;
   /** True while a native select widget owns focus. */
   readonly nativeListFocused: boolean;
   /**

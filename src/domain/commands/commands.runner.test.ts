@@ -64,6 +64,7 @@ function createOptions(overrides: Partial<CommandRunOptions> = {}): CommandRunOp
     signals,
     target: overrides.target ?? { kind: "none" },
     region: overrides.region ?? "branches",
+    readOnly: overrides.readOnly,
     client: overrides.client ?? UNUSED_CLIENT,
     signal: overrides.signal,
     onProgress: overrides.onProgress,
@@ -171,6 +172,34 @@ describe("runCommand", () => {
     expect(result.status).toBe("blocked");
     expect(result.blockedReason).toBe("missing-target");
     expect(calls.count).toBe(0);
+  });
+
+  it("blocks a diff mutation from the authoritative read-only option", async () => {
+    const seen: boolean[] = [];
+    registerCommandHandler({
+      commandId: "diff.stage",
+      operationLabel: "Stage file",
+      handler: async (context) => {
+        seen.push(context.readOnly === true);
+
+        return { steps: [okStep(["git", "add", "--", ":(literal)a.txt"])] };
+      },
+    });
+    const target = { kind: "diffFile" as const, section: "working", path: "a.txt" };
+
+    const blocked = await runCommand(
+      createRequest("diff.stage", { target }),
+      createOptions({ target, region: "diff", readOnly: true }),
+    );
+    const writable = await runCommand(
+      createRequest("diff.stage", { target }),
+      createOptions({ target, region: "diff", readOnly: false }),
+    );
+
+    expect(blocked.status).toBe("blocked");
+    expect(blocked.blockedReason).toBe("read-only");
+    expect(writable.status).toBe("success");
+    expect(seen).toEqual([false]);
   });
 
   it("executes a registered mutation from the repository root", async () => {

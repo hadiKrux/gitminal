@@ -1,5 +1,7 @@
 import { TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
+import { readInputMode } from "@/app/hooks/inputMode.registry";
+import type { InputMode } from "@/app/hooks/inputMode.types";
 import { resolveActionHandler } from "@/app/hooks/useAction";
 import type { ActionScope } from "@/app/hooks/useAction.types";
 import { useFocusState } from "@/app/hooks/useFocusState";
@@ -35,6 +37,20 @@ const NATIVE_LIST_ACTIONS: ReadonlySet<string> = new Set([
 
 /** Global actions that stay reachable while an overlay owns keys. */
 const OVERLAY_ALLOWED_ACTIONS: ReadonlySet<string> = new Set(["overlay.close", "app.quit"]);
+
+/**
+ * Physical keys a search input routes to the bound result list.
+ *
+ * The lookup key keeps modifiers, so only the plain key reaches the list. Printable keys such as
+ * `j` and `k` keep editing the query even though the region also binds them to navigation.
+ */
+const SEARCH_INPUT_ACTIONS: ReadonlyMap<string, string> = new Map([
+  ["up", "nav.up"],
+  ["down", "nav.down"],
+  ["pageup", "nav.pageUp"],
+  ["pagedown", "nav.pageDown"],
+  ["enter", "nav.activate"],
+]);
 
 /** The hardcoded quit action that always survives text-input ownership. */
 const QUIT_ACTION_ID = "app.quit";
@@ -77,6 +93,7 @@ export function useHotkeys(): void {
       key,
       activeRegion: state.activeRegion,
       textInputFocused: state.textInputFocused,
+      textInputMode: readInputMode(state.focusedRenderableId),
       nativeListFocused: state.nativeListFocused,
       focusInsideRegion: state.focusInsideRegion,
       overlayOpen: overlay.isOpen,
@@ -123,6 +140,7 @@ export function resolveHotkeyAction(input: HotkeyResolutionInput): HotkeyResolut
       input.key,
       lookupKey,
       focusInsideRegion ? input.activeRegion : null,
+      input.textInputMode ?? null,
     );
   }
 
@@ -243,6 +261,7 @@ function resolveOverlayGlobalAction(
  * @param lookupKey - Canonical lookup key for the event.
  * @param activeRegion - Region that owns the focused editor, or `null` when focus is outside every
  * region.
+ * @param inputMode - Routing mode declared by the focused editor, or `null` when it declares none.
  * @returns The resolution, or `null` when the editor should keep the key.
  */
 function resolveTextInputAction(
@@ -250,7 +269,16 @@ function resolveTextInputAction(
   key: KeyEventLike,
   lookupKey: string,
   activeRegion: RegionId | null,
+  inputMode: InputMode | null,
 ): HotkeyResolution | null {
+  if (inputMode === "search" && activeRegion !== null) {
+    const routed = SEARCH_INPUT_ACTIONS.get(lookupKey);
+
+    if (routed !== undefined) {
+      return { actionId: routed, scope: activeRegion };
+    }
+  }
+
   const globalAction = readContextAction(keymap, "global", lookupKey);
   const special = resolveTextInputSpecialAction(globalAction, key);
 

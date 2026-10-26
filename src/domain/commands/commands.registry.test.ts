@@ -59,10 +59,16 @@ describe("command registry", () => {
 
   it("declares the internal selection commands without an action id", () => {
     expect(getCommandDescriptor("graph.selectCommit")?.actionId).toBeUndefined();
+    expect(getCommandDescriptor("graph.selectPending")?.actionId).toBeUndefined();
     expect(getCommandDescriptor("stash.select")?.actionId).toBeUndefined();
     expect(getCommandDescriptor("worktree.select")?.actionId).toBeUndefined();
 
-    for (const commandId of ["graph.selectCommit", "stash.select", "worktree.select"]) {
+    for (const commandId of [
+      "graph.selectCommit",
+      "graph.selectPending",
+      "stash.select",
+      "worktree.select",
+    ]) {
       const descriptor = getCommandDescriptor(commandId);
 
       expect(descriptor?.kind, commandId).toBe("navigation");
@@ -70,9 +76,18 @@ describe("command registry", () => {
     }
   });
 
+  it("targets pending for graph.selectPending and a commit for graph.selectCommit", () => {
+    expect(getCommandDescriptor("graph.selectCommit")?.targetKind).toBe("commit");
+    expect(getCommandDescriptor("graph.selectPending")?.targetKind).toBe("pending");
+  });
+
   it("keeps every other command bound to its own action id", () => {
     for (const descriptor of listCommandDescriptors()) {
-      if (descriptor.id === "graph.selectCommit" || descriptor.id === "stash.select") {
+      if (
+        descriptor.id === "graph.selectCommit" ||
+        descriptor.id === "graph.selectPending" ||
+        descriptor.id === "stash.select"
+      ) {
         continue;
       }
 

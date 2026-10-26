@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import type { InputRenderable, TextareaRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
-import { act, type ReactNode } from "react";
+import { act, type ReactNode, useEffect } from "react";
+import { registerInputMode, resetInputModes } from "@/app/hooks/inputMode.registry";
 import { resetActionRegistry, useAction } from "@/app/hooks/useAction";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { resolveHotkeyAction, useHotkeys } from "@/app/hooks/useHotkeys";
@@ -48,6 +49,7 @@ function resolve(
   context: {
     activeRegion?: "branches" | "stashes" | "graph" | "right-pane" | null;
     textInputFocused?: boolean;
+    inputMode?: "field" | "search" | "form" | null;
     nativeListFocused?: boolean;
     focusInsideRegion?: boolean;
     overlayOpen?: boolean;
@@ -59,6 +61,7 @@ function resolve(
     key: event,
     activeRegion: context.activeRegion ?? null,
     textInputFocused: context.textInputFocused ?? false,
+    textInputMode: context.inputMode ?? null,
     nativeListFocused: context.nativeListFocused ?? false,
     focusInsideRegion: context.focusInsideRegion ?? true,
     overlayOpen: context.overlayOpen ?? false,
@@ -233,6 +236,55 @@ describe("resolveHotkeyAction", () => {
   it("delegates overlay navigation keys to a focused native list", () => {
     expect(resolve(key("down"), { overlayOpen: true, nativeListFocused: true })).toBeNull();
   });
+
+  it("routes navigation keys from a search input to the active region", () => {
+    const context = { textInputFocused: true, inputMode: "search", activeRegion: "graph" } as const;
+
+    expect(resolve(key("up"), context)).toEqual({ actionId: "nav.up", scope: "graph" });
+    expect(resolve(key("down"), context)).toEqual({ actionId: "nav.down", scope: "graph" });
+    expect(resolve(key("pageup"), context)).toEqual({
+      actionId: "nav.pageUp",
+      scope: "graph",
+    });
+    expect(resolve(key("pagedown"), context)).toEqual({
+      actionId: "nav.pageDown",
+      scope: "graph",
+    });
+    expect(resolve(key("enter"), context)).toEqual({
+      actionId: "nav.activate",
+      scope: "graph",
+    });
+  });
+
+  it("keeps typing, editing, and unbound keys in a search input", () => {
+    const context = { textInputFocused: true, inputMode: "search", activeRegion: "graph" } as const;
+
+    expect(resolve(key("j"), context)).toBeNull();
+    expect(resolve(key("k"), context)).toBeNull();
+    expect(resolve(key("a"), context)).toBeNull();
+    expect(resolve(key("backspace"), context)).toBeNull();
+    expect(resolve(key("delete"), context)).toBeNull();
+    expect(resolve(key("left"), context)).toBeNull();
+    expect(resolve(key("home"), context)).toBeNull();
+    expect(resolve(key("end"), context)).toBeNull();
+    expect(resolve(key("escape"), context)).toEqual({
+      actionId: "overlay.close",
+      scope: "global",
+    });
+  });
+
+  it("does not route search navigation without an active region or with a field mode", () => {
+    expect(
+      resolve(key("down"), { textInputFocused: true, inputMode: "search", activeRegion: null }),
+    ).toBeNull();
+    expect(
+      resolve(key("down"), {
+        textInputFocused: true,
+        inputMode: "field",
+        activeRegion: "graph",
+      }),
+    ).toBeNull();
+  });
 });
 
 /** Number of times the harness refresh handler ran. */
@@ -299,6 +351,37 @@ function TextEditingHarness(props: { multiline?: boolean }): ReactNode {
   );
 }
 
+/** Number of times the search harness moved down. */
+let searchDowns = 0;
+
+/** Number of times the search harness activated a result. */
+let searchActivations = 0;
+
+/**
+ * Mounts the dispatcher with a text input that declares the search input mode.
+ *
+ * @returns The harness layout.
+ */
+function SearchModeHarness(): ReactNode {
+  useHotkeys();
+  useAction("nav.down", { scope: "graph" }, () => {
+    searchDowns += 1;
+  });
+  useAction("nav.activate", { scope: "graph" }, () => {
+    searchActivations += 1;
+  });
+
+  const region = useFocusRegion("graph");
+
+  useEffect(() => registerInputMode("search-field", "search"), []);
+
+  return (
+    <box {...region.regionProps} flexDirection="column" width={40} height={8}>
+      <input id="search-field" width={30} />
+    </box>
+  );
+}
+
 /**
  * Renders the text editing harness inside the shell providers.
  *
@@ -323,7 +406,10 @@ async function renderTextEditing(
 describe("useHotkeys", () => {
   beforeEach(() => {
     resetActionRegistry();
+    resetInputModes();
     refreshes = 0;
+    searchDowns = 0;
+    searchActivations = 0;
   });
 
   it("runs a global action in a region and lets a focused editor keep its key", async () => {
@@ -450,6 +536,50 @@ describe("useHotkeys", () => {
     expect(submits).toBe(1);
     expect(activations).toBe(0);
     expect(input?.value).toBe("abc");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("routes search-mode navigation keys without editing or swallowing printable keys", async () => {
+    const setup = await testRender(
+      <ShellTestProviders>
+        <SearchModeHarness />
+      </ShellTestProviders>,
+      { width: 60, height: 20 },
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const input = setup.renderer.root.findDescendantById("search-field") as
+      | InputRenderable
+      | undefined;
+
+    await act(async () => {
+      input?.focus();
+    });
+    await act(async () => {
+      setup.mockInput.pressArrow("down");
+    });
+    await act(async () => {
+      setup.mockInput.pressKey("j");
+    });
+    await act(async () => {
+      setup.mockInput.pressKey("k");
+    });
+    await act(async () => {
+      setup.mockInput.pressEnter();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(searchDowns).toBe(1);
+    expect(searchActivations).toBe(1);
+    expect(input?.value).toBe("jk");
 
     await act(async () => {
       await setup.dispose();

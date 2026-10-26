@@ -1,3 +1,4 @@
+import type { DiffFileStatus, DiffSection } from "@/domain/diff/diff.types";
 import type {
   BranchRecord,
   GitFailureKind,
@@ -370,6 +371,70 @@ export type RepositorySelection =
       readonly path: string;
       readonly oldPath?: string;
     };
+
+/**
+ * Status letter rendered on one diff file row.
+ *
+ * The letters follow the F-11 priority order `U`, `R`, `C`, `A`, `D`, `M`, then the untracked `?`
+ * marker, so one row always shows the strongest applicable status when both sides changed.
+ */
+export type DiffStatusLetter = "M" | "A" | "D" | "R" | "C" | "U" | "?";
+
+/**
+ * One logical changed file in the diff panel.
+ *
+ * The row identity is the section plus the current path. A rename carries its pre-change path in
+ * `oldPath` and remains one row, never one row per path.
+ */
+export interface DiffFileView {
+  /** Stable row identity within the panel, `section::path`. */
+  readonly id: string;
+  /** Section that owns the row. */
+  readonly section: DiffSection;
+  /** Strongest status letter for the change. */
+  readonly statusLetter: DiffStatusLetter;
+  /** Status category used by the renderer. */
+  readonly status: DiffFileStatus;
+  /** Current path, root-relative. */
+  readonly path: string;
+  /** Pre-rename or pre-copy path, or null when the file is not a rename or copy. */
+  readonly oldPath: string | null;
+  /** True when the file is unmerged. */
+  readonly conflicted: boolean;
+}
+
+/**
+ * One section of the diff panel derived from the status snapshot.
+ *
+ * `paths` is exactly the section's own path set: each row's current path plus its pre-rename path,
+ * with duplicates removed. It is never a whole-tree set, so a bulk action built from it can only
+ * touch that section.
+ */
+export interface DiffSectionView {
+  /** Section identity. */
+  readonly section: DiffSection;
+  /** Section title shown in the header. */
+  readonly title: string;
+  /** Logical changed files in status order. */
+  readonly files: readonly DiffFileView[];
+  /** Literal section path set, including both paths of a rename. */
+  readonly paths: readonly string[];
+}
+
+/**
+ * Refs that point at one commit, grouped for the details badge row.
+ *
+ * Groups keep the documented render order: tags first, then local branches, then remote-tracking
+ * branches. Each label is unique inside its group.
+ */
+export interface CommitRefGroups {
+  /** Tag names without the `refs/tags/` prefix. */
+  readonly tags: readonly string[];
+  /** Local branch names without the `refs/heads/` prefix. */
+  readonly local: readonly string[];
+  /** Remote-tracking branch labels as `<remote>/<branch>`. */
+  readonly remote: readonly string[];
+}
 
 /** Pending change counts derived from the canonical status snapshot. */
 export interface PendingCounts {

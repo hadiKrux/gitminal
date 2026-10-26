@@ -1,6 +1,13 @@
 import { getStashCreateAvailability } from "@/domain/git/git.stashes";
 import type { RemoteBranchRecord, TagRowRecord } from "@/domain/git/git.types";
 import { gateRepository, hasOperationMarker } from "@/domain/repository/repository.states";
+import {
+  isDiffBulkCommand,
+  isDiffFormReadOnly,
+  readDiffCommandSections,
+  readDiffFormPaths,
+  readDiffFormSection,
+} from "./commands.diff";
 import { getCommandDescriptor } from "./commands.registry";
 import type {
   CommandAvailability,
@@ -29,13 +36,39 @@ const CURRENT_BRANCH_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Command combinations whose repository-wide gate reason is reworded for the diff actions.
+ *
+ * The repository gate reports a merge, rebase, or cherry-pick per operation. The diff panel uses one
+ * "merge state" reason for all three, because the block and remedy are identical from its point of
+ * view and F-11 names that exact reason.
+ */
+const OPERATION_MARKER_GATE_REASONS: ReadonlySet<CommandAvailabilityReason> = new Set([
+  "merge-in-progress",
+  "rebase-in-progress",
+  "cherry-pick-in-progress",
+]);
+
+/** Commit commands that create a normal commit and therefore need staged files. */
+const STAGED_COMMIT_ACTIONS: ReadonlySet<string> = new Set([
+  "commit.submit",
+  "commit.submitNoVerify",
+]);
+
+/** Commit commands that rewrite HEAD and therefore need at least one commit. */
+const AMEND_COMMIT_ACTIONS: ReadonlySet<string> = new Set(["commit.amend", "commit.amendNoVerify"]);
+
+/**
  * Combines repository-wide gates with target validation for one command.
  *
  * The repository gate runs first, so a whole-shell state such as not-a-repository or bare explains
- * the block before a target ever matters. A mutation is also blocked while another mutation runs.
- * Target validation then checks that the explicit target matches the kind the descriptor requires
- * and that the target is still valid, for example that a branch is not the current branch. Panel
- * facts, when supplied, let a check compare the target with the rows the panels render.
+ * the block before a target ever matters. Read-only diff mode is checked before that gate, because a
+ * commit or stash selection makes every diff action unavailable even while an operation marker is
+ * present. The authoritative `readOnly` context flag is checked with the form flag, so a palette or
+ * direct dispatch that omits the feature-owned form value is still refused. A mutation is also
+ * blocked while another mutation runs. Target validation then checks that
+ * the explicit target matches the kind the descriptor requires and that the target is still valid,
+ * for example that a branch is not the current branch. Panel facts, when supplied, let a check
+ * compare the target with the rows the panels render.
  *
  * @param commandId - Stable command id.
  * @param context - Repository state, signals, target, region, operation flag, and panel facts.
@@ -48,10 +81,14 @@ export function getAvailability(commandId: string, context: CommandContext): Com
     return blocked("command-not-found");
   }
 
+  if (readDiffCommandSections(commandId) !== undefined && isReadOnlyDiffContext(context)) {
+    return blocked("read-only");
+  }
+
   const gate = gateRepository(commandId, context.state, context.signals);
 
   if (!gate.available) {
-    return { available: false, reason: gate.reason ?? "operation-in-progress" };
+    return { available: false, reason: readGateReason(commandId, gate.reason) };
   }
 
   if (descriptor.kind === "mutation" && context.operation === "running") {
@@ -71,6 +108,31 @@ export function getAvailability(commandId: string, context: CommandContext): Com
   }
 
   return { available: true };
+}
+
+/**
+ * Reads the reason a repository-wide gate reports for one command.
+ *
+ * A diff bulk action that a merge, rebase, or cherry-pick blocks reports the panel's "merge state"
+ * wording instead of the per-operation gate wording. Every other command keeps its gate reason.
+ *
+ * @param commandId - Stable command id.
+ * @param reason - Gate reason, when the gate blocked the command.
+ * @returns The availability reason to report.
+ */
+function readGateReason(
+  commandId: string,
+  reason: CommandAvailabilityReason | undefined,
+): CommandAvailabilityReason {
+  if (
+    reason !== undefined &&
+    OPERATION_MARKER_GATE_REASONS.has(reason) &&
+    readDiffCommandSections(commandId) !== undefined
+  ) {
+    return "merge-state";
+  }
+
+  return reason ?? "operation-in-progress";
 }
 
 /**
@@ -510,10 +572,128 @@ function readStateReason(
   context: CommandContext,
 ): CommandAvailabilityReason | null {
   return (
+    readDiffStateReason(descriptor, context) ??
+    readCommitStateReason(descriptor, context) ??
     readOperationMarkerStateReason(descriptor, context) ??
     readConflictStateReason(descriptor, context) ??
     readPanelStateReason(descriptor, context)
   );
+}
+
+/**
+ * Reads the staged-file and HEAD requirements of the commit commands.
+ *
+ * A normal commit needs at least one staged entry, because git would fail with nothing to commit;
+ * the reason is the documented "nothing to commit" state, which the composer also renders as its
+ * button label. Amend is allowed without staged changes because it replaces the last commit, but it
+ * needs a HEAD, so an empty repository reports "no commits yet". Both checks are permissive when the
+ * caller supplies no repository projection: the dispatcher's repository copy always does, while a
+ * direct runner call keeps git as the authority.
+ *
+ * @param descriptor - Command descriptor.
+ * @param context - Command context.
+ * @returns A blocked reason, or null when the command may proceed.
+ */
+function readCommitStateReason(
+  descriptor: CommandDescriptor,
+  context: CommandContext,
+): CommandAvailabilityReason | null {
+  if (STAGED_COMMIT_ACTIONS.has(descriptor.id)) {
+    const status = context.panel?.status;
+
+    return status !== undefined && status !== null && status.stagedCount === 0
+      ? "nothing-to-commit"
+      : null;
+  }
+
+  if (AMEND_COMMIT_ACTIONS.has(descriptor.id) && !context.signals.headExists) {
+    return "no-commits-yet";
+  }
+
+  return null;
+}
+
+/**
+ * Reads the read-only, section, and empty-set blocks of a diff command.
+ *
+ * Read-only mode is a commit or stash selection, which repository signals cannot describe, so the
+ * provider derives it from the selection and the dispatching feature may also pass it in the form
+ * values. The section check keeps each action on the side
+ * it can change: discard only on Working Directory, unstage only on Staged Files, delete only on
+ * Untracked Files, and stage on Working Directory or Untracked Files. A bulk action whose section
+ * path set is present and empty is unavailable because it has nothing to do; an absent path set is
+ * permissive, so the footer and palette never guess at a scope the dispatching surface did not send.
+ *
+ * @param descriptor - Command descriptor.
+ * @param context - Command context.
+ * @returns A blocked reason, or null when the command may proceed.
+ */
+function readDiffStateReason(
+  descriptor: CommandDescriptor,
+  context: CommandContext,
+): CommandAvailabilityReason | null {
+  const allowed = readDiffCommandSections(descriptor.id);
+
+  if (allowed === undefined) {
+    return null;
+  }
+
+  if (isDiffFormReadOnly(context.formValues)) {
+    return "read-only";
+  }
+
+  const section = readRequestedDiffSection(context);
+
+  if (section === null) {
+    return isDiffBulkCommand(descriptor.id) ? null : "invalid-target";
+  }
+
+  if (!allowed.includes(section)) {
+    return "invalid-target";
+  }
+
+  if (isDiffBulkCommand(descriptor.id)) {
+    const paths = readDiffFormPaths(context.formValues);
+
+    if (paths !== undefined && paths.length === 0) {
+      return "no-files";
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Reports whether a diff command runs in authoritative or caller-supplied read-only mode.
+ *
+ * The provider-derived flag is the authority: it comes from the right-pane selection, so a palette
+ * or direct dispatch cannot make a commit or stash view writable by omitting the form value. The
+ * form flag stays as an additional defense for a caller that dispatches its own request.
+ *
+ * @param context - Command context.
+ * @returns True when the diff command must be refused as read-only.
+ */
+function isReadOnlyDiffContext(context: CommandContext): boolean {
+  return context.readOnly === true || isDiffFormReadOnly(context.formValues);
+}
+
+/**
+ * Reads the section a diff request targets.
+ *
+ * A per-file command carries the section in its explicit `diffFile` target. A bulk command carries
+ * it in the form values, because its target kind is `none`.
+ *
+ * @param context - Command context.
+ * @returns The requested section, or null when absent or unknown.
+ */
+function readRequestedDiffSection(
+  context: CommandContext,
+): "working" | "staged" | "untracked" | null {
+  if (context.target.kind === "diffFile") {
+    return readDiffFormSection({ section: context.target.section });
+  }
+
+  return readDiffFormSection(context.formValues);
 }
 
 /**

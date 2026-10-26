@@ -17,6 +17,17 @@ export interface UseListCursorOptions {
   readonly onDoubleClick?: (index: number) => void;
   /** Registers `nav.first` and `nav.last` only when the region binds them. Defaults to true. */
   readonly enableFirstLast?: boolean;
+  /**
+   * Intercepts one navigation action before the list cursor handles it.
+   *
+   * This is how a search overlay keeps its own result cursor while the shared list hook remains the
+   * single registration owner. Returning `true` means the delegate handled the action and the list
+   * cursor must not move.
+   *
+   * @param action - Navigation action the delegate may handle.
+   * @returns True when the delegate handled the action.
+   */
+  readonly delegateAction?: (action: "up" | "down" | "first" | "last" | "activate") => boolean;
 }
 
 /** Navigation handle returned by `useListCursor`. */

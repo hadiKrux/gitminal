@@ -43,6 +43,7 @@ export function RepositoryProvider(props: RepositoryProviderProps): ReactNode {
     client: runtime.gitClient,
     now: runtime.now,
     setStore,
+    setSelection,
     mountedRef,
     evidenceRef,
   });
@@ -107,6 +108,8 @@ export function RepositoryProvider(props: RepositoryProviderProps): ReactNode {
       refreshStatus: refreshCycle.refreshStatus,
       refreshGraphWindow: refreshCycle.refreshGraphWindow,
       registerGraphWindowRefresher: refreshCycle.registerGraphWindowRefresher,
+      registerCommitNavigator: refreshCycle.registerCommitNavigator,
+      selectCommit: refreshCycle.selectCommit,
       setSelection,
       recordRemoteCheck: evidence.recordRemoteCheck,
       refreshRemoteTags: remoteTags.refreshRemoteTags,

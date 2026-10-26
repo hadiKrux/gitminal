@@ -219,6 +219,13 @@ export interface CommandContext {
   readonly region: CommandRegion;
   /** Whether another mutation is running. */
   readonly operation: CommandOperation;
+  /**
+   * Authoritative read-only mode derived from the current right-pane selection.
+   *
+   * A commit or stash selection makes every diff mutation unavailable, regardless of the form
+   * values a caller supplies. The form flag remains an additional defense, never the authority.
+   */
+  readonly readOnly?: boolean;
   /** Panel facts for target-aware checks, absent when no panel projection exists. */
   readonly panel?: CommandPanelFacts;
   /** Values collected by the owning form, when the check depends on them. */
@@ -236,6 +243,8 @@ export type CommandAvailabilityReason =
   | "no-remote-branch"
   | "nothing-to-stash"
   | "only-untracked-changes"
+  | "nothing-to-commit"
+  | "message-required"
   | "no-stash-selected"
   | "stash-changed-externally"
   | "remote-tag-unknown"
@@ -245,6 +254,8 @@ export type CommandAvailabilityReason =
   | "worktree-missing"
   | "resolve-conflicts-first"
   | "merge-state"
+  | "read-only"
+  | "no-files"
   | "command-not-found"
   | "not-a-mutation"
   | "command-not-implemented";
@@ -267,6 +278,13 @@ export interface CommandRunOptions {
   readonly target: CommandTarget;
   /** Focus context that dispatched the command. */
   readonly region: CommandRegion;
+  /**
+   * Authoritative read-only mode derived from the current right-pane selection.
+   *
+   * The orchestrator sets it for a commit or stash selection so the runner blocks every diff
+   * mutation before a handler can run, even when the request carries no read-only form value.
+   */
+  readonly readOnly?: boolean;
   /** Cancellation signal owned by the caller. */
   readonly signal?: AbortSignal;
   /** Receives every progress event as it is emitted. */
@@ -345,6 +363,14 @@ export interface CommandHandlerContext {
   readonly client: GitClient;
   /** Cancellation signal. */
   readonly signal: AbortSignal;
+  /**
+   * Authoritative read-only mode from the run options.
+   *
+   * A diff executor refuses every mutation when this is true, so a palette or direct dispatch
+   * cannot change the index while a commit or stash is selected. An absent value is treated as
+   * writable, which keeps a direct executor call with no provider projection in its old shape.
+   */
+  readonly readOnly?: boolean;
   /** Publishes a progress phase or percentage. */
   readonly notifyProgress: (progress: CommandProgress) => void;
 }

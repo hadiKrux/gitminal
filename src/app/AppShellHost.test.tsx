@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import type { SelectRenderable, TabSelectRenderable } from "@opentui/core";
+import type { BoxRenderable, SelectRenderable, TabSelectRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { AppShellHost } from "@/app/AppShellHost";
@@ -16,6 +16,7 @@ import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
+import { DraftProvider } from "@/app/providers/DraftProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
 import { OverlayProvider } from "@/app/providers/OverlayProvider";
@@ -26,6 +27,12 @@ import { ThemeProvider } from "@/app/providers/ThemeProvider";
 import { resetCommandRunner } from "@/domain/commands/commands.runner";
 import { buildListLocalTagsArgs, buildLsRemoteTagsArgs } from "@/domain/git/git.tags";
 import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
+import { COMMIT_DETAILS_RETRY_ID } from "@/features/commit-details/useCommitDetails";
+import {
+  COMPOSER_COMMIT_BUTTON_ID,
+  COMPOSER_MORE_BUTTON_ID,
+  COMPOSER_TEXTAREA_ID,
+} from "@/features/composer/composer.constants";
 import { REMOTES_FILTER_INPUT_ID } from "@/features/remotes/RemoteFilter.constants";
 import type { FocusContextValue } from "@/features/shell/focus.types";
 import { FOCUS_ACTION_BY_REGION, SIDEBAR_SWITCHER_ID } from "@/features/shell/regions";
@@ -50,6 +57,9 @@ const INERT_CLIENT: GitClient = {
     ok: false,
   }),
 };
+
+/** Status output for a clean working tree, so the Commit button reads "Nothing to commit". */
+const CLEAN_STATUS = "# branch.oid abc123\0# branch.head main\0";
 
 /** Latest focus context captured by the probe. */
 let latestFocus: FocusContextValue | undefined;
@@ -149,20 +159,22 @@ async function renderHost(
       <ThemeProvider>
         <KeymapProvider platform="linux">
           <RepositoryProvider cwd="/repo" gitClient={client} enableWatcher={false} now={() => 0}>
-            <FocusProvider>
-              <OverlayProvider>
-                <StatusProvider>
-                  <ConsoleProvider>
-                    <box flexDirection="column" flexGrow={1} width={width} height={height}>
-                      <AppShellHost />
-                      <FocusProbe />
-                      <StatusProbe />
-                      <RepositoryProbe />
-                    </box>
-                  </ConsoleProvider>
-                </StatusProvider>
-              </OverlayProvider>
-            </FocusProvider>
+            <DraftProvider>
+              <FocusProvider>
+                <OverlayProvider>
+                  <StatusProvider>
+                    <ConsoleProvider>
+                      <box flexDirection="column" flexGrow={1} width={width} height={height}>
+                        <AppShellHost />
+                        <FocusProbe />
+                        <StatusProbe />
+                        <RepositoryProbe />
+                      </box>
+                    </ConsoleProvider>
+                  </StatusProvider>
+                </OverlayProvider>
+              </FocusProvider>
+            </DraftProvider>
           </RepositoryProvider>
         </KeymapProvider>
       </ThemeProvider>
@@ -175,30 +187,38 @@ async function renderHost(
  * Renders only the composition root so the footer occupies the true bottom row.
  *
  * @param client - Git client used by the repository provider.
+ * @param width - Terminal width.
+ * @param height - Terminal height.
  * @returns The renderer setup.
  */
-async function renderBareHost(client: GitClient): Promise<Awaited<ReturnType<typeof testRender>>> {
+async function renderBareHost(
+  client: GitClient,
+  width: number = 120,
+  height: number = 30,
+): Promise<Awaited<ReturnType<typeof testRender>>> {
   return testRender(
     <ConfigProvider>
       <ThemeProvider>
         <KeymapProvider platform="linux">
           <RepositoryProvider cwd="/repo" gitClient={client} enableWatcher={false} now={() => 0}>
-            <FocusProvider>
-              <OverlayProvider>
-                <StatusProvider>
-                  <ConsoleProvider>
-                    <box flexDirection="column" flexGrow={1} width={120} height={30}>
-                      <AppShellHost />
-                    </box>
-                  </ConsoleProvider>
-                </StatusProvider>
-              </OverlayProvider>
-            </FocusProvider>
+            <DraftProvider>
+              <FocusProvider>
+                <OverlayProvider>
+                  <StatusProvider>
+                    <ConsoleProvider>
+                      <box flexDirection="column" flexGrow={1} width={width} height={height}>
+                        <AppShellHost />
+                      </box>
+                    </ConsoleProvider>
+                  </StatusProvider>
+                </OverlayProvider>
+              </FocusProvider>
+            </DraftProvider>
           </RepositoryProvider>
         </KeymapProvider>
       </ThemeProvider>
     </ConfigProvider>,
-    { width: 120, height: 30, exitOnCtrlC: false, kittyKeyboard: true },
+    { width, height, exitOnCtrlC: false, kittyKeyboard: true },
   );
 }
 
@@ -215,7 +235,7 @@ afterEach(() => {
 });
 
 describe("AppShellHost", () => {
-  it("composes every placeholder surface inside the shell", async () => {
+  it("composes every feature surface inside the shell", async () => {
     const setup = await renderHost();
 
     await act(async () => {
@@ -230,9 +250,120 @@ describe("AppShellHost", () => {
     expect(frame).toContain("Tags (0)");
     expect(frame).toContain("Stashes (0)");
     expect(frame).toContain("Worktrees (0)");
-    expect(frame).toContain("Commit graph");
-    expect(frame).toContain("Commit composer");
+    expect(frame).toContain("Commits");
+    expect(frame).toContain("0 staged");
     expect(frame).toContain("Diffs");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("derives the right pane from the selection and keeps the graph and diff mounted", async () => {
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    const setup = await renderHost();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.root.findDescendantById("region-graph")).toBeDefined();
+    expect(setup.renderer.root.findDescendantById("region-diff")).toBeDefined();
+    expect(setup.renderer.root.findDescendantById("region-right-pane")).toBeDefined();
+    expect(setup.renderer.root.findDescendantById(COMPOSER_TEXTAREA_ID)).toBeDefined();
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "commit", oid: "abc123" });
+    });
+    await waitForCondition(
+      setup,
+      () => setup.renderer.root.findDescendantById(COMMIT_DETAILS_RETRY_ID) !== undefined,
+    );
+
+    expect(setup.renderer.root.findDescendantById(COMPOSER_TEXTAREA_ID)).toBeUndefined();
+    expect(setup.renderer.root.findDescendantById("region-graph")).toBeDefined();
+    expect(setup.renderer.root.findDescendantById("region-diff")).toBeDefined();
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "pending" });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.root.findDescendantById(COMPOSER_TEXTAREA_ID)).toBeDefined();
+    expect(
+      consoleError.mock.calls.some((call) => String(call[0]).includes("Duplicate action handler")),
+    ).toBe(false);
+
+    consoleError.mockRestore();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("focuses the composer with commit.focus only while the composer is mounted", async () => {
+    const setup = await renderHost(createFakeGitClient().client);
+
+    await waitForFrame(setup, "origin/main");
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      setup.mockInput.pressKey("c");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(COMPOSER_TEXTAREA_ID);
+
+    await act(async () => {
+      setup.mockInput.pressEscape();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      setup.mockInput.pressKey("6");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-graph");
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "commit", oid: "abc123" });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      setup.mockInput.pressKey("c");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-graph");
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "pending" });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      setup.mockInput.pressKey("c");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(COMPOSER_TEXTAREA_ID);
 
     await act(async () => {
       await setup.dispose();
@@ -311,6 +442,7 @@ describe("AppShellHost", () => {
       ["overlay.close", "global"],
       ["app.console", "global"],
       ["app.refresh", "global"],
+      ["commit.focus", "global"],
       ["remote.pull", "global"],
       ["remote.push", "global"],
       ["remote.fetch", "global"],
@@ -356,6 +488,37 @@ describe("AppShellHost", () => {
       ["nav.up", "worktrees"],
       ["nav.down", "worktrees"],
       ["nav.activate", "worktrees"],
+      ["nav.up", "graph"],
+      ["nav.down", "graph"],
+      ["nav.activate", "graph"],
+      ["nav.first", "graph"],
+      ["nav.last", "graph"],
+      ["nav.pageUp", "graph"],
+      ["nav.pageDown", "graph"],
+      ["graph.search", "graph"],
+      ["nav.up", "diff"],
+      ["nav.down", "diff"],
+      ["nav.activate", "diff"],
+      ["nav.expand", "diff"],
+      ["nav.collapse", "diff"],
+      ["diff.toggle", "diff"],
+      ["diff.stage", "diff"],
+      ["diff.unstage", "diff"],
+      ["diff.discard", "diff"],
+      ["diff.deleteUntracked", "diff"],
+      ["diff.stageAll", "diff"],
+      ["diff.unstageAll", "diff"],
+      ["diff.discardAll", "diff"],
+      ["diff.deleteAllUntracked", "diff"],
+      ["nav.left", "right-pane"],
+      ["nav.right", "right-pane"],
+      ["nav.activate", "right-pane"],
+      ["commit.submit", "right-pane"],
+      ["commit.submitNoVerify", "right-pane"],
+      ["commit.amend", "right-pane"],
+      ["commit.amendNoVerify", "right-pane"],
+      ["commit.options", "right-pane"],
+      ["form.submit", "right-pane"],
     ];
     const setup = await renderHost();
 
@@ -1109,7 +1272,114 @@ describe("AppShellHost", () => {
       await setup.dispose();
     });
   });
+
+  it("keeps the composer controls and the Diffs title at the enforced 80x24 minimum", async () => {
+    await expectComposerLayout(80, 24);
+  });
+
+  it("keeps the composer controls and the Diffs title at the target 100x30 size", async () => {
+    await expectComposerLayout(100, 30);
+  });
+
+  for (const height of [24, 25, 26]) {
+    it(`keeps the composer inside the clamped slot while the console is open at 80x${height}`, async () => {
+      await expectComposerLayout(80, height, { consoleOpen: true });
+    });
+  }
 });
+
+/**
+ * Renders the real composer and diff at one terminal size and asserts the right-column geometry.
+ *
+ * The composer is the default right-pane mode, so the frame is captured with the real surfaces
+ * mounted. The Commit label proves the primary action is drawn rather than clipped, the panel
+ * geometry proves the composer does not overlap the diff, and the graph gutter proves the graph
+ * keeps its border and the documented one-cell gap at 80 columns. With the console open the right
+ * column clamps the right-pane slot, so the same geometry asserts that the composer fills the
+ * clamped slot instead of overdrawing the diff or the gutter.
+ *
+ * @param width - Terminal width.
+ * @param height - Terminal height.
+ * @param options - Layout state to arrange before the geometry is read.
+ */
+async function expectComposerLayout(
+  width: number,
+  height: number,
+  options: { readonly consoleOpen?: boolean } = {},
+): Promise<void> {
+  const fake = createFakeGitClient();
+
+  fake.setStatusOutput(CLEAN_STATUS);
+
+  const setup = await renderBareHost(fake.client, width, height);
+
+  await waitForFrame(setup, "0 staged");
+
+  if (options.consoleOpen === true) {
+    await act(async () => {
+      setup.mockInput.pressKey("`", { ctrl: true });
+    });
+    await waitForFrame(setup, "No commands yet.");
+  }
+
+  await act(async () => {
+    await setup.renderOnce();
+  });
+  await act(async () => {
+    await setup.renderOnce();
+  });
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain("Nothing to commit");
+  expect(frame).toContain("Message");
+
+  if (options.consoleOpen === true) {
+    expect(frame).toContain("No commands yet.");
+  }
+
+  const graph = readBox(setup, "region-graph");
+  const rightPane = readBox(setup, "region-right-pane");
+  const diff = readBox(setup, "region-diff");
+  const more = readBox(setup, COMPOSER_MORE_BUTTON_ID);
+  const commit = readBox(setup, COMPOSER_COMMIT_BUTTON_ID);
+
+  expect(rightPane.y + rightPane.height).toBeLessThanOrEqual(diff.y);
+  expect(diff.y - (rightPane.y + rightPane.height)).toBeGreaterThanOrEqual(1);
+  expect(rightPane.x - (graph.x + graph.width)).toBeGreaterThanOrEqual(1);
+  expect(more.y).toBeGreaterThanOrEqual(rightPane.y);
+  expect(more.y + more.height).toBeLessThanOrEqual(rightPane.y + rightPane.height);
+  expect(commit.y).toBeGreaterThanOrEqual(rightPane.y);
+  expect(commit.y + commit.height).toBeLessThanOrEqual(rightPane.y + rightPane.height);
+
+  const titleRow = frame.split("\n")[diff.y] ?? "";
+
+  expect(titleRow).toContain("Diffs");
+  expect(titleRow).not.toContain("staged");
+  expect(titleRow).not.toContain("Message");
+  expect(titleRow).not.toContain("Commit");
+
+  await act(async () => {
+    await setup.dispose();
+  });
+}
+
+/**
+ * Reads one box renderable by id and fails when the surface is missing.
+ *
+ * @param setup - Renderer setup.
+ * @param id - Stable renderable id.
+ * @returns The found box.
+ */
+function readBox(setup: Awaited<ReturnType<typeof testRender>>, id: string): BoxRenderable {
+  const box = setup.renderer.root.findDescendantById(id) as BoxRenderable | undefined;
+
+  if (box === undefined) {
+    throw new Error(`missing renderable '${id}'`);
+  }
+
+  return box;
+}
 
 /**
  * Renders until the captured frame contains one expected marker.
@@ -1121,7 +1391,30 @@ async function waitForFrame(
   setup: Awaited<ReturnType<typeof testRender>>,
   marker: string,
 ): Promise<void> {
-  await waitForCondition(setup, () => setup.captureCharFrame().includes(marker));
+  await waitForCondition(setup, () => readFrame(setup)?.includes(marker) === true);
+}
+
+/**
+ * Reads the current character frame, tolerating a frame that is mid-render.
+ *
+ * The real surfaces mount animated loading rows, so the renderer can be inside an animation frame
+ * when a test polls. `captureCharFrame` throws `OutputBusy` while the frame buffer is leased; that is
+ * a transient test-renderer race, not a rendering defect, so the wait helpers retry on the next pass
+ * instead of failing.
+ *
+ * @param setup - Renderer setup.
+ * @returns The frame text, or null while a frame is being rendered.
+ */
+function readFrame(setup: Awaited<ReturnType<typeof testRender>>): string | null {
+  try {
+    return setup.captureCharFrame();
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("OutputBusy")) {
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 /**

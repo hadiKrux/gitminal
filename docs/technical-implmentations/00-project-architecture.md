@@ -21,7 +21,7 @@ This document is the contract. Feature documents describe behavior; this documen
 | Git access | System git CLI, argument arrays, no shell | Product spec F-18 |
 | Tests | `bun test` | This document |
 
-Supported git minimum: **Git >= 2.30.0**. The fixture floor and the integration skip threshold are both 2.30, and every command the app runs is available there. The narrowest requirements are `git branch --show-current` (2.22) and the unambiguous upstream atoms `%(upstream:remotename)` and `%(upstream:remoteref)` (2.28), so 2.30 is the safe floor rather than a version the app happens to be tested on.
+Supported git minimum: **Git >= 2.31.0**. The fixture floor and the integration skip threshold are both 2.31, and every command the app runs is available there. The narrowest requirements are `git branch --show-current` (2.22), the unambiguous upstream atoms `%(upstream:remotename)` and `%(upstream:remoteref)` (2.28), and `git log --diff-merges=<mode>` (2.31), so 2.31 is the safe floor rather than a version the app happens to be tested on.
 
 No other runtime dependency is added without updating this document. No UI toolkit, state library, router, or HTTP client is introduced. The startup update check uses the runtime's global `fetch` and adds no dependency.
 
@@ -77,6 +77,7 @@ Forbidden imports and key access (enforced by the section 12 scripts):
   | Module | Allowed Node builtins |
   | --- | --- |
   | `src/domain/git/git.client.ts` | `node:child_process`, `node:path` |
+  | `src/domain/git/git.diff.ts` | `node:fs/promises`, `node:path` |
   | `src/domain/git/git.watcher.ts` | `node:fs`, `node:fs/promises`, `node:path` |
   | `src/domain/config/**` | `node:fs`, `node:fs/promises`, `node:path`, `node:os` |
   | `src/lib/paths.ts` | `node:path`, `node:os` |
@@ -134,6 +135,7 @@ gitminal/
         RepositoryProvider.store.ts
         RepositoryProvider.types.ts
         DraftProvider.tsx
+        DraftProvider.types.ts
         FocusProvider.tsx
         KeymapProvider.tsx
         KeymapProvider.types.ts
@@ -147,6 +149,8 @@ gitminal/
       hooks/
         useHotkeys.ts
         useHotkeys.types.ts
+        inputMode.registry.ts
+        inputMode.types.ts
         useAction.ts
         useAction.types.ts
         useActionAvailability.ts
@@ -191,10 +195,18 @@ gitminal/
         useRepositoryStoreWatcher.types.ts
         useInFlightTask.ts
         useInFlightTask.types.ts
+        useInternalCommands.ts
+        useInternalCommands.types.ts
         useRemoteCommands.ts
         useRemoteCommands.types.ts
         usePanelCommands.ts
         usePanelCommands.types.ts
+        useMainCommands.ts
+        useMainCommands.types.ts
+        rightPane.layout.ts
+        useBoxRows.ts
+        useScrollContentWidth.ts
+        useScrollViewportSize.ts
         useRepositoryEvidence.ts
         useRepositoryEvidence.types.ts
         useRepositoryRemoteTags.ts
@@ -202,6 +214,7 @@ gitminal/
         useRepositoryWatcher.ts
         useRepositoryWatcher.types.ts
         useConsoleLog.ts
+        useShellActions.ts
         useTerminalSize.ts
         useOverlaySurfaceState.ts
     features/
@@ -220,7 +233,6 @@ gitminal/
         MainArea.tsx
         Footer.tsx
         Footer.constants.ts
-        PlaceholderSurface.tsx
         ResponsiveGate.tsx
         TooSmallNotice.tsx
         regions.ts
@@ -347,19 +359,51 @@ gitminal/
         CommitRow.tsx
         PendingChangesRow.tsx
         GraphLanes.tsx
+        GraphWalkErrorRow.tsx
+        GraphStatusFooter.tsx
         CommitSearchInput.tsx
         SearchResultRow.tsx
+        commitSearch.load.ts
+        commitSearch.results.ts
+        graph.constants.ts
+        graph.format.ts
+        graph.refs.ts
+        graph.rows.ts
+        graph.snippet.ts
+        graph.types.ts
+        graph.window.ts
+        graphWindowReload.ts
         useCommitGraph.ts
         useCommitSearch.ts
+        useGraphNavigation.ts
+        useGraphPaging.ts
+        useGraphRefs.ts
+        useGraphSelection.ts
+        useGraphSelectionCommands.ts
+        useGraphWindow.ts
+        useScopeTipsReload.ts
+        useSearchQuery.ts
+        useSearchResults.ts
+        useSearchSelection.ts
+        useSearchSession.ts
       composer/
         CommitComposer.tsx
         ComposerIdentity.tsx
         CommitOptionsMenu.tsx
+        composer.amend.ts
+        composer.commands.ts
+        composer.constants.ts
+        composer.types.ts
+        composer.view.ts
+        useAmendSelection.ts
         useComposer.ts
+        useComposerCommands.ts
+        useComposerControls.ts
       commit-details/
         CommitDetails.tsx
         CommitMetaRow.tsx
         ParentRef.tsx
+        commit-details.types.ts
         useCommitDetails.ts
       diff/
         DiffPanel.tsx
@@ -367,8 +411,22 @@ gitminal/
         DiffFileRow.tsx
         DiffContent.tsx
         ConflictBanner.tsx
+        diff.actions.ts
+        diff.confirmations.ts
+        diff.rows.ts
+        diffPanel.constants.ts
+        diffPanel.types.ts
+        fileDiff.load.ts
+        fileDiff.types.ts
+        useDiffActions.ts
+        useDiffExpansion.ts
+        useDiffExpansionEffects.ts
         useDiffPanel.ts
+        useDiffReadOnly.ts
+        useDiffRows.ts
         useFileDiff.ts
+        useFileDiffEntries.ts
+        useReadOnlyDiff.ts
       palette/
         CommandPalette.tsx
         CommandRow.tsx
@@ -497,6 +555,9 @@ gitminal/
         commands.remote.ts
         commands.remote.types.ts
         commands.branches.ts
+        commands.commit.ts
+        commands.commit.types.ts
+        commands.diff.ts
         commands.tags.ts
         commands.stashes.ts
         commands.stashes.types.ts
@@ -575,8 +636,8 @@ Rules for this tree:
 - `src/test/` holds test-only harness code. `git.fixture.ts` creates, seeds, and removes temporary repositories for integration tests; no production module imports it, and the boundary check rejects a `src/test/**` import outside a colocated test file or another `src/test/**` module.
 - `scripts/` holds the section 12 developer checks only. It is tooling, not a feature folder, so the feature naming rule does not apply.
 - `AppShellHost.tsx` is the composition root. Feature components never import one another; they receive cross-feature data through providers, commands, or selectors.
-- Sidebar panel features render only the panel body. `SidebarPanelFrame` owns the focusable region frame, the border title, and the scroll container, so a panel never renders a second `Panel`, region frame, or scrollbox. The body carries an optional filter row and the rows themselves; the panel count lives in the border title supplied by `AppShellHost`, and the body has no duplicate title or count row. Remote rows are one line: `<remote>/<branch>` plus an inline stale or unknown marker, with no commit summary or date line. The graph, right-pane, and diff surfaces are not sidebar panels and do own their `Panel` frames.
-- The M4 temporary surfaces were `features/console/ConsoleDrawer.tsx` and `features/shell/PlaceholderSurface.tsx`. M6 replaced the console drawer; `AppShellHost` only swaps the surfaces it supplies, and each placeholder is documented as temporary in its own file. M5 replaced the temporary top bar with the real one.
+- Sidebar panel features render only the panel body. `SidebarPanelFrame` owns the focusable region frame, the border title, and the scroll container, so a panel never renders a second `Panel`, region frame, or scrollbox. The body carries an optional filter row and the rows themselves; the panel count lives in the border title supplied by `AppShellHost`, and the body has no duplicate title or count row. Remote rows are one line: `<remote>/<branch>` plus an inline stale or unknown marker, with no commit summary or date line. The graph, right-pane, and diff surfaces are not sidebar panels: each owns its `Panel` frame, region id, and scroll container, and `MainArea` only sizes the three regions.
+- The M4 temporary surfaces were `features/console/ConsoleDrawer.tsx` and `features/shell/PlaceholderSurface.tsx`. M6 replaced the console drawer and M8 replaced the last placeholder surfaces with the graph, composer, commit details, and diff panels, so `PlaceholderSurface.tsx` is deleted. `AppShellHost` only swaps the surfaces it supplies. M5 replaced the temporary top bar with the real one.
 
 ## 5. File naming rules
 
@@ -645,7 +706,7 @@ Hooks available from `@opentui/react` 0.6.6:
 | --- | --- |
 | `useKeyboard(handler, { release? })` | The single global key dispatcher, owned by `src/app/hooks/useHotkeys.ts`. `src/app/SplashGate.tsx` is the only other caller, and only while the splash is visible. The temporary splash quit path is replaced by the shell's `app.quit` path. Features never call it directly. See `21-startup-splash.md`. |
 | `useOnResize(cb)` | Not used by M3. `useTerminalDimensions` drives responsive rendering; a breakpoint-memoized resize hook is deferred until a measured need. |
-| `useTerminalDimensions()` | Responsive layout mode, minimum-size checks, truncation budgets, hint fitting. |
+| `useTerminalDimensions()` | Responsive layout mode, minimum-size checks, hint fitting. |
 | `useRenderer()` | Bootstrap access, focus management, console drawer access. |
 | `useFocus(handler)` / `useBlur(handler)` | Terminal-window focus and blur only: refresh on terminal focus, pause work on blur. Never region focus. |
 | `usePaste(handler)` | Commit message and field paste handling. |
@@ -662,7 +723,7 @@ Component rules:
 6. Long lists are bounded and virtualized by rendering only the visible window inside a `<scrollbox>` with `viewportCulling`. The graph keeps a loaded-page window in `@/domain/graph/graph.paginate.ts`.
 7. The console drawer is app-owned UI (not the renderer's built-in console). It is a `<box>` docked above the footer containing a `<scrollbox>` of entry `<box>` rows, so it can show command, status, duration, and expandable output in the app style. The renderer console is used only for development logging.
 8. Disabled controls are rendered with a `dim` token and a text reason, and remain visible. The command palette uses `<select>` options whose `description` carries the disabled reason.
-9. Truncation uses `@/lib/text.ts` helpers with explicit budgets from `useTerminalDimensions`; it never hides the current branch, the selection marker, or the primary action.
+9. Truncation uses `@/lib/text.ts` helpers with explicit budgets from the measured scrollbox viewport width (`useScrollViewportSize` for graph rows, `useScrollContentWidth` for diff and details rows); it never hides the current branch, the selection marker, or the primary action.
 10. Progress bars use `<frame-buffer>` through the `ProgressBar` primitive only. The bar is one row high, `0` to `100` percent clamped, drawn as colored cells with no glyphs, and always paired with a text phase and percentage. Redraw only when the filled cell count, width, a terminal resize, or the theme color changes, and redraw after a height-only resize because the resize clears the buffer. When no percentage is known the bar is not rendered at all; the status strip shows the spinner instead.
 11. The startup splash is the only place `<ascii-font>` is used besides the empty-repository, non-repository, and terminal-too-small states. It renders the `GITMINAL` wordmark with `font="tiny"` above 40 columns and 10 rows and falls back to plain bold text below that, so the splash never wraps. See `21-startup-splash.md`.
 
@@ -872,6 +933,7 @@ Rules:
 - Repository reads are derived in `@/domain/repository/repository.selectors.ts`. Features never recompute ahead/behind, upstream state, or pending counts themselves.
 - Optional ref lists settle independently. A failed branch, remote-branch, tag, stash, or worktree read keeps that list's previous snapshot value and records the failure in `RepositoryProvider.listFailures` for the owning panel, while every successful list still applies. Status and the remote list are required reads: a failure there fails the whole read and the provider keeps the previous snapshot. A retained worktree or branch list re-derives the branch `worktreePath` values from the worktrees the snapshot stores, so the branch `+` marker, the selected-row worktree detail, and the `checked-out-in-worktree` delete guard stay consistent with the Worktrees rows that remain visible.
 - Every command declares availability in `@/domain/commands/commands.availability.ts` with a machine-readable reason string and a target-aware context. The palette, footer, help, buttons, and confirmations all read the same reason.
+- Read-only diff mode is derived, not caller-supplied. `isReadOnlySelection` in `repository.selectors.ts` is the single predicate over `RepositoryProvider.selection` (`commit` or `stash`); `useRepositoryAvailability`, `useCommandRunner`, and the diff feature all use it, the runner carries the flag into the handler context, and every diff executor refuses with `read-only` when it is true. The feature-owned form flag remains an additional defense, never the authority.
 - Failures never clear drafts or staged files. The runner returns a result object; the orchestrator keeps the UI inputs and surfaces the error.
 
 ## 10. Git execution architecture
@@ -1016,7 +1078,7 @@ Rules:
 ## 13. Testing strategy
 
 - Domain: pure unit tests with recorded git fixtures. No spawning in unit tests.
-- Integration: `*.integration.test.ts` uses `src/test/git.fixture.ts` to create a temporary repository, configure a local identity, seed commits, run the real git commands through `git.client.ts`, and remove the directory. Colocated test files may import `@/test/git.fixture`; production modules must not, and external package rules still apply inside tests. Fixtures cover prompting hooks, merge and rebase conflicts, empty and bare repositories, index lock files, and fixture-owned cleanup. They are skipped when `git --version` is below the supported minimum, Git >= 2.30.0, which is also the fixture floor.
+- Integration: `*.integration.test.ts` uses `src/test/git.fixture.ts` to create a temporary repository, configure a local identity, seed commits, run the real git commands through `git.client.ts`, and remove the directory. Colocated test files may import `@/test/git.fixture`; production modules must not, and external package rules still apply inside tests. Fixtures cover prompting hooks, merge and rebase conflicts, empty and bare repositories, index lock files, and fixture-owned cleanup. They are skipped when `git --version` is below the supported minimum, Git >= 2.31.0, which is also the fixture floor. The graph and diff integration suites run the real `--diff-merges=first-parent`, search, stats, commit-diff, and size-probe invocations, so the floor is measured rather than claimed.
 - Keymap and config: table-driven tests for precedence, conflicts, `null` reset, `[]` unbind, and per-field fallback.
 - Commands: availability matrix tests covering detached HEAD, no upstream, no remote, empty repository, operation in progress, missing target, and stale target. `commands.runner.test.ts` asserts pure execution, write serialization, the blocked result, progress events, and cancellation. `useCommandRunner.test.tsx` asserts exactly one repository refresh, one console append, and one status transition per result, plus error routing and draft preservation on failure.
 - UI: component tests with `@opentui/react` test-utils and `test-utils.ts` to assert rendered text markers, footer hints, and focus transitions.
@@ -1048,7 +1110,7 @@ Ticket index: [`index.md`](index.md). Recommended build order: [`index.md`](inde
 
 | File | Feature | Feature folder(s) and cross-cutting paths |
 | --- | --- | --- |
-| `01-app-shell-and-focus.md` | F-01 App shell and focus | `features/shell`, `app/AppShellHost.tsx`, `app/providers/FocusProvider.tsx`, `app/providers/StatusProvider.tsx`, `app/hooks/useHotkeys.ts` |
+| `01-app-shell-and-focus.md` | F-01 App shell and focus | `features/shell`, `app/AppShellHost.tsx`, `app/providers/FocusProvider.tsx`, `app/providers/StatusProvider.tsx`, `app/hooks/useHotkeys.ts`, `app/hooks/useShellActions.ts` |
 | `02-top-bar.md` | F-02 Top bar | `features/top-bar` |
 | `03-branches-panel.md` | F-03 Branches panel | `features/branches` |
 | `04-remotes-panel.md` | F-04 Remotes panel | `features/remotes` |

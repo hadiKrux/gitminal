@@ -12,7 +12,7 @@ import { getAvailability } from "@/domain/commands/commands.availability";
 import { isCommandRunning } from "@/domain/commands/commands.runner";
 import type { CommandPanelFacts } from "@/domain/commands/commands.types";
 import type { TagRowRecord } from "@/domain/git/git.types";
-import { selectTagRows } from "@/domain/repository/repository.selectors";
+import { isReadOnlySelection, selectTagRows } from "@/domain/repository/repository.selectors";
 import { detectRepositoryState } from "@/domain/repository/repository.states";
 
 /**
@@ -67,6 +67,7 @@ export function useRepositoryAvailability(
         target,
         region,
         operation: readCommandOperation(),
+        readOnly: isReadOnlySelection(store.selection),
         panel: buildPanelFacts(store, readTagRows(store)),
         formValues,
       });

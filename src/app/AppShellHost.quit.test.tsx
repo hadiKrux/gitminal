@@ -7,6 +7,7 @@ import { resetActionRegistry } from "@/app/hooks/useAction";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
+import { DraftProvider } from "@/app/providers/DraftProvider";
 import { FocusProvider } from "@/app/providers/FocusProvider";
 import { KeymapProvider } from "@/app/providers/KeymapProvider";
 import { OverlayProvider } from "@/app/providers/OverlayProvider";
@@ -42,18 +43,20 @@ async function renderHost(client: GitClient): Promise<Awaited<ReturnType<typeof 
       <ThemeProvider>
         <KeymapProvider platform="linux">
           <RepositoryProvider cwd="/repo" gitClient={client} enableWatcher={false} now={() => 0}>
-            <FocusProvider>
-              <OverlayProvider>
-                <StatusProvider>
-                  <ConsoleProvider>
-                    <box flexDirection="column" flexGrow={1} width={120} height={40}>
-                      <AppShellHost />
-                      <StatusProbe />
-                    </box>
-                  </ConsoleProvider>
-                </StatusProvider>
-              </OverlayProvider>
-            </FocusProvider>
+            <DraftProvider>
+              <FocusProvider>
+                <OverlayProvider>
+                  <StatusProvider>
+                    <ConsoleProvider>
+                      <box flexDirection="column" flexGrow={1} width={120} height={40}>
+                        <AppShellHost />
+                        <StatusProbe />
+                      </box>
+                    </ConsoleProvider>
+                  </StatusProvider>
+                </OverlayProvider>
+              </FocusProvider>
+            </DraftProvider>
           </RepositoryProvider>
         </KeymapProvider>
       </ThemeProvider>

@@ -9,6 +9,9 @@ export const GIT_FIXTURE_PATH = "src/test/git.fixture.ts";
 /** Repository path of the git filesystem watcher module. */
 const GIT_WATCHER_PATH = "src/domain/git/git.watcher.ts";
 
+/** Repository path of the git diff and file-action module. */
+const GIT_DIFF_PATH = "src/domain/git/git.diff.ts";
+
 /** Repository path of the shared path helper module. */
 const PATHS_HELPER_PATH = "src/lib/paths.ts";
 
@@ -33,6 +36,7 @@ export const CONFIG_BUILTIN_ALLOWLIST: ReadonlySet<string> = new Set([
 export const BUILTIN_ALLOWLIST_BY_PATH: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [GIT_CLIENT_PATH, new Set(["node:child_process", "node:path"])],
   [GIT_WATCHER_PATH, new Set(["node:fs", "node:fs/promises", "node:path"])],
+  [GIT_DIFF_PATH, new Set(["node:fs/promises", "node:path"])],
   [PATHS_HELPER_PATH, new Set(["node:path", "node:os"])],
 ]);
 

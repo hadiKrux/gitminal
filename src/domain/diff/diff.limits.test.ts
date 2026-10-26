@@ -1,5 +1,27 @@
 import { describe, expect, it } from "bun:test";
-import { applyDiffLimits, DIFF_LIMIT_DEFAULTS } from "@/domain/diff/diff.limits";
+import {
+  applyDiffLimits,
+  applyFileDiffLimits,
+  DIFF_LIMIT_DEFAULTS,
+  isDiffOversized,
+} from "@/domain/diff/diff.limits";
+import { parseFileDiff } from "@/domain/git/parsers/parse.diff";
+
+/** Two-hunk parsed fixture with correct declared counts. */
+const PARSED_TWO_HUNK_DIFF = [
+  "diff --git a/file.txt b/file.txt",
+  "--- a/file.txt",
+  "+++ b/file.txt",
+  "@@ -1,2 +1,2 @@",
+  "-old line",
+  "+new line",
+  " context",
+  "@@ -10,2 +10,3 @@ section",
+  " context",
+  "+added line",
+  " context",
+  "",
+].join("\n");
 
 /** A two-hunk diff used by the cap tests. */
 const TWO_HUNK_DIFF = [
@@ -75,5 +97,82 @@ describe("applyDiffLimits", () => {
       totalBytes: 0,
       shownBytes: 0,
     });
+  });
+});
+
+describe("applyFileDiffLimits", () => {
+  /**
+   * Parses the two-hunk fixture.
+   *
+   * @returns The parsed file.
+   */
+  function parsedFile() {
+    const result = parseFileDiff(PARSED_TWO_HUNK_DIFF);
+
+    if (!result.ok || result.file === null) {
+      throw new Error("fixture did not parse");
+    }
+
+    return result.file;
+  }
+
+  it("keeps every hunk below both caps and recomputes each header", () => {
+    const result = applyFileDiffLimits(parsedFile());
+
+    expect(result.truncated).toBeFalse();
+    expect(result.totalLines).toBe(11);
+    expect(result.shownLines).toBe(11);
+    expect(result.totalBytes).toBe(Buffer.byteLength(PARSED_TWO_HUNK_DIFF, "utf8"));
+    expect(result.file.raw).toContain("@@ -1,2 +1,2 @@");
+    expect(result.file.raw).toContain("@@ -10,2 +10,3 @@ section");
+    expect(result.file.hunks).toHaveLength(2);
+  });
+
+  it("drops a whole hunk at the line cap and keeps the prefix valid", () => {
+    const result = applyFileDiffLimits(parsedFile(), { maxLines: 8 });
+
+    expect(result.truncated).toBeTrue();
+    expect(result.shownLines).toBe(7);
+    expect(result.totalLines).toBe(11);
+    expect(result.file.hunks).toHaveLength(1);
+    expect(result.file.raw).toContain("@@ -1,2 +1,2 @@");
+    expect(result.file.raw).not.toContain("@@ -10,2 +10,3 @@ section");
+
+    const reparsed = parseFileDiff(result.file.raw);
+
+    expect(reparsed.ok).toBeTrue();
+    expect(reparsed.file?.hunks).toHaveLength(1);
+  });
+
+  it("drops a whole hunk at the byte cap", () => {
+    const result = applyFileDiffLimits(parsedFile(), { maxBytes: 120 });
+
+    expect(result.truncated).toBeTrue();
+    expect(result.file.hunks).toHaveLength(1);
+    expect(result.shownBytes).toBe(Buffer.byteLength(result.file.raw, "utf8"));
+  });
+
+  it("keeps only the header when the first hunk cannot fit", () => {
+    const result = applyFileDiffLimits(parsedFile(), { maxLines: 4 });
+
+    expect(result.truncated).toBeTrue();
+    expect(result.file.hunks).toEqual([]);
+    expect(result.file.raw.startsWith("diff --git a/file.txt b/file.txt")).toBeTrue();
+    expect(result.file.raw).not.toContain("@@ ");
+  });
+});
+
+describe("isDiffOversized", () => {
+  it("compares a known size against the byte cap", () => {
+    expect(isDiffOversized(101, { maxBytes: 100 })).toBeTrue();
+    expect(isDiffOversized(100, { maxBytes: 100 })).toBeFalse();
+    expect(isDiffOversized(null)).toBeFalse();
+    expect(isDiffOversized(-1)).toBeFalse();
+    expect(isDiffOversized(Number.NaN)).toBeFalse();
+  });
+
+  it("uses the default byte cap when no override is given", () => {
+    expect(isDiffOversized(DIFF_LIMIT_DEFAULTS.maxBytes + 1)).toBeTrue();
+    expect(isDiffOversized(DIFF_LIMIT_DEFAULTS.maxBytes)).toBeFalse();
   });
 });

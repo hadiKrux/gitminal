@@ -158,6 +158,17 @@ describe("binding formatting and matching", () => {
     expect(matchesBinding(previous, keyEvent("tab", { shift: true }))).toBe(true);
   });
 
+  it("treats a kitty Alt chord as Alt, not Meta, when both flags are set", () => {
+    const options = parseValid("alt+.");
+
+    expect(matchesBinding(options, keyEvent(".", { option: true, meta: true }))).toBe(true);
+    expect(readKeyEvent(keyEvent(".", { option: true, meta: true }))).toMatchObject({
+      alt: true,
+      meta: false,
+    });
+    expect(readKeyEvent(keyEvent(".", { meta: true }))).toMatchObject({ alt: false, meta: true });
+  });
+
   it("ignores shift for symbols and digits", () => {
     const help = parseValid("?");
 

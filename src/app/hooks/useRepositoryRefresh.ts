@@ -7,12 +7,18 @@ import type {
   RepositoryRefreshCycle,
   RepositoryRefreshCycleInput,
 } from "@/app/hooks/useRepositoryRefresh.types";
-import { applyReadToStore } from "@/app/providers/RepositoryProvider.store";
+import {
+  applyReadToStore,
+  writeRepositoryGeneration,
+} from "@/app/providers/RepositoryProvider.store";
 import type {
+  CommitNavigator,
+  GraphWindowRefresher,
   RepositoryRefreshOptions,
   RepositoryRefreshResult,
 } from "@/app/providers/RepositoryProvider.types";
 import { isCommandRunning } from "@/domain/commands/commands.runner";
+import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
 import { readRepositorySnapshot } from "@/domain/repository/repository.read";
 import type {
   RepositoryReadResult,
@@ -36,6 +42,7 @@ export function useRepositoryRefreshCycle(
   input: RepositoryRefreshCycleInput,
 ): RepositoryRefreshCycle {
   const {
+    commitNavigatorRef,
     followUpCombinedRef,
     followUpControllerRef,
     followUpStatusRef,
@@ -44,12 +51,12 @@ export function useRepositoryRefreshCycle(
     readControllerRef,
   } = useRepositoryRefreshRefs();
 
-  const { client, cwd, evidenceRef, mountedRef, now, setStore } = input;
+  const { client, cwd, evidenceRef, mountedRef, now, setSelection, setStore } = input;
 
   /** Applies one read result, keeping the previous snapshot on failure. */
   const applyReadResult = useCallback(
-    (result: RepositoryReadResult): void => {
-      applyRepositoryReadResult(result, evidenceRef, setStore);
+    (result: RepositoryReadResult, generation: number): void => {
+      applyRepositoryReadResult(result, generation, evidenceRef, setStore);
     },
     [evidenceRef, setStore],
   );
@@ -63,14 +70,25 @@ export function useRepositoryRefreshCycle(
   /** Starts or joins one combined refresh. */
   const combinedTask = useRefreshFlagTask({ flag: "refreshing", setStore, mountedRef });
 
-  /** Reads status, refs, remotes, identity, and upstreams without history. */
+  /**
+   * Reads status, refs, remotes, identity, and upstreams without history.
+   *
+   * The reserved generation is published before the read and again with the settled result, on
+   * failure too. A consumer that starts using the token while the read is in flight therefore
+   * already holds the value the read will publish, and every settled read still invalidates data
+   * from the read it replaced.
+   */
   const runStatusRead = useCallback(
     async (
       controller: AbortController = new AbortController(),
     ): Promise<RepositoryRefreshResult> => {
       readControllerRef.current = controller;
       generationRef.current += 1;
+
       const generation = generationRef.current;
+
+      storeGeneration(generation, mountedRef, setStore);
+
       const result = await readRepositorySnapshot(client, {
         cwd,
         signal: controller.signal,
@@ -79,7 +97,7 @@ export function useRepositoryRefreshCycle(
       });
 
       if (mountedRef.current) {
-        applyReadResult(result);
+        applyReadResult(result, generation);
       }
 
       if (followUpControllerRef.current === controller) {
@@ -98,6 +116,7 @@ export function useRepositoryRefreshCycle(
       mountedRef,
       now,
       readControllerRef,
+      setStore,
     ],
   );
 
@@ -156,21 +175,75 @@ export function useRepositoryRefreshCycle(
     [queueStatusFollowUp, runStatusRead, statusTask],
   );
 
-  /** Bumps the graph generation and awaits the registered window reloader. */
+  /**
+   * Bumps the graph generation and awaits the registered window reloader.
+   *
+   * The reserved generation is published before the reloader starts, so every consumer stops using
+   * data from the previous read while the window is re-read, and again after it settles so a
+   * combined refresh ends on the graph generation.
+   */
   const refreshGraphWindow = useCallback(async (): Promise<RepositoryRefreshResult> => {
     return await graphTask.run(async () => {
       generationRef.current += 1;
 
-      return await readGraphWindowResult(graphRefresherRef.current, generationRef.current);
+      const generation = generationRef.current;
+
+      storeGeneration(generation, mountedRef, setStore);
+
+      const result = await readGraphWindowResult(graphRefresherRef.current, generation);
+
+      storeGeneration(generation, mountedRef, setStore);
+
+      return result;
     });
-  }, [generationRef, graphRefresherRef, graphTask]);
+  }, [generationRef, graphRefresherRef, graphTask, mountedRef, setStore]);
 
   /** Registers or clears the graph feature's window reloader. */
   const registerGraphWindowRefresher = useCallback(
-    (refresher: (() => Promise<void>) | null): void => {
+    (refresher: GraphWindowRefresher | null): void => {
       graphRefresherRef.current = refresher;
     },
     [graphRefresherRef],
+  );
+
+  /** Registers or clears the graph feature's bounded commit navigator. */
+  const registerCommitNavigator = useCallback(
+    (navigator: CommitNavigator | null): void => {
+      commitNavigatorRef.current = navigator;
+    },
+    [commitNavigatorRef],
+  );
+
+  /**
+   * Selects a commit after the graph confirms it is loaded.
+   *
+   * A missing navigator means the graph is not mounted, so the selection is left untouched and the
+   * outcome is `cancelled` because no bounded walk ran. The navigator itself owns the bounded page
+   * walk and the visible parent-loading state, and its detailed outcome is returned unchanged,
+   * including a `cancelled` walk and a page read `error`.
+   *
+   * @param oid - Commit OID to select.
+   * @returns The bounded load outcome; `loaded` when the commit became the selection.
+   */
+  const selectCommit = useCallback(
+    async (oid: string): Promise<EnsureLoadedResult> => {
+      const navigator = commitNavigatorRef.current;
+
+      if (navigator === null) {
+        return "cancelled";
+      }
+
+      const result = await navigator(oid);
+
+      if (result !== "loaded") {
+        return result;
+      }
+
+      setSelection({ kind: "commit", oid });
+
+      return "loaded";
+    },
+    [commitNavigatorRef, setSelection],
   );
 
   /**
@@ -248,6 +321,8 @@ export function useRepositoryRefreshCycle(
     refreshStatus,
     refreshGraphWindow,
     registerGraphWindowRefresher,
+    registerCommitNavigator,
+    selectCommit,
   };
 }
 
@@ -255,11 +330,13 @@ export function useRepositoryRefreshCycle(
  * Applies one read result and refreshes the evidence it observed.
  *
  * @param result - Domain read result.
+ * @param generation - Generation reserved for this read.
  * @param evidenceRef - Shared upstream evidence.
  * @param setStore - Store writer.
  */
 function applyRepositoryReadResult(
   result: RepositoryReadResult,
+  generation: number,
   evidenceRef: RepositoryRefreshCycleInput["evidenceRef"],
   setStore: RepositoryRefreshCycleInput["setStore"],
 ): void {
@@ -270,7 +347,26 @@ function applyRepositoryReadResult(
     );
   }
 
-  setStore((previous) => applyReadToStore(previous, result, isCommandRunning()));
+  setStore((previous) => applyReadToStore(previous, result, isCommandRunning(), generation));
+}
+
+/**
+ * Publishes a reserved generation while the provider is mounted.
+ *
+ * @param generation - Generation reserved by the refresh task.
+ * @param mountedRef - Mount state owned by the provider.
+ * @param setStore - Store writer.
+ */
+function storeGeneration(
+  generation: number,
+  mountedRef: RepositoryRefreshCycleInput["mountedRef"],
+  setStore: RepositoryRefreshCycleInput["setStore"],
+): void {
+  if (!mountedRef.current) {
+    return;
+  }
+
+  setStore((previous) => writeRepositoryGeneration(previous, generation));
 }
 
 /**
@@ -281,13 +377,15 @@ function applyRepositoryReadResult(
  * @returns The refresh result.
  */
 async function readGraphWindowResult(
-  refresher: (() => Promise<void>) | null,
+  refresher: GraphWindowRefresher | null,
   generation: number,
 ): Promise<RepositoryRefreshResult> {
   try {
-    await refresher?.();
+    // A registered refresher reports a rolled-back page failure as false. The feature has already
+    // published its specific page error, so the provider result carries no duplicate message.
+    const ok = refresher === null ? true : await refresher();
 
-    return { ok: true, coalesced: false, error: null, generation };
+    return { ok, coalesced: false, error: null, generation };
   } catch (error) {
     return {
       ok: false,

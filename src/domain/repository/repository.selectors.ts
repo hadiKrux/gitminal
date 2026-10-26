@@ -1,22 +1,31 @@
+import type { GraphScope } from "@/domain/config/config.types";
+import type { DiffFileStatus, DiffSection } from "@/domain/diff/diff.types";
 import { groupByRemote } from "@/domain/git/git.remote-branches";
 import { sortStashesNewestFirst } from "@/domain/git/git.stashes";
 import { mergeTagScopes, sortTagsVersionDesc } from "@/domain/git/git.tags";
 import type {
   BranchRecord,
+  FileChangeKind,
   RemoteBranchRecord,
   StashRecord,
+  StatusEntry,
   TagRowRecord,
   WorktreeRecord,
 } from "@/domain/git/git.types";
 import { buildWorktreeBranchMap } from "@/domain/git/git.worktrees";
 import type {
   BranchDisplay,
+  CommitRefGroups,
+  DiffFileView,
+  DiffSectionView,
+  DiffStatusLetter,
   PendingCounts,
   RemoteCheckRecord,
   RemoteFreshness,
   RemoteTagChecks,
   RepositoryFlag,
   RepositoryPrimaryState,
+  RepositorySelection,
   RepositorySignals,
   RepositorySnapshot,
   RepositoryStateDisplay,
@@ -84,6 +93,226 @@ export function selectRepositoryPath(
   return snapshot?.root ?? signals.repositoryRoot ?? signals.gitDir ?? signals.cwd;
 }
 
+/** Prefix of a fully decorated tag ref. */
+const TAG_REF_PREFIX = "refs/tags/";
+
+/** Prefix of a fully decorated local branch ref. */
+const LOCAL_BRANCH_PREFIX = "refs/heads/";
+
+/** Prefix of a fully decorated remote-tracking branch ref. */
+const REMOTE_BRANCH_PREFIX = "refs/remotes/";
+
+/** Prefix git adds to an annotated tag decoration. */
+const TAG_DECORATION_PREFIX = "tag: ";
+
+/** A detached HEAD decoration names no branch, so it produces no badge. */
+const HEAD_DECORATION = "HEAD";
+
+/** Separator git uses between a symbolic ref and its target in a decoration. */
+const SYMBOLIC_REF_SEPARATOR = " -> ";
+
+/**
+ * Collects the refs that point at one commit.
+ *
+ * The commit's own `--decorate=full` entries are combined with the repository snapshot, so a badge
+ * row is complete even when a snapshot ref list was retained after a failed refresh and a ref is
+ * still visible in the decoration output. Snapshot order comes first because it is stable across
+ * refreshes; decoration-only entries follow in git order. A label is unique inside its group.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @param oid - Commit the refs must point at.
+ * @param decorations - Raw `%D` entries from the commit details read.
+ * @returns Tags, local branches, and remote-tracking branches in render order.
+ */
+export function selectCommitRefs(
+  snapshot: RepositorySnapshot | null,
+  oid: string,
+  decorations: readonly string[],
+): CommitRefGroups {
+  const tags = new Set<string>();
+  const local = new Set<string>();
+  const remote = new Set<string>();
+  const remoteNames = (snapshot?.remotes ?? []).map((entry) => entry.name);
+
+  for (const tag of snapshot?.tags ?? []) {
+    if (tag.targetOid === oid) {
+      tags.add(tag.name);
+    }
+  }
+
+  for (const branch of snapshot?.branches ?? []) {
+    if (branch.tipOid === oid) {
+      local.add(branch.name);
+    }
+  }
+
+  for (const branch of snapshot?.remoteBranches ?? []) {
+    if (branch.tipOid === oid) {
+      remote.add(`${branch.remote}/${branch.branch}`);
+    }
+  }
+
+  for (const decoration of decorations) {
+    classifyCommitDecoration(decoration, remoteNames, tags, local, remote);
+  }
+
+  return { tags: [...tags], local: [...local], remote: [...remote] };
+}
+
+/**
+ * Classifies one fully qualified decoration entry into its badge group.
+ *
+ * A symbolic entry such as `HEAD -> refs/heads/main` is classified by its target. A plain `HEAD`
+ * entry is skipped because a detached HEAD is not a branch badge. The `tag: ` prefix git adds to
+ * annotated tag entries is removed before classification.
+ *
+ * @param decoration - Raw decoration entry.
+ * @param remoteNames - Configured remote names, used to split a remote ref unambiguously.
+ * @param tags - Tag label set to add to.
+ * @param local - Local branch label set to add to.
+ * @param remote - Remote branch label set to add to.
+ */
+function classifyCommitDecoration(
+  decoration: string,
+  remoteNames: readonly string[],
+  tags: Set<string>,
+  local: Set<string>,
+  remote: Set<string>,
+): void {
+  const ref = readDecorationRef(decoration);
+
+  if (ref === null) {
+    return;
+  }
+
+  if (ref.startsWith(TAG_REF_PREFIX)) {
+    tags.add(ref.slice(TAG_REF_PREFIX.length));
+    return;
+  }
+
+  if (ref.startsWith(LOCAL_BRANCH_PREFIX)) {
+    local.add(ref.slice(LOCAL_BRANCH_PREFIX.length));
+    return;
+  }
+
+  if (ref.startsWith(REMOTE_BRANCH_PREFIX)) {
+    const label = readRemoteBadge(ref.slice(REMOTE_BRANCH_PREFIX.length), remoteNames);
+
+    if (label !== null) {
+      remote.add(label);
+    }
+  }
+}
+
+/**
+ * Reads the ref one decoration entry points at.
+ *
+ * @param decoration - Raw decoration entry.
+ * @returns The fully qualified ref, or null for an entry with no classifiable ref.
+ */
+function readDecorationRef(decoration: string): string | null {
+  const value = decoration.trim();
+
+  if (value.length === 0 || value === HEAD_DECORATION) {
+    return null;
+  }
+
+  const arrowIndex = value.indexOf(SYMBOLIC_REF_SEPARATOR);
+  const target = arrowIndex >= 0 ? value.slice(arrowIndex + SYMBOLIC_REF_SEPARATOR.length) : value;
+  const trimmed = target.trim();
+
+  return trimmed.startsWith(TAG_DECORATION_PREFIX)
+    ? trimmed.slice(TAG_DECORATION_PREFIX.length).trim()
+    : trimmed;
+}
+
+/**
+ * Builds the badge label of one remote-tracking ref.
+ *
+ * A remote name may contain a slash, so the configured names are matched longest first instead of
+ * splitting at the first slash. An unknown remote keeps its full `remote/branch` path.
+ *
+ * @param path - Ref path after `refs/remotes/`.
+ * @param remoteNames - Configured remote names.
+ * @returns The `<remote>/<branch>` label, or null when the path has no branch.
+ */
+function readRemoteBadge(path: string, remoteNames: readonly string[]): string | null {
+  if (path.length === 0) {
+    return null;
+  }
+
+  const longestFirst = [...remoteNames].sort((left, right) => right.length - left.length);
+
+  for (const name of longestFirst) {
+    if (path.startsWith(`${name}/`) && path.length > name.length + 1) {
+      return `${name}/${path.slice(name.length + 1)}`;
+    }
+  }
+
+  return path.includes("/") ? path : null;
+}
+
+/**
+ * Reports whether the right-pane selection makes the diff surface read-only.
+ *
+ * A commit or stash selection shows a historical diff, so every mutation over it must be refused by
+ * the domain availability check rather than by a caller-supplied form flag. This is the single
+ * predicate used by availability, the command runner, and the diff feature, so a future read-only
+ * selection kind is classified in one place.
+ *
+ * @param selection - Current right-pane selection.
+ * @returns True for a commit or stash selection.
+ */
+export function isReadOnlySelection(selection: RepositorySelection): boolean {
+  return selection.kind === "commit" || selection.kind === "stash";
+}
+
+/**
+ * Reads the commit tips that start a graph scope.
+ *
+ * The graph cursor seeds its frontier with these OIDs so a tip that is not among the first page is
+ * still walked. `all` covers local and remote-tracking branch tips plus HEAD, `local` covers local
+ * branch tips plus HEAD, and `current` covers HEAD. An empty OID is skipped, and a commit named by
+ * more than one ref appears once. The list is plain data, so the domain paginator never reads
+ * repository state itself.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @param scope - Configured graph scope.
+ * @returns Deduplicated tip OIDs in snapshot order.
+ */
+export function selectGraphScopeTips(
+  snapshot: RepositorySnapshot | null,
+  scope: GraphScope,
+): readonly string[] {
+  if (snapshot === null) {
+    return [];
+  }
+
+  const tips: string[] = [];
+
+  const addTip = (oid: string | null): void => {
+    if (oid !== null && oid.length > 0 && !tips.includes(oid)) {
+      tips.push(oid);
+    }
+  };
+
+  if (scope === "all" || scope === "local") {
+    for (const branch of snapshot.branches) {
+      addTip(branch.tipOid);
+    }
+  }
+
+  if (scope === "all") {
+    for (const branch of snapshot.remoteBranches) {
+      addTip(branch.tipOid);
+    }
+  }
+
+  addTip(snapshot.headOid);
+
+  return tips;
+}
+
 /**
  * Reads the pending change counts.
  *
@@ -100,6 +329,290 @@ export function selectPendingCounts(snapshot: RepositorySnapshot | null): Pendin
   const untracked = snapshot?.status?.untrackedCount ?? 0;
 
   return { staged, unstaged, untracked, total: unstaged + untracked };
+}
+
+/** Section titles in panel order. */
+const DIFF_SECTION_TITLES: Readonly<Record<DiffSection, string>> = Object.freeze({
+  working: "Working Directory",
+  staged: "Staged Files",
+  untracked: "Untracked Files",
+});
+
+/** Section render order enforced by F-11. */
+const DIFF_SECTION_ORDER: readonly DiffSection[] = Object.freeze([
+  "working",
+  "staged",
+  "untracked",
+]);
+
+/** Status letter for every change kind, with null for a side that changed nothing. */
+const CHANGE_KIND_LETTERS: Readonly<Record<FileChangeKind, DiffStatusLetter | null>> =
+  Object.freeze({
+    unmodified: null,
+    modified: "M",
+    added: "A",
+    deleted: "D",
+    renamed: "R",
+    copied: "C",
+    "type-changed": "M",
+    untracked: "?",
+    ignored: null,
+    conflicted: "U",
+  });
+
+/** Letters in strongest-first order. */
+const STATUS_LETTER_PRIORITY: readonly DiffStatusLetter[] = Object.freeze([
+  "U",
+  "R",
+  "C",
+  "A",
+  "D",
+  "M",
+  "?",
+]);
+
+/**
+ * Derives the three diff sections from the canonical status snapshot.
+ *
+ * Working Directory holds tracked entries with a working-tree change, including unmerged entries;
+ * Staged Files holds entries with an index-side change; Untracked Files holds untracked entries.
+ * Sections always appear in F-11 order. A rename is one row carrying both paths, and its old path is
+ * removed from the section so a status form that lists the rename pair twice never renders two rows.
+ * The returned path sets are scoped to the section and include both rename paths; no whole-tree set
+ * is ever produced.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @returns The three sections in order, each with its files and literal path set.
+ */
+export function selectDiffSections(
+  snapshot: RepositorySnapshot | null,
+): readonly DiffSectionView[] {
+  const entries = (snapshot?.status?.entries ?? []).filter((entry) => !isIgnoredEntry(entry));
+
+  return DIFF_SECTION_ORDER.map((section) =>
+    buildDiffSectionView(
+      section,
+      entries.filter((entry) => belongsToSection(entry, section)),
+    ),
+  );
+}
+
+/**
+ * Builds one section view from the entries that belong to it.
+ *
+ * @param section - Section identity.
+ * @param entries - Entries classified into the section, in status order.
+ * @returns The section with deduplicated rows and its scoped path set.
+ */
+function buildDiffSectionView(
+  section: DiffSection,
+  entries: readonly StatusEntry[],
+): DiffSectionView {
+  const renamedAway = collectRenamedAwayPaths(entries);
+  const seenPaths = new Set<string>();
+  const files: DiffFileView[] = [];
+
+  for (const entry of entries) {
+    if (renamedAway.has(entry.path) || seenPaths.has(entry.path)) {
+      continue;
+    }
+
+    seenPaths.add(entry.path);
+    files.push(toDiffFileView(section, entry));
+  }
+
+  return {
+    section,
+    title: DIFF_SECTION_TITLES[section],
+    files,
+    paths: collectSectionPaths(files),
+  };
+}
+
+/**
+ * Converts one status entry into a diff row.
+ *
+ * @param section - Section that owns the row.
+ * @param entry - Status entry.
+ * @returns The row view.
+ */
+function toDiffFileView(section: DiffSection, entry: StatusEntry): DiffFileView {
+  const statusLetter = readStatusLetter(entry);
+
+  return {
+    id: `${section}::${entry.path}`,
+    section,
+    statusLetter,
+    status: readStatusCategory(statusLetter),
+    path: entry.path,
+    oldPath: entry.originalPath,
+    conflicted: isConflictEntry(entry),
+  };
+}
+
+/**
+ * Collects pre-rename paths that no longer exist as rows.
+ *
+ * Only a rename removes its source; a copy keeps both files, so its source stays a row.
+ *
+ * @param entries - Entries of one section.
+ * @returns The paths replaced by a rename.
+ */
+function collectRenamedAwayPaths(entries: readonly StatusEntry[]): ReadonlySet<string> {
+  const paths = new Set<string>();
+
+  for (const entry of entries) {
+    if (entry.kind === "renamed" && entry.originalPath !== null) {
+      paths.add(entry.originalPath);
+    }
+  }
+
+  return paths;
+}
+
+/**
+ * Builds the section's own literal path set.
+ *
+ * @param files - Rows of the section.
+ * @returns Each current path plus its pre-rename path, deduplicated in row order.
+ */
+function collectSectionPaths(files: readonly DiffFileView[]): readonly string[] {
+  const paths: string[] = [];
+
+  for (const file of files) {
+    if (file.oldPath !== null && !paths.includes(file.oldPath)) {
+      paths.push(file.oldPath);
+    }
+
+    if (!paths.includes(file.path)) {
+      paths.push(file.path);
+    }
+  }
+
+  return paths;
+}
+
+/**
+ * Reports whether one entry belongs to a section.
+ *
+ * An unmerged entry belongs to Working Directory only, because it has no stage-0 index state to
+ * unstage. An untracked entry belongs to Untracked Files only. Every other entry can appear in both
+ * Working Directory and Staged Files when both sides changed, because each section compares a
+ * different side.
+ *
+ * @param entry - Status entry.
+ * @param section - Candidate section.
+ * @returns True when the entry belongs to that section.
+ */
+function belongsToSection(entry: StatusEntry, section: DiffSection): boolean {
+  if (isIgnoredEntry(entry)) {
+    return false;
+  }
+
+  if (isUntrackedEntry(entry)) {
+    return section === "untracked";
+  }
+
+  if (isConflictEntry(entry)) {
+    return section === "working";
+  }
+
+  if (section === "working") {
+    return entry.worktree !== "unmodified";
+  }
+
+  return section === "staged" ? entry.index !== "unmodified" : false;
+}
+
+/**
+ * Reports whether one entry is an untracked record.
+ *
+ * @param entry - Status entry.
+ * @returns True for an untracked file.
+ */
+function isUntrackedEntry(entry: StatusEntry): boolean {
+  return entry.kind === "untracked" || entry.worktree === "untracked";
+}
+
+/**
+ * Reports whether one entry is unmerged.
+ *
+ * @param entry - Status entry.
+ * @returns True for a conflicted file.
+ */
+function isConflictEntry(entry: StatusEntry): boolean {
+  return (
+    entry.kind === "unmerged" || entry.index === "conflicted" || entry.worktree === "conflicted"
+  );
+}
+
+/**
+ * Reports whether one entry is an ignored record that the panel never renders.
+ *
+ * @param entry - Status entry.
+ * @returns True for an ignored file.
+ */
+function isIgnoredEntry(entry: StatusEntry): boolean {
+  return entry.kind === "ignored" || entry.worktree === "ignored";
+}
+
+/**
+ * Reads the strongest status letter for an entry.
+ *
+ * @param entry - Status entry.
+ * @returns The highest-priority letter across the record kind and both sides.
+ */
+function readStatusLetter(entry: StatusEntry): DiffStatusLetter {
+  if (isUntrackedEntry(entry)) {
+    return "?";
+  }
+
+  const candidates = [
+    changeKindToLetter(entry.index),
+    changeKindToLetter(entry.worktree),
+    entry.kind === "renamed" ? "R" : null,
+    entry.kind === "copied" ? "C" : null,
+    isConflictEntry(entry) ? "U" : null,
+  ].filter((letter): letter is DiffStatusLetter => letter !== null);
+
+  return STATUS_LETTER_PRIORITY.find((letter) => candidates.includes(letter)) ?? "M";
+}
+
+/**
+ * Maps one change kind to its status letter.
+ *
+ * The lookup is exhaustive over `FileChangeKind`, so a new kind fails to compile until it has a
+ * letter.
+ *
+ * @param kind - Index or working-tree change kind.
+ * @returns The matching letter, or null when the side is unmodified.
+ */
+function changeKindToLetter(kind: FileChangeKind): DiffStatusLetter | null {
+  return CHANGE_KIND_LETTERS[kind];
+}
+
+/**
+ * Maps a status letter to the renderer's status category.
+ *
+ * @param letter - Strongest status letter.
+ * @returns The matching `DiffFileStatus`.
+ */
+function readStatusCategory(letter: DiffStatusLetter): DiffFileStatus {
+  switch (letter) {
+    case "U":
+      return "conflicted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "copied";
+    case "A":
+    case "?":
+      return "added";
+    case "D":
+      return "deleted";
+    case "M":
+      return "modified";
+  }
 }
 
 /**
