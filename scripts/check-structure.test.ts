@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import path from "node:path";
 import {
-  compareDocFiles,
   findMissingAncestor,
   findUndocumentedFeatures,
   findUnlistedFiles,
   listStructureSourceFiles,
   parseArchitecture,
+  parseOwnershipMap,
   readArchitectureFile,
 } from "./check-structure";
 import { REPO_ROOT } from "./check-support";
@@ -55,32 +55,35 @@ describe("parseArchitecture", () => {
       "    index.tsx",
       "```",
       "",
-      "## 15. Feature document index",
+      "## 15. Feature ownership map",
       "",
-      "| File | Feature | Paths |",
-      "| --- | --- | --- |",
-      "| `21-startup-splash.md` | F-21 | `features/splash` |",
+      "| Feature | Owned paths |",
+      "| --- | --- |",
+      "| F-21 Startup splash | `features/splash` |",
     ].join("\n");
     const parsed = parseArchitecture(markdown);
 
     expect(parsed.errors).toEqual([]);
     expect(parsed.tree.map((entry) => entry.path)).toContain("src/index.tsx");
+    expect(parsed.ownershipMap).toEqual([
+      { area: "F-21 Startup splash", paths: ["features/splash"] },
+    ]);
   });
 });
 
-describe("compareDocFiles", () => {
-  it("reports a section 15 doc file that is missing", () => {
-    const errors = compareDocFiles(
-      [
-        { doc: "00-project-architecture.md", paths: [] },
-        { doc: "99-missing-feature.md", paths: ["features/missing"] },
-      ],
-      new Set(["00-project-architecture.md"]),
-    );
+describe("parseOwnershipMap", () => {
+  it("skips header and separator rows and reads every backticked path", () => {
+    const section = [
+      "## 15. Feature ownership map",
+      "",
+      "| Feature | Owned paths |",
+      "| --- | --- |",
+      "| F-01 App shell | `features/shell`, `app/AppShellHost.tsx` |",
+    ].join("\n");
 
-    expect(errors).toHaveLength(1);
-    expect(errors[0]?.file).toBe("docs/technical-implmentations/99-missing-feature.md");
-    expect(errors[0]?.message).toContain("section 15 doc file is missing");
+    expect(parseOwnershipMap(section)).toEqual([
+      { area: "F-01 App shell", paths: ["features/shell", "app/AppShellHost.tsx"] },
+    ]);
   });
 });
 
@@ -110,20 +113,20 @@ describe("listStructureSourceFiles", () => {
 
 describe("readArchitectureFile", () => {
   it("returns null instead of throwing when the document is missing", () => {
-    expect(readArchitectureFile(path.join(REPO_ROOT, "docs/missing-contract.md"))).toBeNull();
+    expect(readArchitectureFile(path.join(REPO_ROOT, "missing-contract.md"))).toBeNull();
   });
 });
 
 describe("findUndocumentedFeatures", () => {
-  it("reports an implemented feature folder without a doc entry", () => {
+  it("reports an implemented feature folder without an ownership entry", () => {
     const errors = findUndocumentedFeatures(
-      [{ doc: "21-startup-splash.md", paths: ["features/splash"] }],
+      [{ area: "F-21 Startup splash", paths: ["features/splash"] }],
       ["splash", "shell"],
     );
 
     expect(errors).toHaveLength(1);
     expect(errors[0]?.file).toBe("src/features/shell");
-    expect(errors[0]?.message).toContain("no section 15 doc entry");
+    expect(errors[0]?.message).toContain("no section 15 ownership entry");
   });
 });
 

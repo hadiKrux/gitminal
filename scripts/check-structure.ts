@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { DocEntry, StructureDocument, TreeEntry } from "./check-structure.types";
+import type { OwnershipEntry, StructureDocument, TreeEntry } from "./check-structure.types";
 import {
   type Diagnostic,
   fileDiagnostic,
@@ -15,10 +15,7 @@ import {
 } from "./check-support";
 
 /** Repository path of the architecture contract. */
-const ARCHITECTURE_PATH = "docs/technical-implmentations/00-project-architecture.md";
-
-/** Repository directory that holds the feature documents. */
-const DOCS_DIRECTORY = "docs/technical-implmentations";
+const ARCHITECTURE_PATH = "ARCHITECTURE.md";
 
 /**
  * Runs the structure checker.
@@ -44,10 +41,9 @@ export function main(strict: boolean = process.argv.includes("--strict")): void 
 
   if (errors.length === 0) {
     errors.push(...findUnlistedFiles(parsed.tree, listStructureSourceFiles()));
-    errors.push(...compareDocFiles(parsed.docMap, readDocFiles()));
-    errors.push(...checkFeatureDocs(parsed.docMap));
+    errors.push(...checkFeatureOwnership(parsed.ownershipMap));
     collectPlannedTreePaths(parsed.tree, warnings, reported);
-    collectPlannedDocPaths(parsed.docMap, warnings, reported);
+    collectPlannedOwnershipPaths(parsed.ownershipMap, warnings, reported);
   }
 
   if (strict) {
@@ -87,32 +83,17 @@ export function listStructureSourceFiles(): string[] {
 }
 
 /**
- * Reads the docs directory and lists the markdown file names it contains.
- *
- * @returns The available doc file names.
- */
-function readDocFiles(): Set<string> {
-  const directory = path.join(REPO_ROOT, DOCS_DIRECTORY);
-
-  if (!existsSync(directory)) {
-    return new Set();
-  }
-
-  return new Set(readdirSync(directory).filter((name) => name.endsWith(".md")));
-}
-
-/**
  * Parses the sections the structure checker needs.
  *
  * @param markdown - The full architecture document.
- * @returns The parsed tree, doc map, and setup errors.
+ * @returns The parsed tree, ownership map, and setup errors.
  */
 export function parseArchitecture(markdown: string): StructureDocument {
   const errors: Diagnostic[] = [];
   const tree = parseTreeSection(markdown, errors);
-  const docMap = parseDocMapSection(markdown, errors);
+  const ownershipMap = parseOwnershipSection(markdown, errors);
 
-  return { tree, docMap, errors };
+  return { tree, ownershipMap, errors };
 }
 
 /**
@@ -135,13 +116,13 @@ function parseTreeSection(markdown: string, errors: Diagnostic[]): TreeEntry[] {
 }
 
 /**
- * Reads the section 15 text and parses its doc map.
+ * Reads the section 15 text and parses its feature ownership map.
  *
  * @param markdown - The full architecture document.
  * @param errors - Setup failure accumulator.
- * @returns The parsed doc entries.
+ * @returns The parsed ownership entries.
  */
-function parseDocMapSection(markdown: string, errors: Diagnostic[]): DocEntry[] {
+function parseOwnershipSection(markdown: string, errors: Diagnostic[]): OwnershipEntry[] {
   const section = readSection(markdown, "## 15.");
 
   if (!section) {
@@ -150,7 +131,7 @@ function parseDocMapSection(markdown: string, errors: Diagnostic[]): DocEntry[] 
     return [];
   }
 
-  return parseDocMap(section);
+  return parseOwnershipMap(section);
 }
 
 /**
@@ -266,51 +247,43 @@ function parseTreeLines(body: string): TreeEntry[] {
 }
 
 /**
- * Parses the section 15 doc-to-path map.
+ * Parses the section 15 feature ownership table.
+ *
+ * The leading cell names the feature area; every backticked value in the remaining cells is an
+ * owned path. Rows without an owned path, including the header and separator rows, are skipped.
  *
  * @param section - The section 15 text.
- * @returns One entry per table row with backticked ownership paths.
+ * @returns One entry per table row that declares ownership paths.
  */
-export function parseDocMap(section: string): DocEntry[] {
-  const entries: DocEntry[] = [];
+export function parseOwnershipMap(section: string): OwnershipEntry[] {
+  const entries: OwnershipEntry[] = [];
 
   for (const line of section.split("\n")) {
-    const doc = readDocName(line);
-
-    if (!doc) {
+    if (!line.trim().startsWith("|")) {
       continue;
     }
 
-    entries.push({ doc, paths: readOwnershipPaths(line) });
+    const cells = readCells(line);
+    const paths = readOwnershipPaths(cells.slice(1));
+
+    if (paths.length === 0) {
+      continue;
+    }
+
+    entries.push({ area: cells[0] ?? "", paths });
   }
 
   return entries;
 }
 
 /**
- * Reads the doc file name from a section 15 table row.
+ * Reads the backticked ownership paths from table cells.
  *
- * @param line - One line of the section.
- * @returns The doc file name, or `null` for other lines.
+ * @param cells - The cells after the leading feature area cell.
+ * @returns The backticked paths.
  */
-function readDocName(line: string): string | null {
-  if (!line.trim().startsWith("|")) {
-    return null;
-  }
-
-  const doc = readCells(line)[0]?.replaceAll("`", "") ?? "";
-
-  return doc.endsWith(".md") ? doc : null;
-}
-
-/**
- * Reads the ownership paths from a section 15 table row.
- *
- * @param line - One table row.
- * @returns The backticked paths from the ownership column.
- */
-function readOwnershipPaths(line: string): string[] {
-  const ownership = readCells(line).slice(2).join(" ");
+function readOwnershipPaths(cells: string[]): string[] {
+  const ownership = cells.join(" ");
 
   return [...ownership.matchAll(/`([^`]+)`/g)]
     .map((match) => match[1])
@@ -348,40 +321,19 @@ export function findUnlistedFiles(tree: TreeEntry[], sourceFiles: readonly strin
 }
 
 /**
- * Finds section 15 doc files that do not exist in the docs directory listing.
+ * Finds implemented feature folders that have no section 15 ownership entry.
  *
- * @param docMap - The parsed doc map.
- * @param availableDocs - The markdown file names present in the docs directory.
- * @returns One diagnostic per missing doc file.
- */
-export function compareDocFiles(
-  docMap: readonly DocEntry[],
-  availableDocs: ReadonlySet<string>,
-): Diagnostic[] {
-  return docMap
-    .filter((entry) => !availableDocs.has(entry.doc))
-    .map((entry) =>
-      fileDiagnostic(
-        `${DOCS_DIRECTORY}/${entry.doc}`,
-        "section 15 doc file is missing from docs/technical-implmentations",
-      ),
-    );
-}
-
-/**
- * Finds implemented feature folders that have no section 15 doc entry.
- *
- * @param docMap - The parsed doc map.
+ * @param ownershipMap - The parsed ownership map.
  * @param featureNames - The implemented feature folder names.
- * @returns One diagnostic per undocumented feature folder.
+ * @returns One diagnostic per unowned feature folder.
  */
 export function findUndocumentedFeatures(
-  docMap: readonly DocEntry[],
+  ownershipMap: readonly OwnershipEntry[],
   featureNames: readonly string[],
 ): Diagnostic[] {
   const documented = new Set<string>();
 
-  for (const entry of docMap) {
+  for (const entry of ownershipMap) {
     for (const declaredPath of entry.paths) {
       const match = /^features\/([^/]+)$/.exec(declaredPath);
 
@@ -396,7 +348,7 @@ export function findUndocumentedFeatures(
     .map((name) =>
       fileDiagnostic(
         `src/features/${name}`,
-        "implemented feature folder has no section 15 doc entry",
+        "implemented feature folder has no section 15 ownership entry",
       ),
     );
 }
@@ -430,13 +382,13 @@ function hasImplementedSource(folder: string): boolean {
 }
 
 /**
- * Checks implemented feature folders against the section 15 doc map.
+ * Checks implemented feature folders against the section 15 ownership map.
  *
- * @param docMap - The parsed doc map.
- * @returns One diagnostic per undocumented feature folder.
+ * @param ownershipMap - The parsed ownership map.
+ * @returns One diagnostic per unowned feature folder.
  */
-export function checkFeatureDocs(docMap: readonly DocEntry[]): Diagnostic[] {
-  return findUndocumentedFeatures(docMap, listImplementedFeatures());
+export function checkFeatureOwnership(ownershipMap: readonly OwnershipEntry[]): Diagnostic[] {
+  return findUndocumentedFeatures(ownershipMap, listImplementedFeatures());
 }
 
 /**
@@ -476,16 +428,16 @@ function collectPlannedTreePaths(
  * Reports the highest missing ancestor once per path, so a planned folder is named once instead of
  * once per file.
  *
- * @param docMap - The parsed doc map.
+ * @param ownershipMap - The parsed ownership map.
  * @param warnings - Warning accumulator.
  * @param reported - Paths already reported by either planned-path collector.
  */
-function collectPlannedDocPaths(
-  docMap: DocEntry[],
+function collectPlannedOwnershipPaths(
+  ownershipMap: OwnershipEntry[],
   warnings: Diagnostic[],
   reported: Set<string>,
 ): void {
-  for (const entry of docMap) {
+  for (const entry of ownershipMap) {
     for (const declaredPath of entry.paths) {
       const sourcePath = toSourcePath(declaredPath);
 
@@ -500,7 +452,9 @@ function collectPlannedDocPaths(
       }
 
       reported.add(missingPath);
-      warnings.push(fileDiagnostic(missingPath, `documented in ${entry.doc} but not implemented`));
+      warnings.push(
+        fileDiagnostic(missingPath, `listed in section 15 for ${entry.area} but not implemented`),
+      );
     }
   }
 }

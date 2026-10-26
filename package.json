@@ -2,9 +2,17 @@
   "name": "@im4all/gitminal",
   "version": "0.1.0",
   "description": "A keyboard-first terminal git client.",
-  "module": "src/index.tsx",
   "type": "module",
   "license": "MIT",
+  "bin": {
+    "gitminal": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/im4aLL/gitminal.git"
@@ -28,6 +36,8 @@
   "scripts": {
     "preview": "bun run src/index.tsx",
     "dev": "bun run --watch src/index.tsx",
+    "build": "bun build --target=bun --packages=external --banner='#!/usr/bin/env bun' --outfile=dist/index.js src/index.tsx",
+    "prepublishOnly": "bun run check:all && bun run build",
     "test": "bun test --timeout 10000 --path-ignore-patterns='**/*.integration.test.ts'",
     "test:integration": "bun test --timeout 60000 integration.test",
     "test:all": "bun test --timeout 60000",
@@ -43,7 +53,7 @@
     "check:boundary": "bun scripts/check-boundary.ts",
     "check:glyph": "bun scripts/check-glyph.ts",
     "check:structure": "bun scripts/check-structure.ts",
-    "prepare": "husky"
+    "prepare": "bunx husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
