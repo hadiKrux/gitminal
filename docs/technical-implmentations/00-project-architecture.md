@@ -524,6 +524,8 @@ gitminal/
         git.stashes.ts
         git.worktrees.ts
         git.diff.ts
+        git.diff.read-only.ts
+        git.diff.read-only.types.ts
         git.commit.ts
         git.watcher.ts
         parsers/

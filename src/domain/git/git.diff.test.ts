@@ -15,7 +15,6 @@ import {
   literalPathspec,
   probeBinary,
   probeSize,
-  readCommitDiff,
   readConflictDiff,
   readStagedDiff,
   readUntrackedContent,
@@ -25,7 +24,7 @@ import {
   stagePaths,
   unstageFile,
 } from "@/domain/git/git.diff";
-import { readStashDiff } from "@/domain/git/git.stashes";
+import { readCommitDiff, readStashDiff } from "@/domain/git/git.diff.read-only";
 import { createScriptedGitClient, fakeGitResult } from "@/test/git.fake";
 
 /** Working-tree patch for a file whose name contains brackets. */

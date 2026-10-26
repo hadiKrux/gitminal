@@ -214,6 +214,16 @@ export interface DiffFilesReadResult {
   readonly failure: GitFailure | null;
 }
 
+/** One changed file reported by a commit or stash name-status read. */
+export interface DiffChangedFile {
+  /** Current path, root-relative. */
+  readonly path: string;
+  /** Pre-rename or pre-copy path, or null when the path did not change. */
+  readonly oldPath: string | null;
+  /** Changed-file status git reported. */
+  readonly status: DiffFileStatus;
+}
+
 /** Result of the binary probe for one file. */
 export interface DiffBinaryProbeResult {
   /** True when the probe produced a conclusive answer. */

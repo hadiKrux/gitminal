@@ -12,7 +12,7 @@
   - `src/features/commit-details/ParentRef.tsx`
   - `src/features/commit-details/useCommitDetails.ts`
 - Shared path owned by F-08 and F-17: the details read uses `src/domain/git/git.log.ts` `readCommitDetails()` (this feature defines the fields it returns) and `src/domain/git/parsers/parse.log.ts`.
-- Read-only references: `src/domain/graph/graph.paginate.ts` (`ensureLoaded` for parent selection), `src/domain/git/git.diff.ts` and `src/features/diff/useFileDiff.ts` (the commit diff below the details, F-11), `src/domain/repository/repository.selectors.ts` (selected commit identity).
+- Read-only references: `src/domain/graph/graph.paginate.ts` (`ensureLoaded` for parent selection), `src/domain/git/git.diff.read-only.ts` and `src/features/diff/useFileDiff.ts` (the commit diff below the details, F-11), `src/domain/repository/repository.selectors.ts` (selected commit identity).
 
 ## 2. Scope and non-goals
 
@@ -115,7 +115,7 @@ graph selection change -> useCommitDetails.ts -> @/domain/git/git.log.ts readCom
 | stats | `git.log.ts` `readCommitStats(oid)` | `git log -1 --numstat --format= --diff-merges=first-parent <oid>` (summed into files changed, insertions, deletions) |
 | refs pointing at the commit | `parsers/parse.log.ts` from `--decorate=full`, plus `parsers/parse.refs.ts` | `git for-each-ref` mapped to the commit OID by `repository.selectors.ts` |
 | parent selection (`nav.activate` on a `ParentRef`) | `graph.paginate.ts` `ensureLoaded(parentOid)` then `git.log.ts` | bounded older-page loads until the parent OID is loaded (F-08) |
-| commit diff (below the details) | F-11 `useFileDiff.ts` and `git.diff.ts` | `git show --no-color -U<diff.contextLines> --format= --diff-merges=first-parent <oid>` |
+| commit diff (below the details) | F-11 `useFileDiff.ts` and `git.diff.read-only.ts` | `git show --no-color -U<diff.contextLines> --format= --diff-merges=first-parent <oid>`, with a per-file fallback when the whole patch exceeds the client output limit |
 | retry after an error | `git.log.ts` `readCommitDetails(oid)` | the details subcommand above |
 
 Field mapping from the parsed output:

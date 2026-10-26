@@ -1,5 +1,5 @@
-import type { DiffFilesReadResult } from "@/domain/diff/diff.types";
-import { resolveDiffReadContextLines } from "./git.diff";
+import type { DiffChangedFile } from "@/domain/diff/diff.types";
+import { buildPathspecArgs, resolveDiffReadContextLines } from "./git.diff";
 import { classifyGitFailure } from "./git.errors";
 import { planGitArgs, planGitError } from "./git.plan";
 import { createTruncatedOutputFailure, isTruncatedOutput } from "./git.remotes";
@@ -12,7 +12,6 @@ import type {
   StashRefResolution,
   StatusSnapshot,
 } from "./git.types";
-import { parseDiff } from "./parsers/parse.diff";
 import { parseSourceBranch, parseStashes } from "./parsers/parse.stash";
 
 /**
@@ -291,75 +290,60 @@ export function buildStashDiffArgs(index: string, contextLines: number): GitArgP
 }
 
 /**
- * Reads the read-only diff of one stash and parses every changed file.
+ * Builds the changed-file list read for one stash.
  *
- * @param client - Git client bound to the configured executable.
- * @param options - Stash selector, context lines, working directory, and cancellation signal.
- * @returns Parsed files or the classified failure. Never throws.
+ * The list is the bounded first step when a whole-patch stash read exceeds the client output limit.
+ * `-z` keeps paths with tabs or newlines unambiguous, and rename entries carry both paths.
+ *
+ * @param index - Current stash selector such as `stash@{0}`.
+ * @returns The planned argument array, or the reason the plan cannot run.
  */
-export async function readStashDiff(
-  client: GitClient,
-  options: {
-    readonly stashRef: string;
-    readonly contextLines: number;
-    readonly cwd: string;
-    readonly signal: AbortSignal;
-  },
-): Promise<DiffFilesReadResult> {
-  const plan = buildStashDiffArgs(options.stashRef, options.contextLines);
-
-  if (!plan.ok) {
-    return {
-      ok: false,
-      files: [],
-      failure: {
-        kind: "unknown",
-        exitCode: null,
-        message: plan.error,
-        stderr: "",
-        cancelled: false,
-        timedOut: false,
-      },
-    };
+export function buildStashFileListArgs(index: string): GitArgPlan {
+  if (!isStashRef(index)) {
+    return planGitError(`invalid stash selector "${index}"`);
   }
 
-  const result = await client.invoke({
-    args: plan.args,
-    cwd: options.cwd,
-    signal: options.signal,
-    operationClass: "read",
-  });
+  return planGitArgs(["stash", "show", "--name-status", "-z", index]);
+}
 
-  if (!result.ok) {
-    return { ok: false, files: [], failure: classifyGitFailure(result) };
+/**
+ * Builds the single-file patch read for one stash.
+ *
+ * A stash has no path-filtered `git stash show`, so the read compares the stash commit with its
+ * first parent, which is the same comparison `git stash show -p` performs. Passing one file keeps
+ * the invocation under the client output limit; a rename or copy passes both paths so `-M` can pair
+ * them.
+ *
+ * @param index - Current stash selector such as `stash@{0}`.
+ * @param file - Changed file from the name-status read.
+ * @param contextLines - Configured context lines; the read uses a larger collapse window.
+ * @returns The planned argument array, or the reason the plan cannot run.
+ */
+export function buildStashFileDiffArgs(
+  index: string,
+  file: DiffChangedFile,
+  contextLines: number,
+): GitArgPlan {
+  if (!isStashRef(index)) {
+    return planGitError(`invalid stash selector "${index}"`);
   }
 
-  if (isTruncatedOutput(result)) {
-    return {
-      ok: false,
-      files: [],
-      failure: createTruncatedOutputFailure(result, "git stash show output was truncated"),
-    };
+  const paths = buildPathspecArgs([file], true);
+
+  if (!paths.ok) {
+    return paths;
   }
 
-  const parsed = parseDiff(result.stdout);
-
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      files: parsed.files,
-      failure: {
-        kind: "unknown",
-        exitCode: null,
-        message: parsed.error.message,
-        stderr: "",
-        cancelled: false,
-        timedOut: false,
-      },
-    };
-  }
-
-  return { ok: true, files: parsed.files, failure: null };
+  return planGitArgs([
+    "diff",
+    "--no-color",
+    "-M",
+    `-U${resolveDiffReadContextLines(contextLines)}`,
+    `${index}^`,
+    index,
+    "--",
+    ...paths.args,
+  ]);
 }
 
 /**

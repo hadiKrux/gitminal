@@ -1,12 +1,11 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type {
-  CommitDiffReadOptions,
   DiffBinaryProbeResult,
+  DiffChangedFile,
   DiffFileActionOptions,
   DiffFileActionReason,
   DiffFileActionResult,
-  DiffFilesReadResult,
   DiffPathPair,
   DiffProbeOptions,
   DiffReadOptions,
@@ -27,7 +26,7 @@ import type {
   GitReadOptions,
   StatusSnapshot,
 } from "./git.types";
-import { parseDiff, parseFileDiff } from "./parsers/parse.diff";
+import { parseFileDiff } from "./parsers/parse.diff";
 
 /** Prefix that makes a git path argument a literal pathspec. */
 const LITERAL_PATHSPEC_PREFIX = ":(literal)";
@@ -87,13 +86,17 @@ function validatePath(path: string): string | null {
 /**
  * Builds the literal pathspec arguments for a set of targets.
  *
- * A rename contributes both paths. Duplicates are removed while order is preserved.
+ * A rename contributes both paths. Duplicates are removed while order is preserved. Exported for
+ * the stash read builders, which plan a path-filtered read of their own.
  *
  * @param targets - Path pairs from the status snapshot.
  * @param includeOldPaths - True to pass the pre-rename path as well.
  * @returns The pathspec arguments, or the planning error.
  */
-function buildPathspecArgs(targets: readonly DiffPathPair[], includeOldPaths: boolean): GitArgPlan {
+export function buildPathspecArgs(
+  targets: readonly DiffPathPair[],
+  includeOldPaths: boolean,
+): GitArgPlan {
   const values: string[] = [];
 
   for (const target of targets) {
@@ -281,6 +284,72 @@ export function buildCommitDiffArgs(sha: string, contextLines: number): GitArgPl
     "--format=",
     "--diff-merges=first-parent",
     sha,
+  ]);
+}
+
+/**
+ * Builds the changed-file list read for one commit.
+ *
+ * The read is small compared with the patch even for a commit that touches many files, so it is the
+ * bounded first step when a whole-patch read exceeds the client output limit. `-z` keeps paths with
+ * tabs or newlines unambiguous, and `-M` makes rename entries carry both paths.
+ *
+ * @param sha - Commit id the caller already resolved.
+ * @returns The planned argument array, or the planning error.
+ */
+export function buildCommitFileListArgs(sha: string): GitArgPlan {
+  if (!COMMIT_ID_PATTERN.test(sha)) {
+    return planGitError(`invalid commit id "${sha}"`);
+  }
+
+  return planGitArgs([
+    "show",
+    "--no-color",
+    "-M",
+    "--name-status",
+    "-z",
+    "--format=",
+    "--diff-merges=first-parent",
+    sha,
+  ]);
+}
+
+/**
+ * Builds the single-file patch read for one commit.
+ *
+ * Reading one file at a time keeps each invocation under the client output limit even when the
+ * whole commit patch would exceed it. A rename or copy passes both paths so `-M` can pair them.
+ *
+ * @param sha - Commit id the caller already resolved.
+ * @param file - Changed file from the name-status read.
+ * @param contextLines - Configured context lines; the read uses a larger collapse window.
+ * @returns The planned argument array, or the planning error.
+ */
+export function buildCommitFileDiffArgs(
+  sha: string,
+  file: DiffChangedFile,
+  contextLines: number,
+): GitArgPlan {
+  if (!COMMIT_ID_PATTERN.test(sha)) {
+    return planGitError(`invalid commit id "${sha}"`);
+  }
+
+  const paths = buildPathspecArgs([file], true);
+
+  if (!paths.ok) {
+    return paths;
+  }
+
+  return planGitArgs([
+    "show",
+    "--no-color",
+    "-M",
+    unifiedFlag(resolveDiffReadContextLines(contextLines)),
+    "--format=",
+    "--diff-merges=first-parent",
+    sha,
+    "--",
+    ...paths.args,
   ]);
 }
 
@@ -515,26 +584,6 @@ export async function readConflictDiff(
   }
 
   return { ok: true, file: parsed.file, failure: null };
-}
-
-/**
- * Reads the diff of one commit as a multi-file patch.
- *
- * @param client - Git client bound to the configured executable.
- * @param options - Commit id, context lines, working directory, and signal.
- * @returns Every parsed file or the classified failure. Never throws.
- */
-export async function readCommitDiff(
-  client: GitClient,
-  options: CommitDiffReadOptions,
-): Promise<DiffFilesReadResult> {
-  const plan = buildCommitDiffArgs(options.sha, options.contextLines);
-
-  if (!plan.ok) {
-    return { ok: false, files: [], failure: createSyntheticFailure(plan.error) };
-  }
-
-  return await readMultipleFiles(client, options, plan.args);
 }
 
 /**
@@ -1121,13 +1170,16 @@ function isUntrackedPath(snapshot: StatusSnapshot, path: string): boolean {
 /**
  * Reads and parses one file's patch.
  *
+ * Exported for the read-only commit and stash reader, which uses it to keep each file's patch
+ * inside its own invocation when a whole multi-file patch exceeds the client output limit.
+ *
  * @param client - Git client bound to the configured executable.
  * @param options - Path, old path, working directory, and signal.
  * @param plan - Planned diff arguments.
  * @param acceptedExitCodes - Exit codes that still carry a usable patch.
  * @returns The parsed file or the classified failure.
  */
-async function readSingleFile(
+export async function readSingleFile(
   client: GitClient,
   options: DiffReadOptions,
   plan: GitArgPlan,
@@ -1153,38 +1205,6 @@ async function readSingleFile(
   }
 
   return { ok: true, file: parsed.file, failure: null };
-}
-
-/**
- * Reads and parses a multi-file patch.
- *
- * @param client - Git client bound to the configured executable.
- * @param options - Working directory and signal.
- * @param args - Planned diff arguments.
- * @returns Every parsed file or the classified failure.
- */
-async function readMultipleFiles(
-  client: GitClient,
-  options: GitReadOptions,
-  args: readonly string[],
-): Promise<DiffFilesReadResult> {
-  const text = await readDiffText(client, options, args, [0]);
-
-  if (!text.ok) {
-    return { ok: false, files: [], failure: text.failure };
-  }
-
-  const parsed = parseDiff(text.text);
-
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      files: parsed.files,
-      failure: createSyntheticFailure(parsed.error.message),
-    };
-  }
-
-  return { ok: true, files: parsed.files, failure: null };
 }
 
 /**

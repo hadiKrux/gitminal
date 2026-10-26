@@ -10,13 +10,12 @@ import type {
 import {
   probeBinary,
   probeSize,
-  readCommitDiff,
   readConflictDiff,
   readStagedDiff,
   readUntrackedContent,
   readWorkingDiff,
 } from "@/domain/git/git.diff";
-import { readStashDiff } from "@/domain/git/git.stashes";
+import { readCommitDiff, readStashDiff } from "@/domain/git/git.diff.read-only";
 import type { GitClient } from "@/domain/git/git.types";
 import type { RepositorySelection } from "@/domain/repository/repository.types";
 import type { ReadOnlyDiffState, ReadOnlyTarget } from "./fileDiff.types";

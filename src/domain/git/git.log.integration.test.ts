@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readCommitDiff } from "@/domain/git/git.diff";
+import { readCommitDiff } from "@/domain/git/git.diff.read-only";
 import {
   readCommitDetails,
   readCommitStats,
