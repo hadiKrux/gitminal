@@ -585,7 +585,7 @@ describe("git client invocation", () => {
     expect(result.stdoutTruncated).toBeUndefined();
   });
 
-  it("does not duplicate characters when one chunk crosses the truncation boundary", async () => {
+  it("keeps a stream that fits the capture limit without marking it truncated", async () => {
     const { spawn, records } = createFakeSpawn();
     const client = createTestClient(spawn, { outputLimitCharacters: 10 });
     const promise = client.invoke({
@@ -602,7 +602,50 @@ describe("git client invocation", () => {
     records[0]?.child.close(0, null);
     const result = await promise;
 
-    expect(result.stdout).toBe("ABCDE\n[output truncated]\nFG");
+    expect(result.stdout).toBe("ABCDEFG");
+    expect(result.stdoutTruncated).toBeUndefined();
+  });
+
+  it("captures exactly the limit across the head and the tail", async () => {
+    const { spawn, records } = createFakeSpawn();
+    const client = createTestClient(spawn, { outputLimitCharacters: 10 });
+    const promise = client.invoke({
+      args: ["status"],
+      cwd: "/repo",
+      signal: new AbortController().signal,
+      operationClass: "read",
+      sshCommandConfigured: true,
+    });
+
+    await waitFor(() => records.length === 1);
+
+    records[0]?.child.emitStdout("0123456789");
+    records[0]?.child.close(0, null);
+    const result = await promise;
+
+    expect(result.stdout).toBe("0123456789");
+    expect(result.stdoutTruncated).toBeUndefined();
+  });
+
+  it("marks a stream truncated only when the middle is dropped", async () => {
+    const { spawn, records } = createFakeSpawn();
+    const client = createTestClient(spawn, { outputLimitCharacters: 10 });
+    const promise = client.invoke({
+      args: ["status"],
+      cwd: "/repo",
+      signal: new AbortController().signal,
+      operationClass: "read",
+      sshCommandConfigured: true,
+    });
+
+    await waitFor(() => records.length === 1);
+
+    records[0]?.child.emitStdout("0123456789A");
+    records[0]?.child.close(0, null);
+    const result = await promise;
+
+    expect(result.stdout).toBe("01234\n[output truncated]\n6789A");
+    expect(result.stdoutTruncated).toBeTrue();
   });
 });
 

@@ -46,6 +46,15 @@ const GRAPH_LOG_FORMAT = `%x1e${GRAPH_LOG_FORMAT_VERSION}%x00%H%x00%P%x00%an%x00
 /** Message shown when a log page read was truncated before it could be trusted. */
 const LOG_TRUNCATED_MESSAGE = "git log output was truncated";
 
+/**
+ * Smallest log page the loader retries with before a truncated capture is reported as a failure.
+ *
+ * A page is bounded by commit count, but its capture size depends on how many files each commit
+ * touched. An oversized capture is split by halving the page rather than failing the whole graph,
+ * and the floor stops the split once a single record can no longer fit.
+ */
+const LOG_MIN_PAGE_LIMIT = 1;
+
 /** Message shown when a search page read was truncated before it could be trusted. */
 const SEARCH_TRUNCATED_MESSAGE = "git log search output was truncated";
 
@@ -161,9 +170,11 @@ export function buildSearchPageArgs(input: {
  *
  * The invocation is serialized against writes by the git client because `log --raw` observes the
  * index. The first page walks the configured scope; a continuation passes only the frontier as
- * positive revisions. A git failure, a truncated read, a malformed record, or a repeated OID
- * returns a classified failure instead of throwing, so the page error row can show the message with
- * Retry while already loaded rows remain usable.
+ * positive revisions. A capture larger than the client output limit is retried with a halved page
+ * size, so a repository whose commits touch many files still loads the newest history instead of
+ * failing the graph; a single record that cannot fit still returns a classified failure. A git
+ * failure, a malformed record, or a repeated OID returns a classified failure instead of throwing,
+ * so the page error row can show the message with Retry while already loaded rows remain usable.
  *
  * @param client - Git client bound to the configured executable.
  * @param options - Scope, page size, cursor frontier, working directory, and signal.
@@ -173,14 +184,15 @@ export async function readLogPage(
   client: GitClient,
   options: GraphLogPageOptions,
 ): Promise<GraphLogReadResult> {
-  const limit = normalizeLimit(options.limit);
-  const args = buildLogPageArgs({
-    scopeArgs: resolveGraphScopeArgs(options.scope),
-    limit,
-    frontier: options.frontier,
-  });
+  const scopeArgs = resolveGraphScopeArgs(options.scope);
 
-  return readLogArguments(client, options, args, limit, LOG_TRUNCATED_MESSAGE);
+  return readLogArguments(
+    client,
+    options,
+    (limit) => buildLogPageArgs({ scopeArgs, limit, frontier: options.frontier }),
+    options.limit,
+    LOG_TRUNCATED_MESSAGE,
+  );
 }
 
 /**
@@ -188,7 +200,8 @@ export async function readLogPage(
  *
  * The search covers the subject and body of the full graph scope. An empty term list performs no
  * invocation and reports an exhausted page, because `--all-match` without a `--grep` would match
- * every commit. Continuation is the stable result offset described by `buildSearchPageArgs`.
+ * every commit. Continuation is the stable result offset described by `buildSearchPageArgs`. An
+ * oversized capture is split exactly like a log page, keeping the same offset for every attempt.
  * Failures are classified exactly like a log page read.
  *
  * @param client - Git client bound to the configured executable.
@@ -203,18 +216,19 @@ export async function readSearchPage(
     return { ok: true, rows: [], done: true, failure: null };
   }
 
-  const args = buildSearchPageArgs({
-    scopeArgs: resolveGraphScopeArgs(options.scope),
-    terms: options.terms,
-    limit: options.limit,
-    offset: options.offset,
-  });
+  const scopeArgs = resolveGraphScopeArgs(options.scope);
 
   return readLogArguments(
     client,
     options,
-    args,
-    normalizeLimit(options.limit),
+    (limit) =>
+      buildSearchPageArgs({
+        scopeArgs,
+        terms: options.terms,
+        limit,
+        offset: options.offset,
+      }),
+    options.limit,
     SEARCH_TRUNCATED_MESSAGE,
   );
 }
@@ -731,38 +745,51 @@ async function readCommitText(
 }
 
 /**
- * Executes one prepared log invocation and maps its output to a page result.
+ * Executes a bounded log read, halving an oversized page instead of failing it.
+ *
+ * The page size bounds commits, not capture size, so a page of commits that each touch many files
+ * can exceed the client output limit even though the graph itself is fine. Each retry rebuilds the
+ * arguments for the smaller page, keeping every other option such as the frontier or search offset
+ * unchanged. A read is only reported as truncated when a single-record page still overflows.
  *
  * @param client - Git client bound to the configured executable.
  * @param options - Working directory and cancellation signal.
- * @param args - Prepared argument array.
- * @param limit - Requested page size used to decide whether history is exhausted.
- * @param truncatedMessage - Message used when the captured output was truncated.
+ * @param buildArgs - Builds the argument array for one page size.
+ * @param requestedLimit - Caller page size, normalized before the first attempt.
+ * @param truncatedMessage - Message used when even the smallest page was truncated.
  * @returns The parsed page or the classified failure.
  */
 async function readLogArguments(
   client: GitClient,
   options: { readonly cwd: string; readonly signal: AbortSignal },
-  args: readonly string[],
-  limit: number,
+  buildArgs: (limit: number) => readonly string[],
+  requestedLimit: number,
   truncatedMessage: string,
 ): Promise<GraphLogReadResult> {
-  const result = await client.invoke({
-    args,
-    cwd: options.cwd,
-    signal: options.signal,
-    operationClass: "read",
-  });
+  let limit = normalizeLimit(requestedLimit);
 
-  if (!result.ok) {
-    return gitFailureResult(classifyGitFailure(result));
+  while (true) {
+    const result = await client.invoke({
+      args: buildArgs(limit),
+      cwd: options.cwd,
+      signal: options.signal,
+      operationClass: "read",
+    });
+
+    if (!result.ok) {
+      return gitFailureResult(classifyGitFailure(result));
+    }
+
+    if (!isTruncatedOutput(result)) {
+      return parseReadOutput(result.stdout, limit);
+    }
+
+    if (limit <= LOG_MIN_PAGE_LIMIT) {
+      return gitFailureResult(createTruncatedOutputFailure(result, truncatedMessage));
+    }
+
+    limit = Math.max(LOG_MIN_PAGE_LIMIT, Math.floor(limit / 2));
   }
-
-  if (isTruncatedOutput(result)) {
-    return gitFailureResult(createTruncatedOutputFailure(result, truncatedMessage));
-  }
-
-  return parseReadOutput(result.stdout, limit);
 }
 
 /**

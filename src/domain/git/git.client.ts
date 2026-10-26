@@ -741,9 +741,12 @@ function readSpawnFailure(error: unknown): GitSpawnFailure {
 /**
  * Creates a bounded text collector that keeps the head and the tail of a stream.
  *
- * Head and tail are both preserved because the first line usually names the failing command while
- * the last lines carry the decisive git error. The collector reports whether it had to drop the
- * middle, so a caller that infers absence from output can treat a truncated parse as unknown.
+ * The capture holds up to `limitCharacters` in total: the first half is the head and the last half
+ * is the tail. Head and tail are both preserved because the first line usually names the failing
+ * command while the last lines carry the decisive git error. Output is only reported as truncated
+ * when a chunk no longer fits, so a stream that stays within the limit is returned unchanged even
+ * when it is longer than the head half. A caller that infers absence from output can therefore
+ * treat a truncated capture as unknown without rejecting a complete one.
  *
  * @param limitCharacters - Maximum characters kept, split between head and tail.
  * @returns A collector with `push`, `read`, and `truncated`.
@@ -753,10 +756,11 @@ function createOutputCollector(limitCharacters: number): {
   read(): string;
   truncated(): boolean;
 } {
-  const halfLimit = Math.max(1, Math.floor(limitCharacters / 2));
+  const headLimit = Math.max(1, Math.floor(limitCharacters / 2));
+  const tailLimit = Math.max(0, limitCharacters - headLimit);
   let head = "";
   let tail = "";
-  let truncated = false;
+  let dropped = false;
 
   return {
     push(text: string): void {
@@ -764,32 +768,32 @@ function createOutputCollector(limitCharacters: number): {
         return;
       }
 
-      if (truncated) {
-        tail = appendTail(tail, text, halfLimit);
+      let remaining = text;
 
+      if (head.length < headLimit) {
+        const consumed = Math.min(remaining.length, headLimit - head.length);
+
+        head += remaining.slice(0, consumed);
+        remaining = remaining.slice(consumed);
+      }
+
+      if (remaining.length === 0) {
         return;
       }
 
-      if (head.length + text.length <= halfLimit) {
-        head += text;
-
-        return;
+      if (tail.length + remaining.length > tailLimit) {
+        dropped = true;
       }
 
-      const consumed = Math.max(0, halfLimit - head.length);
-      const remainder = text.slice(consumed);
-
-      head += text.slice(0, consumed);
-      truncated = true;
-      tail = appendTail(tail, remainder, halfLimit);
+      tail = appendTail(tail, remaining, tailLimit);
     },
 
     read(): string {
-      return truncated ? `${head}${OUTPUT_TRUNCATION_MARKER}${tail}` : head;
+      return dropped ? `${head}${OUTPUT_TRUNCATION_MARKER}${tail}` : `${head}${tail}`;
     },
 
     truncated(): boolean {
-      return truncated;
+      return dropped;
     },
   };
 }

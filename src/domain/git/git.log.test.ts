@@ -103,6 +103,50 @@ function createClient(result: GitInvocationResult): {
   return { client, calls };
 }
 
+/**
+ * Creates a client that records every invocation and replays one result per call.
+ *
+ * The final result repeats when more calls arrive than results were supplied, so a test only lists
+ * the responses it wants to distinguish.
+ *
+ * @param results - Results in call order.
+ * @returns The client and its recorded calls.
+ */
+function createSequenceClient(results: readonly GitInvocationResult[]): {
+  readonly client: GitClient;
+  readonly calls: RecordedCall[];
+} {
+  const calls: RecordedCall[] = [];
+  const client: GitClient = {
+    gitPath: "git",
+    invoke: async (options) => {
+      calls.push({
+        args: options.args,
+        cwd: options.cwd,
+        operationClass: options.operationClass,
+      });
+
+      return (
+        results[Math.min(calls.length - 1, results.length - 1)] ?? failResult("no result queued")
+      );
+    },
+  };
+
+  return { client, calls };
+}
+
+/**
+ * Builds an invocation result whose stdout lost its middle to the output limit.
+ *
+ * @returns The synthetic truncated result.
+ */
+function truncatedResult(): GitInvocationResult {
+  return {
+    ...okResult(""),
+    stdoutTruncated: true,
+  };
+}
+
 /** Fields every version-1 record fixture shares unless the test overrides them. */
 const RECORD_DEFAULTS = {
   parents: [] as readonly string[],
@@ -300,6 +344,43 @@ describe("readLogPage", () => {
     expect(result.done).toBe(false);
   });
 
+  it("halves an oversized page instead of failing the read", async () => {
+    const { client, calls } = createSequenceClient([
+      truncatedResult(),
+      okResult(record({ oid: "one0001", subject: "one" })),
+    ]);
+
+    const result = await readLogPage(client, {
+      cwd: "/repo",
+      signal: SIGNAL,
+      scope: "all",
+      limit: 10,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.rows).toHaveLength(1);
+    expect(result.done).toBe(true);
+    expect(calls.map((call) => call.args.find((arg) => arg.startsWith("--max-count=")))).toEqual([
+      "--max-count=10",
+      "--max-count=5",
+    ]);
+  });
+
+  it("reports truncation when even one commit exceeds the capture limit", async () => {
+    const { client, calls } = createSequenceClient([truncatedResult()]);
+
+    const result = await readLogPage(client, {
+      cwd: "/repo",
+      signal: SIGNAL,
+      scope: "all",
+      limit: 1,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failure?.message).toBe("git log output was truncated");
+    expect(calls).toHaveLength(1);
+  });
+
   it("returns a classified git failure without throwing", async () => {
     const { client } = createClient(failResult("fatal: bad revision 'missing'"));
 
@@ -373,6 +454,26 @@ describe("readSearchPage", () => {
     expect(calls[0]?.args).toContain("--branches");
     expect(calls[0]?.args).not.toContain("--skip=0");
     expect(calls[0]?.args.some((argument) => argument.startsWith("--skip="))).toBe(false);
+  });
+
+  it("keeps the stable offset across an oversized-page retry", async () => {
+    const { client, calls } = createSequenceClient([truncatedResult(), okResult("")]);
+
+    const result = await readSearchPage(client, {
+      cwd: "/repo",
+      signal: SIGNAL,
+      scope: "all",
+      terms: ["fix"],
+      limit: 10,
+      offset: 3,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(calls.map((call) => call.args.find((arg) => arg.startsWith("--max-count=")))).toEqual([
+      "--max-count=10",
+      "--max-count=5",
+    ]);
+    expect(calls[1]?.args).toContain("--skip=3");
   });
 
   it("continues from the stable offset over the same scope", async () => {
