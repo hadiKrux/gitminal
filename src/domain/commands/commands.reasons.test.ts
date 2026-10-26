@@ -19,4 +19,26 @@ describe("describeCommandReason", () => {
       "This command is not implemented yet",
     );
   });
+
+  it("uses the documented sidebar panel wording", () => {
+    expect(describeCommandReason("checked-out-in-worktree")).toBe(
+      "checked out in another worktree",
+    );
+    expect(describeCommandReason("no-remote-branch")).toBe("no matching remote branch");
+    expect(describeCommandReason("nothing-to-stash")).toBe("nothing to stash");
+    expect(describeCommandReason("only-untracked-changes")).toBe(
+      "only untracked changes; include untracked files to stash",
+    );
+    expect(describeCommandReason("no-stash-selected")).toBe("no stash selected");
+    expect(describeCommandReason("stash-changed-externally")).toBe(
+      "stash changed externally; list refreshed",
+    );
+    expect(describeCommandReason("remote-tag-unknown")).toBe(
+      "remote tag state unknown; refresh to retry",
+    );
+    expect(describeCommandReason("tag-already-on-remote")).toBe("tag exists on a remote");
+    expect(describeCommandReason("tag-already-exists")).toBe("tag already exists");
+    expect(describeCommandReason("current-worktree")).toBe("current worktree");
+    expect(describeCommandReason("worktree-missing")).toBe("worktree no longer exists");
+  });
 });

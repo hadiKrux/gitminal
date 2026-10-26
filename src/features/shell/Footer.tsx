@@ -6,6 +6,11 @@ import {
   subscribeActionRegistry,
 } from "@/app/hooks/useAction";
 import type { ActionScope } from "@/app/hooks/useAction.types";
+import {
+  getActionAvailabilityVersion,
+  readActionAvailability,
+  subscribeActionAvailability,
+} from "@/app/hooks/useActionAvailability";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useKeymap } from "@/app/hooks/useKeymap";
@@ -26,10 +31,13 @@ import { HintBar } from "@/ui/HintBar";
  * global key is shadowed by the focused context and minus self-evident actions such as Tab
  * traversal, arrow movement, quit, the console toggle, the More menu trigger, and Esc cancel, which
  * Help documents instead. A `remote.*` hint is shown only when the same target-aware availability
- * the top bar uses reports it available; other actions fall back to handler presence, so a
- * placeholder surface never advertises a feature that is not mounted. The footer therefore agrees
- * with the top bar in detached HEAD, no-remote, and no-upstream states. When focus leaves every
- * region, the footer falls back to the global hints instead of keeping the last region's context.
+ * the top bar uses reports it available; another action's published availability, when the owning
+ * surface published one for its selected target, decides the hint before any fallback. Actions with
+ * no publication fall back to handler presence, so a placeholder surface never advertises a feature
+ * that is not mounted. The footer therefore agrees with the top bar in detached HEAD, no-remote, and
+ * no-upstream states, and with the panels when the selected row makes an action unavailable. When
+ * focus leaves every region, the footer falls back to the global hints instead of keeping the last
+ * region's context.
  *
  * Modal hints come from `StatusProvider.hintMode`, which `OverlayHost` sets while an overlay entry
  * exists. Hints are priority ordered and dropped as the width shrinks.
@@ -48,9 +56,21 @@ export function Footer(): ReactNode {
     getActionRegistryVersion,
     getActionRegistryVersion,
   );
+  const availabilityVersion = useSyncExternalStore(
+    subscribeActionAvailability,
+    getActionAvailabilityVersion,
+    getActionAvailabilityVersion,
+  );
   const isAvailable = useCallback(
     (actionId: string, scope: ActionScope): boolean => {
       void registryVersion;
+      void availabilityVersion;
+
+      const published = readActionAvailability(scope, actionId);
+
+      if (published !== undefined) {
+        return published;
+      }
 
       if (actionId === "console.clear") {
         return consoleLog.entries.length > 0;
@@ -62,7 +82,7 @@ export function Footer(): ReactNode {
 
       return hasRegisteredAction(actionId, scope);
     },
-    [consoleLog.entries.length, operation, registryVersion, repository],
+    [availabilityVersion, consoleLog.entries.length, operation, registryVersion, repository],
   );
 
   const hints = useMemo(() => {

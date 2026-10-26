@@ -30,6 +30,7 @@ import type {
   CommandStepResult,
 } from "@/domain/commands/commands.types";
 import type { GitClient, GitInvocationResult, GitWatcherFactory } from "@/domain/git/git.types";
+import { EMPTY_REF_READ_ANSWERS } from "@/test/git.fake";
 
 /** Latest runner handle captured by the probe. */
 let latestRunner: CommandRunnerHook | undefined;
@@ -100,6 +101,7 @@ function createFakeGit(): { client: GitClient; statusReads: () => number } {
       result("origin\trefs/heads/main\n"),
     "for-each-ref --format=%(upstream:short) refs/heads": () => result("origin/main\n"),
     "rev-parse --verify --quiet refs/remotes/origin/main": () => result("abc123\n"),
+    ...EMPTY_REF_READ_ANSWERS,
   };
 
   return {

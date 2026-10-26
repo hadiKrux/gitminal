@@ -27,7 +27,10 @@ import { useFocusState } from "@/app/hooks/useFocusState";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
-import type { RepositoryContextValue } from "@/app/providers/RepositoryProvider.types";
+import type {
+  RepositoryContextValue,
+  RepositoryRefreshOptions,
+} from "@/app/providers/RepositoryProvider.types";
 import { getCommandDescriptor } from "@/domain/commands/commands.registry";
 import { runCommand as runDomainCommand } from "@/domain/commands/commands.runner";
 import type {
@@ -295,7 +298,7 @@ async function applyResult(
     readonly errorSink: CommandStatusWriters["errorSink"];
     readonly operationLabel: string;
     readonly onEntryAppended: (entry: ConsoleEntry) => void;
-    readonly refresh: () => Promise<unknown>;
+    readonly refresh: (options?: RepositoryRefreshOptions) => Promise<unknown>;
     readonly repositoryRoot: string | null;
     readonly setStatus: CommandStatusWriters["setStatus"];
     readonly retry?: () => void;
@@ -310,7 +313,7 @@ async function applyResult(
 
   context.append(entry);
   context.onEntryAppended(entry);
-  await context.refresh();
+  await context.refresh({ followUp: true });
   context.endOperation();
   context.closeOriginatingOverlay();
   applyCommandOutcome(redacted, context.operationLabel, entry.decisiveError ?? entry.summary, {

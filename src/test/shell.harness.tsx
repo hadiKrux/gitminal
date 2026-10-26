@@ -7,6 +7,8 @@ import { OverlayProvider } from "@/app/providers/OverlayProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
 import type { KeymapPlatform } from "@/domain/keymap/keymap.types";
+import type { SidebarRegionId } from "@/features/shell/focus.types";
+import { SidebarPanelFrame } from "@/features/shell/SidebarPanelFrame";
 
 /**
  * Mounts the providers a shell component needs in tests.
@@ -36,5 +38,40 @@ export function ShellTestProviders(props: {
         </KeymapProvider>
       </ThemeProvider>
     </ConfigProvider>
+  );
+}
+
+/**
+ * Renders a panel body inside the real shell frame and its scroll container.
+ *
+ * Feature tests cannot import another feature folder, so this harness is the test-only seam that
+ * lets a panel row be exercised against `SidebarPanelFrame`, including its scrollbar and drawable
+ * width contract. The harness adds no production behaviour.
+ *
+ * @param props - Panel identity, bordered width, frame height, inner content width, and body.
+ * @returns The framed panel inside the shell providers.
+ */
+export function SidebarFrameHarness(props: {
+  readonly regionId: SidebarRegionId;
+  readonly label: string;
+  readonly width: number;
+  readonly height: number;
+  readonly contentWidth: number;
+  readonly content: ReactNode;
+}): ReactNode {
+  return (
+    <ShellTestProviders>
+      <box flexDirection="column" width={props.width} height={props.height}>
+        <SidebarPanelFrame
+          panel={{
+            regionId: props.regionId,
+            label: props.label,
+            content: props.content,
+          }}
+          contentWidth={props.contentWidth}
+          flexGrow={1}
+        />
+      </box>
+    </ShellTestProviders>
   );
 }

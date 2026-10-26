@@ -96,6 +96,31 @@ export function isTruncatedOutput(result: GitInvocationResult): boolean {
 }
 
 /**
+ * Builds the classified failure for a read whose captured output was truncated.
+ *
+ * A truncated stream is incomplete evidence, so a caller that infers absence or completeness from
+ * output must keep its previous state instead. The kind is `unknown` because truncation is not one
+ * of git's own failure categories.
+ *
+ * @param result - Settled invocation whose output was truncated.
+ * @param message - One-line decisive message naming the truncated read.
+ * @returns The classified failure.
+ */
+export function createTruncatedOutputFailure(
+  result: GitInvocationResult,
+  message: string,
+): GitFailure {
+  return {
+    kind: "unknown",
+    exitCode: result.exitCode,
+    message,
+    stderr: result.stderr,
+    cancelled: result.cancelled,
+    timedOut: result.timedOut,
+  };
+}
+
+/**
  * Builds the shared `for-each-ref` read of every local branch upstream.
  *
  * The tab-separated `remotename` and `remoteref` atoms replace `%(upstream:short)`, which is
@@ -154,14 +179,7 @@ export async function readRemotes(
  * @returns The classified failure naming the truncated read.
  */
 function createTruncatedRemoteFailure(result: GitInvocationResult): GitFailure {
-  return {
-    kind: "unknown",
-    exitCode: result.exitCode,
-    message: "git remote -v output was truncated",
-    stderr: result.stderr,
-    cancelled: result.cancelled,
-    timedOut: result.timedOut,
-  };
+  return createTruncatedOutputFailure(result, "git remote -v output was truncated");
 }
 
 /**

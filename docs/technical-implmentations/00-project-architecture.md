@@ -1,6 +1,6 @@
 # Gitminal Project Architecture
 
-Last updated: 2026-10-23
+Last updated: 2026-10-25
 Scope: Enforced file, folder, layering, and OpenTUI component rules for the Gitminal v1 implementation.
 Product spec: `docs/product-spec.md`
 Feature docs: `docs/technical-implmentations/01-*.md` through `20-*.md`
@@ -149,6 +149,7 @@ gitminal/
         useHotkeys.types.ts
         useAction.ts
         useAction.types.ts
+        useActionAvailability.ts
         useCommandRunner.ts
         useCommandRunner.types.ts
         commandRunner.blocked.ts
@@ -157,6 +158,13 @@ gitminal/
         useFocusRegion.ts
         useFocusState.ts
         useListCursor.ts
+        useListCursor.types.ts
+        useFooterActionCycle.ts
+        useFooterActionCycle.types.ts
+        useModalControlCycle.ts
+        useModalControlCycle.types.ts
+        useScrollSelectedRow.ts
+        useInputEscapeClear.ts
         useDebouncedValue.ts
         useDraft.ts
         useOverlay.ts
@@ -167,12 +175,15 @@ gitminal/
         useRepository.ts
         useRepositoryRefresh.ts
         useRepositoryRefresh.types.ts
+        useRepositoryRefresh.tasks.ts
         useRepositoryRuntime.ts
         useRepositoryRuntime.types.ts
         useRepositoryStore.ts
         useRepositoryStore.types.ts
         useRepositoryAvailability.ts
         useRepositoryAvailability.types.ts
+        useRepositoryBranchRisk.ts
+        useRepositoryBranchRisk.types.ts
         useRepositoryInitialRead.ts
         useOptionalRepository.ts
         useRepositoryInitialRead.types.ts
@@ -182,8 +193,12 @@ gitminal/
         useInFlightTask.types.ts
         useRemoteCommands.ts
         useRemoteCommands.types.ts
+        usePanelCommands.ts
+        usePanelCommands.types.ts
         useRepositoryEvidence.ts
         useRepositoryEvidence.types.ts
+        useRepositoryRemoteTags.ts
+        useRepositoryRemoteTags.types.ts
         useRepositoryWatcher.ts
         useRepositoryWatcher.types.ts
         useConsoleLog.ts
@@ -233,36 +248,100 @@ gitminal/
         useTopBarMenu.ts
       branches/
         BranchesPanel.tsx
+        BranchesPanel.constants.ts
         BranchRow.tsx
+        BranchRow.constants.ts
         NewBranchModal.tsx
+        NewBranchModal.constants.ts
         DeleteBranchModal.tsx
+        DeleteBranchModalBody.tsx
+        DeleteBranchModal.constants.ts
+        DeleteBranchModal.types.ts
+        DeleteBranchRiskSection.tsx
+        deleteBranch.layout.ts
+        deleteBranch.risk.ts
+        useDeleteBranchRisk.ts
+        useBranchRows.ts
+        useBranchActions.ts
         useBranches.ts
+        useBranches.types.ts
       remotes/
         RemotesPanel.tsx
+        RemotesPanel.constants.ts
         RemoteRow.tsx
+        RemoteRow.constants.ts
         RemoteFilter.tsx
+        RemoteFilter.constants.ts
         CreateLocalBranchModal.tsx
+        CreateLocalBranchModal.constants.ts
+        CreateLocalBranchModal.types.ts
         useRemotes.ts
+        useRemotes.types.ts
+        useRemoteActions.ts
+        useRemoteCreateLocal.ts
+        useRemoteFilter.ts
+        useRemoteRows.ts
       tags/
         TagsPanel.tsx
+        TagsPanel.constants.ts
         TagRow.tsx
+        TagRow.constants.ts
         CreateTagModal.tsx
+        CreateTagModal.constants.ts
+        CreateTagModal.types.ts
         DeleteTagModal.tsx
+        DeleteTagModal.constants.ts
+        DeleteTagModal.types.ts
         useTags.ts
+        useTagActions.ts
+        useCreateTagModal.ts
+        useDeleteTagModal.ts
       stashes/
         StashesPanel.tsx
+        StashesPanel.constants.ts
         StashRow.tsx
+        StashRow.constants.ts
         StashDetails.tsx
+        StashDetails.constants.ts
         CreateStashModal.tsx
+        CreateStashModal.constants.ts
+        CreateStashModal.types.ts
         DeleteStashModal.tsx
+        DeleteStashModal.constants.ts
+        stash.age.ts
+        stash.availability.ts
+        stash.prefill.ts
+        stash.resolve.ts
         useStashes.ts
+        useStashes.constants.ts
+        useStashes.types.ts
+        useStashAvailability.ts
+        useStashCreateCommand.ts
+        useStashMutations.ts
+        useStashRows.ts
+        useStashRowCommands.ts
+        useStashSelection.ts
+        useCreateStashModal.ts
+        usePendingStashSelection.ts
       worktrees/
         WorktreesPanel.tsx
+        WorktreesPanel.constants.ts
         WorktreeRow.tsx
+        WorktreeRow.constants.ts
         WorktreeDetails.tsx
+        WorktreeDetails.constants.ts
         NewWorktreeModal.tsx
+        NewWorktreeModal.constants.ts
+        NewWorktreeModal.types.ts
         DeleteWorktreeModal.tsx
+        DeleteWorktreeModal.constants.ts
+        DeleteWorktreeModal.types.ts
+        worktree.path.ts
         useWorktrees.ts
+        useNewWorktreeForm.ts
+        useDeleteWorktreeModal.ts
+        useWorktreeActions.ts
+        useWorktreeAvailability.ts
       graph/
         CommitGraph.tsx
         CommitRow.tsx
@@ -332,15 +411,15 @@ gitminal/
         useThemePicker.ts
     ui/
       Panel.tsx
-      PanelHeader.tsx
-      ListView.tsx
+      Panel.constants.ts
+      PanelScrollContext.tsx
+      PanelScrollContext.types.ts
       ListRow.tsx
       ScrollableList.tsx
       Button.tsx
       Button.constants.ts
       Button.types.ts
       ButtonRow.tsx
-      Badge.tsx
       StatusBadge.tsx
       TextMarker.tsx
       TruncatedText.tsx
@@ -354,7 +433,6 @@ gitminal/
       EmptyState.tsx
       ErrorState.tsx
       LoadingRow.tsx
-      Divider.tsx
       SearchField.tsx
       FormField.tsx
       Checkbox.tsx
@@ -380,7 +458,11 @@ gitminal/
         git.branches.ts
         git.remotes.ts
         git.remotes.types.ts
+        git.remote-branches.ts
+        git.remote-branches.types.ts
+        git.plan.ts
         git.tags.ts
+        git.tags.types.ts
         git.stashes.ts
         git.worktrees.ts
         git.diff.ts
@@ -393,12 +475,15 @@ gitminal/
           parse.diff.ts
           parse.refs.ts
           parse.worktrees.ts
+          parse.worktrees.types.ts
           parse.stash.ts
       repository/
         repository.types.ts
         repository.selectors.ts
         repository.upstream.ts
         repository.read.ts
+        repository.refs.ts
+        repository.refs.types.ts
         repository.states.ts
       commands/
         commands.registry.ts
@@ -411,6 +496,12 @@ gitminal/
         commands.fetch.types.ts
         commands.remote.ts
         commands.remote.types.ts
+        commands.branches.ts
+        commands.tags.ts
+        commands.stashes.ts
+        commands.stashes.types.ts
+        commands.worktrees.ts
+        commands.invoke.ts
         confirm.labels.ts
       graph/
         graph.types.ts
@@ -484,6 +575,7 @@ Rules for this tree:
 - `src/test/` holds test-only harness code. `git.fixture.ts` creates, seeds, and removes temporary repositories for integration tests; no production module imports it, and the boundary check rejects a `src/test/**` import outside a colocated test file or another `src/test/**` module.
 - `scripts/` holds the section 12 developer checks only. It is tooling, not a feature folder, so the feature naming rule does not apply.
 - `AppShellHost.tsx` is the composition root. Feature components never import one another; they receive cross-feature data through providers, commands, or selectors.
+- Sidebar panel features render only the panel body. `SidebarPanelFrame` owns the focusable region frame, the border title, and the scroll container, so a panel never renders a second `Panel`, region frame, or scrollbox. The body carries an optional filter row and the rows themselves; the panel count lives in the border title supplied by `AppShellHost`, and the body has no duplicate title or count row. Remote rows are one line: `<remote>/<branch>` plus an inline stale or unknown marker, with no commit summary or date line. The graph, right-pane, and diff surfaces are not sidebar panels and do own their `Panel` frames.
 - The M4 temporary surfaces were `features/console/ConsoleDrawer.tsx` and `features/shell/PlaceholderSurface.tsx`. M6 replaced the console drawer; `AppShellHost` only swaps the surfaces it supplies, and each placeholder is documented as temporary in its own file. M5 replaced the temporary top bar with the real one.
 
 ## 5. File naming rules
@@ -610,7 +702,7 @@ Consumers, all of which read from `ICONS`:
 
 - `src/ui/TextMarker.tsx` renders focus, selection, and status markers.
 - `src/ui/Panel.tsx` renders the border title and its focus-dependent title color.
-- `src/ui/Badge.tsx` and `src/ui/StatusBadge.tsx` render tag, branch, and sync badges.
+- `src/ui/StatusBadge.tsx` renders sync and operation status badges.
 - `src/ui/Spinner.tsx` renders `spinnerFrames` through `useTimeline`.
 - `src/ui/ProgressBar.tsx` draws a FrameBuffer bar; it uses theme colors and no glyphs.
 - `src/ui/Checkbox.tsx` renders `checkboxOn` and `checkboxOff`.
@@ -628,13 +720,10 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | Primitive | OpenTUI composition | Purpose |
 | --- | --- | --- |
 | `Panel` | `<box>` with border, optional `focusable`, stable `id`, `focusedBorderColor`, border title | Bordered region with a native focus-aware border and a title embedded in the top border (`┌─ Title ────────┐`). The border switches to the focus token and the title to the `text` token while the region owns focus, and the title stays `muted` otherwise. The title text is identical in both focus states. Region frames pass `focusable` and the region id. |
-| `PanelHeader` | `<box>` + `<text>` + `<span>` | Section header with title, count, bulk actions. |
-| `ListView` | `<scrollbox>` + `<ListRow>` children | Virtualized custom-row list. |
-| `ListRow` | `<box>` + `<text>` + `<span>` | Row with marker, columns, actions. Marker from `ICONS` in `@/theme/icons`. |
+| `ListRow` | `<box>` + `<text>` + `<span>` | Row with marker, columns, actions. Marker from `ICONS` in `@/theme/icons`. The selected row uses the dark `surface` token as its background, so the fill stays subtle and the marker carries the selection signal. Native selects and focused buttons keep the `selection` token; the list-row fill is the deliberate exception. |
 | `ScrollableList` | `<scrollbox>` | Plain scroll container. |
 | `Button` | `<box>` + `<text>` | Filled text or icon-only button with a raised background, one cell of horizontal padding, a focused background and bold label, and mouse activation. Never adds a text marker. Not natively focusable: the owning feature keeps the focused control index. |
 | `ButtonRow` | `<box>` + `Button` children | Horizontal action group with a small gap; presentational only. |
-| `Badge` | `<span>` | Ref, status, and tag badges. Label from `ICONS`. |
 | `StatusBadge` | `<span>` + `<text>` | Sync and operation status. Marker from `ICONS`. |
 | `TextMarker` | `<text>` | Focus, selection, and state markers read from `ICONS` in `@/theme/icons`. |
 | `TruncatedText` | `<text>` | Budget-aware truncation using `ICONS.ellipsis`. |
@@ -645,7 +734,6 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | `EmptyState` | `<box>` + `<text>` | Empty message with optional action hint. |
 | `ErrorState` | `<box>` + `<text>` + `Button` | Inline error with Retry. |
 | `LoadingRow` | `<box>` + `<text>` + `Spinner` | Inline loading row in a list. |
-| `Divider` | `<box>` height 1 | Separator. |
 | `SearchField` | `<input>` | Filter and search fields with placeholder. |
 | `FormField` | `<box>` + `<text>` + `<input>`/`<textarea>` + error text | Labeled field with inline validation. |
 | `Checkbox` | `<box>` + `<text>` marker | Toggle rendered from `ICONS.checkboxOn`/`ICONS.checkboxOff`, keyboard and mouse. |
@@ -657,6 +745,8 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | `SectionHeader` | `<box>` + `<text>` + marker | Expand/collapse header using `ICONS.expanded`/`ICONS.collapsed`. |
 
 A feature may compose these primitives but must not fork them. If a feature needs a variant, add a prop to the primitive instead of copying it.
+
+Sidebar panel notes: a sidebar panel's count lives in the border title supplied by `AppShellHost`, and the panel body renders no duplicate title or count row. The collapsed layout's `<tab-select>` uses `SidebarPanel.shortLabel` (the plain section name) while the border title keeps `label` with the count, so the count is never duplicated in the tabs. Remote rows are one line: `<remote>/<branch>` plus an inline stale or unknown marker, with no commit summary or date line.
 
 ## 8. Focus and keybinding architecture
 
@@ -780,6 +870,7 @@ Rules:
 - State has exactly one owner: snapshot, selection union, and refresh generation in `RepositoryProvider`; composer draft in `DraftProvider`; cursors and previous region in `FocusProvider`; the single overlay entry and its captured focus in `OverlayProvider`; transient status and progress in `StatusProvider`; console entries, follow mode, and expanded entries in `ConsoleProvider`; config, keymap, and theme in their providers. Row expansion, focused control index, filter text, and modal form drafts are feature view state, owned by exactly one feature. `RepositoryProvider` never owns expansion, and a feature never keeps a second copy of the selection.
 - The right-pane sub-mode is derived, not stored: `selection.kind === "pending"` renders the composer, `"commit"` renders commit details, `"stash"` renders stash details, `"worktree"` renders worktree details, and a diff-file selection leaves the current right-pane mode intact while the diff panel highlights the file. There is no separate sub-mode flag in a provider or a feature.
 - Repository reads are derived in `@/domain/repository/repository.selectors.ts`. Features never recompute ahead/behind, upstream state, or pending counts themselves.
+- Optional ref lists settle independently. A failed branch, remote-branch, tag, stash, or worktree read keeps that list's previous snapshot value and records the failure in `RepositoryProvider.listFailures` for the owning panel, while every successful list still applies. Status and the remote list are required reads: a failure there fails the whole read and the provider keeps the previous snapshot. A retained worktree or branch list re-derives the branch `worktreePath` values from the worktrees the snapshot stores, so the branch `+` marker, the selected-row worktree detail, and the `checked-out-in-worktree` delete guard stay consistent with the Worktrees rows that remain visible.
 - Every command declares availability in `@/domain/commands/commands.availability.ts` with a machine-readable reason string and a target-aware context. The palette, footer, help, buttons, and confirmations all read the same reason.
 - Failures never clear drafts or staged files. The runner returns a result object; the orchestrator keeps the UI inputs and surfaces the error.
 
@@ -875,6 +966,7 @@ M4 deviations, recorded here per the last rule in this document:
 - `@/domain/theme/theme.catppuccin.ts` is the only place hex colors exist. It defines the four flavors and the token table from F-20.
 - `@/domain/theme/theme.capability.ts` detects truecolor, 256-color, and monochrome, and honors `NO_COLOR`. Token resolution returns final colors per capability.
 - UI reads colors only through `useTokens()`. No component holds a hex literal.
+- The sidebar `ListRow` selected fill uses `surface` as a deliberate exception to the generic selected-row `selection` token; native selects and focused buttons still use `selection`. `THEME_TOKEN_TARGETS` and product F-20 record the exception.
 - `@/theme/icons.ts` is the single configuration file for every icon, marker, and glyph. No component inlines a glyph. Icons are ASCII-only and always have a text equivalent; the pairing is enforced by review, not by a module test. See section 6.1.
 - The theme picker previews by swapping tokens in `ThemeProvider` without writing the file; Enter persists through `config.writer.ts`.
 

@@ -1,8 +1,13 @@
 import type {
+  BranchRecord,
   GitFailureKind,
   GitIdentity,
+  RemoteBranchRecord,
   RemoteInfo,
+  StashRecord,
   StatusSnapshot,
+  TagRecord,
+  WorktreeRecord,
 } from "@/domain/git/git.types";
 
 /** Upstream classification after a local or remote check. */
@@ -170,6 +175,8 @@ export interface RepositorySnapshot {
   readonly branch: string | null;
   /** HEAD commit id, or null in an unborn branch. */
   readonly headOid: string | null;
+  /** HEAD commit subject, or null in an unborn branch or when the bounded read failed. */
+  readonly headSubject: string | null;
   /** Abbreviated HEAD commit id for a detached HEAD. */
   readonly shortHash: string | null;
   /** True when HEAD is detached. */
@@ -186,6 +193,18 @@ export interface RepositorySnapshot {
   readonly behind: number;
   /** Canonical status snapshot, or null before the first read. */
   readonly status: StatusSnapshot | null;
+  /** Every local branch, with its worktree attribution and upstream classification. */
+  readonly branches: readonly BranchRecord[];
+  /** Every remote-tracking branch, attributed to its configured remote. */
+  readonly remoteBranches: readonly RemoteBranchRecord[];
+  /** Every local tag. Remote tag knowledge lives in the provider, not the snapshot. */
+  readonly tags: readonly TagRecord[];
+  /** The stash list in git order, newest selector first. */
+  readonly stashes: readonly StashRecord[];
+  /** Every worktree known to the repository, with the current one marked. */
+  readonly worktrees: readonly WorktreeRecord[];
+  /** Absolute path of the worktree that contains the repository root, or null when unknown. */
+  readonly currentWorktreePath: string | null;
   /** Configured commit identity. */
   readonly identity: GitIdentity;
   /** Clock value of the successful read, in milliseconds. */
@@ -241,6 +260,28 @@ export interface RepositoryGateRule {
 
 /** Result of confirming a remote branch with `git ls-remote`. */
 export type RemoteBranchCheck = "present" | "absent" | "unknown";
+
+/**
+ * Last known state of one remote's tag knowledge.
+ *
+ * `neverChecked` is the state of a configured remote whose tags were never read, `known` carries the
+ * names a successful `git ls-remote --tags` advertised, and `failed` keeps the previous names while
+ * stating that the latest attempt did not complete. Only `known` may prove that a tag is absent.
+ */
+export type RemoteTagCheckStatus = "known" | "neverChecked" | "failed";
+
+/** One remote's last known tag set plus the time of the successful read that produced it. */
+export interface RemoteTagCheck {
+  /** Tag names the last successful read advertised, empty when never read. */
+  readonly names: readonly string[];
+  /** Clock value of the last successful read, or null when no read succeeded yet. */
+  readonly checkedAt: number | null;
+  /** Whether the names are current, unknown, or stale after a failed attempt. */
+  readonly status: RemoteTagCheckStatus;
+}
+
+/** Last known tag knowledge per configured remote, keyed by remote name. */
+export type RemoteTagChecks = Readonly<Record<string, RemoteTagCheck>>;
 
 /**
  * Classification of the configured upstream branch.
@@ -413,6 +454,51 @@ export interface RepositoryReadOptions {
   readonly evidence: UpstreamEvidence;
 }
 
+/**
+ * Name of one optional snapshot ref list.
+ *
+ * These lists are read in the same snapshot as the required status and remote list, but a failure in
+ * one of them never fails the whole read, so a corrupt stash reflog cannot freeze the branch and
+ * working-tree facts.
+ */
+export type RepositoryListName = "branches" | "remoteBranches" | "tags" | "stashes" | "worktrees";
+
+/**
+ * Classified failure message per optional ref list.
+ *
+ * A list absent from the record was read successfully. A present entry describes only that list: the
+ * provider keeps its previous snapshot value for the failed field and every panel can name its own
+ * failing list instead of reporting a global refresh error.
+ */
+export type RepositoryListFailures = Readonly<Partial<Record<RepositoryListName, string>>>;
+
+/** One commit that exists on a branch but not on the base the deletion compares against. */
+export interface BranchRiskCommit {
+  /** Full commit id. */
+  readonly oid: string;
+  /** Commit subject. */
+  readonly subject: string;
+}
+
+/**
+ * Result of the capped at-risk commit read used by the unmerged-branch acknowledgement.
+ *
+ * `commits` lists only the commits the base does not contain, newest first. An empty successful
+ * read means the base already contains the branch, so `merged` is true. A failed read returns an
+ * empty list, `merged: null`, and an `error`, so a caller can explain that the merge state is
+ * unknown and still offer the force acknowledgement instead of silently dropping it.
+ */
+export interface BranchRiskRead {
+  /** Up to the capped number of commits the base does not contain, empty on success with none. */
+  readonly commits: readonly BranchRiskCommit[];
+  /** True when the base contains the branch, false when it does not, null when unreadable. */
+  readonly merged: boolean | null;
+  /** True when the read hit its cap and older commits at risk are not listed. */
+  readonly hasMore: boolean;
+  /** Classified error message, or null when the read succeeded. */
+  readonly error: string | null;
+}
+
 /** Result of one repository snapshot read. */
 export interface RepositoryReadResult {
   /** True when every required read succeeded. */
@@ -421,6 +507,8 @@ export interface RepositoryReadResult {
   readonly snapshot: RepositorySnapshot | null;
   /** Signals built from the read, always complete. */
   readonly signals: RepositorySignals;
+  /** Classified failure per optional ref list, empty when every list was read successfully. */
+  readonly listFailures: RepositoryListFailures;
   /** Upstream classification read with the snapshot. */
   readonly upstreamStatus: UpstreamStatus;
   /** True when the configured git executable could be started. */

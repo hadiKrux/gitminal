@@ -3,6 +3,10 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useEffect } from "react";
 import { resetActionRegistry, useAction } from "@/app/hooks/useAction";
 import type { ActionRegistrationOptions } from "@/app/hooks/useAction.types";
+import {
+  publishActionAvailability,
+  resetActionAvailability,
+} from "@/app/hooks/useActionAvailability";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useStatus } from "@/app/hooks/useStatus";
@@ -11,7 +15,7 @@ import type { GitClient } from "@/domain/git/git.types";
 import { Footer } from "@/features/shell/Footer";
 import type { RegionId } from "@/features/shell/focus.types";
 import { AppTestProviders } from "@/test/app.harness";
-import { fakeGitResult } from "@/test/git.fake";
+import { EMPTY_REF_READ_ANSWERS, fakeGitResult } from "@/test/git.fake";
 import { ShellTestProviders } from "@/test/shell.harness";
 
 /**
@@ -200,6 +204,7 @@ function createStateClient(state: "normal" | "detached" | "no-remote"): {
     "for-each-ref --format=%(upstream:short) refs/heads": () =>
       state === "no-remote" ? fakeGitResult("") : fakeGitResult("origin/main\n"),
     "rev-parse --verify --quiet refs/remotes/origin/main": () => fakeGitResult("abc123\n"),
+    ...EMPTY_REF_READ_ANSWERS,
   };
 
   return {
@@ -268,6 +273,7 @@ async function renderFooterWithRepository(
 
 beforeEach(() => {
   resetActionRegistry();
+  resetActionAvailability();
 });
 
 describe("Footer", () => {
@@ -553,6 +559,49 @@ describe("Footer", () => {
 
     await act(async () => {
       await seeded.dispose();
+    });
+  });
+
+  it("hides a panel hint when the owning surface publishes it unavailable", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="branches">
+        <Registration actionId="branch.create" options={{ scope: "branches" }} />
+        <Registration actionId="branch.delete" options={{ scope: "branches" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "branches");
+
+    expect(setup.captureCharFrame()).toContain("Delete branch");
+
+    let unpublish: () => void = () => {};
+
+    await act(async () => {
+      unpublish = publishActionAvailability("branches", "branch.delete", false);
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const unavailableFrame = setup.captureCharFrame();
+
+    expect(unavailableFrame).not.toContain("Delete branch");
+    expect(unavailableFrame).toContain("New branch");
+
+    await act(async () => {
+      unpublish();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).toContain("Delete branch");
+
+    await act(async () => {
+      await setup.dispose();
     });
   });
 

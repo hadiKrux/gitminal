@@ -89,6 +89,26 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
   ],
   ["remote.more", "navigation", "global", "none", "remote", "More", "Open remote actions", false],
   [
+    "remote.createLocal",
+    "mutation",
+    "remotes",
+    "remoteBranch",
+    "remote",
+    "Create local branch",
+    "Create a local branch from a remote branch",
+    true,
+  ],
+  [
+    "graph.selectCommit",
+    "navigation",
+    "graph",
+    "commit",
+    "graph",
+    "Select commit",
+    "Show the selected commit",
+    false,
+  ],
+  [
     "branch.create",
     "mutation",
     "branches",
@@ -108,6 +128,16 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
     "Delete the selected branch",
     false,
   ],
+  [
+    "branch.checkout",
+    "mutation",
+    "branches",
+    "branch",
+    "branch",
+    "Checkout branch",
+    "Check out the selected local branch",
+    false,
+  ],
   ["tag.create", "mutation", "tags", "none", "tag", "Create tag", "Create a tag", true],
   ["tag.push", "mutation", "tags", "tag", "tag", "Push tag", "Push the selected tag", false],
   ["tag.delete", "mutation", "tags", "tag", "tag", "Delete tag", "Delete the selected tag", false],
@@ -124,6 +154,16 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
     false,
   ],
   ["stash.delete", "mutation", "stashes", "stash", "stash", "Drop stash", "Drop a stash", false],
+  [
+    "stash.select",
+    "navigation",
+    "stashes",
+    "stash",
+    "stash",
+    "Select stash",
+    "Show the selected stash",
+    false,
+  ],
   [
     "worktree.create",
     "mutation",
@@ -142,6 +182,16 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
     "worktree",
     "Delete worktree",
     "Remove a linked worktree",
+    false,
+  ],
+  [
+    "worktree.select",
+    "navigation",
+    "worktrees",
+    "worktree",
+    "worktree",
+    "Select worktree",
+    "Show the selected worktree",
     false,
   ],
   ["commit.submit", "mutation", "right-pane", "none", "commit", "Commit", "Create a commit", false],
@@ -230,6 +280,18 @@ const DESCRIPTOR_ROWS: readonly DescriptorRow[] = Object.freeze([
   ],
 ]);
 
+/**
+ * Internal selection commands that have no action id and no default key.
+ *
+ * They are palette-invocable command ids only: the owning panel dispatches them to set the
+ * right-pane selection, so they must never expose an `actionId` a keybinding could bind.
+ */
+const INTERNAL_NAVIGATION_COMMANDS: ReadonlySet<string> = new Set([
+  "graph.selectCommit",
+  "stash.select",
+  "worktree.select",
+]);
+
 /** Indexed command catalogue. */
 const COMMAND_DESCRIPTORS: ReadonlyMap<string, CommandDescriptor> = new Map(
   DESCRIPTOR_ROWS.map((row) => {
@@ -250,7 +312,7 @@ function createDescriptor(row: DescriptorRow): CommandDescriptor {
 
   return Object.freeze({
     id,
-    actionId: id,
+    ...(INTERNAL_NAVIGATION_COMMANDS.has(id) ? {} : { actionId: id }),
     kind,
     scope,
     targetKind,

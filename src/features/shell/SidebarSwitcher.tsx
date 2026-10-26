@@ -7,7 +7,9 @@ import { SIDEBAR_SWITCHER_ID } from "@/features/shell/regions";
 /**
  * Renders the native panel switcher used by the collapsed sidebar.
  *
- * The switcher stays focusable for mouse-driven panel switching. The selected index is
+ * Tab text uses `panel.shortLabel` when supplied, so the compact tabs carry the plain section name
+ * while the bordered panel title keeps the row count. A panel without a short label keeps its full
+ * label. The switcher stays focusable for mouse-driven panel switching. The selected index is
  * synchronised so a direct region jump updates the visible tab as well as the panel below it, and
  * `refreshFocus` re-derives the focus projection after the frame under native focus changes.
  *
@@ -22,8 +24,8 @@ export function SidebarSwitcher(props: {
   const ref = useRef<TabSelectRenderable | null>(null);
   const { refreshFocus } = useFocusState();
   const options = props.panels.map((panel) => ({
-    name: panel.label,
-    description: panel.label,
+    name: panel.shortLabel ?? panel.label,
+    description: panel.shortLabel ?? panel.label,
   }));
 
   useEffect(() => {

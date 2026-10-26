@@ -113,6 +113,7 @@ export async function runCommand(
     target: options.target,
     region: options.region,
     operation: "idle",
+    formValues: request.formValues,
   });
 
   if (!availability.available) {

@@ -1,8 +1,20 @@
+import { groupByRemote } from "@/domain/git/git.remote-branches";
+import { sortStashesNewestFirst } from "@/domain/git/git.stashes";
+import { mergeTagScopes, sortTagsVersionDesc } from "@/domain/git/git.tags";
+import type {
+  BranchRecord,
+  RemoteBranchRecord,
+  StashRecord,
+  TagRowRecord,
+  WorktreeRecord,
+} from "@/domain/git/git.types";
+import { buildWorktreeBranchMap } from "@/domain/git/git.worktrees";
 import type {
   BranchDisplay,
   PendingCounts,
   RemoteCheckRecord,
   RemoteFreshness,
+  RemoteTagChecks,
   RepositoryFlag,
   RepositoryPrimaryState,
   RepositorySignals,
@@ -279,4 +291,140 @@ export function selectRepositoryView(
     pending: selectPendingCounts(snapshot),
     state: selectStateDisplay(state),
   };
+}
+
+/**
+ * Orders local branches for the branches panel.
+ *
+ * The current branch is always first so the checked-out branch stays visible while the list is
+ * scrolled. The rest follow by committer date descending, then by name, so two branches that share a
+ * timestamp still have one stable order across refreshes. Branches without a committer date sort
+ * last, because git reports none only for an unusable or still-unborn ref.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @returns A new array in panel order.
+ */
+export function selectBranchRows(snapshot: RepositorySnapshot | null): readonly BranchRecord[] {
+  const branches = snapshot?.branches ?? [];
+
+  return [...branches].sort((left, right) => {
+    if (left.head !== right.head) {
+      return left.head ? -1 : 1;
+    }
+
+    const dateOrder = compareCommitterDatesDesc(left.committerDate, right.committerDate);
+
+    return dateOrder !== 0 ? dateOrder : compareText(left.name, right.name);
+  });
+}
+
+/**
+ * Compares two committer dates newest first.
+ *
+ * @param left - First ISO date, or null.
+ * @param right - Second ISO date, or null.
+ * @returns Negative when the left row sorts first, positive when the right does, zero on a tie.
+ */
+function compareCommitterDatesDesc(left: string | null, right: string | null): number {
+  if (left === right) {
+    return 0;
+  }
+
+  if (left === null) {
+    return 1;
+  }
+
+  if (right === null) {
+    return -1;
+  }
+
+  return left < right ? 1 : -1;
+}
+
+/**
+ * Groups remote-tracking branches by remote and sorts both levels.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @returns Groups ordered by remote name, each with branches ordered by branch name.
+ */
+export function selectRemoteBranchGroups(snapshot: RepositorySnapshot | null): readonly {
+  readonly remote: string;
+  readonly branches: readonly RemoteBranchRecord[];
+}[] {
+  return groupByRemote(snapshot?.remoteBranches ?? []);
+}
+
+/**
+ * Merges local tags with remote tag knowledge and orders the rows newest version first.
+ *
+ * A remote whose last check failed keeps its previous names and reports `unknown` for a local tag
+ * that is not confirmed elsewhere, so missing knowledge never reads as `unpushed`.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @param remoteTagChecks - Last known tag set per configured remote.
+ * @returns One logical row per tag name in version-aware descending order.
+ */
+export function selectTagRows(
+  snapshot: RepositorySnapshot | null,
+  remoteTagChecks: RemoteTagChecks,
+): readonly TagRowRecord[] {
+  return sortTagsVersionDesc(mergeTagScopes(snapshot?.tags ?? [], remoteTagChecks));
+}
+
+/**
+ * Orders the stash list newest first.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @returns A new array with the newest stash first and the object name preserved.
+ */
+export function selectStashRows(snapshot: RepositorySnapshot | null): readonly StashRecord[] {
+  return sortStashesNewestFirst(snapshot?.stashes ?? []);
+}
+
+/**
+ * Orders worktrees for the worktrees panel.
+ *
+ * The current worktree is first so its row is never scrolled away, then the rest follow by path, so
+ * the list is stable across refreshes without depending on git's internal ordering.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @returns A new array in panel order.
+ */
+export function selectWorktreeRows(snapshot: RepositorySnapshot | null): readonly WorktreeRecord[] {
+  const worktrees = snapshot?.worktrees ?? [];
+
+  return [...worktrees].sort((left, right) => {
+    if (left.current !== right.current) {
+      return left.current ? -1 : 1;
+    }
+
+    return compareText(left.path, right.path);
+  });
+}
+
+/**
+ * Maps each branch checked out in a worktree to that worktree.
+ *
+ * @param snapshot - Current snapshot, or null before the first read.
+ * @returns A map from branch name to the worktree that has it checked out.
+ */
+export function selectWorktreeBranchMap(
+  snapshot: RepositorySnapshot | null,
+): ReadonlyMap<string, WorktreeRecord> {
+  return buildWorktreeBranchMap(snapshot?.worktrees ?? []);
+}
+
+/**
+ * Compares two strings by UTF-16 code unit.
+ *
+ * @param left - First value.
+ * @param right - Second value.
+ * @returns Negative when the left value sorts first, positive when the right does, zero on a tie.
+ */
+function compareText(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+
+  return left > right ? 1 : 0;
 }

@@ -10,7 +10,7 @@ import { MORE_MENU_SELECT_ID } from "@/features/top-bar/MoreMenu.constants";
 import { MoreMenuLive } from "@/features/top-bar/MoreMenuLive";
 import type { TopBarMoreOption } from "@/features/top-bar/useTopBar.types";
 import { AppTestProviders } from "@/test/app.harness";
-import { fakeGitResult } from "@/test/git.fake";
+import { EMPTY_REF_READ_ANSWERS, fakeGitResult } from "@/test/git.fake";
 import { ShellTestProviders } from "@/test/shell.harness";
 
 /**
@@ -279,6 +279,7 @@ describe("MoreMenu", () => {
             () => fakeGitResult(""),
           "for-each-ref --format=%(upstream:short) refs/heads": () => fakeGitResult(""),
           "rev-parse --verify --quiet refs/remotes/origin/main": () => fakeGitResult("", false),
+          ...EMPTY_REF_READ_ANSWERS,
         };
 
         const answer = answers[key];
@@ -364,6 +365,7 @@ describe("MoreMenu", () => {
           "for-each-ref --format=%(upstream:short) refs/heads": () =>
             fakeGitResult("origin/main\n"),
           "rev-parse --verify --quiet refs/remotes/origin/main": () => fakeGitResult("abc123\n"),
+          ...EMPTY_REF_READ_ANSWERS,
         };
 
         const answer = answers[key];

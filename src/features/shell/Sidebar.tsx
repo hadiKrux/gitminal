@@ -3,6 +3,7 @@ import type { ShellLayoutMode, SidebarPanel } from "@/features/shell/focus.types
 import { SIDEBAR_WIDTHS } from "@/features/shell/regions";
 import { SidebarPanelFrame } from "@/features/shell/SidebarPanelFrame";
 import { SidebarSwitcher } from "@/features/shell/SidebarSwitcher";
+import { PANEL_BORDER_WIDTH } from "@/ui/Panel.constants";
 
 /**
  * Lays out the five sidebar panels or the collapsed single-panel switcher.
@@ -23,6 +24,7 @@ export function Sidebar(props: {
   onSelectPanel: (index: number) => void;
 }): ReactNode {
   const width = SIDEBAR_WIDTHS[props.layoutMode];
+  const contentWidth = width - PANEL_BORDER_WIDTH;
 
   if (props.layoutMode === "sidebar-collapsed") {
     const active = props.panels[props.selectedPanel] ?? props.panels[0];
@@ -35,6 +37,7 @@ export function Sidebar(props: {
       <box width={width} flexShrink={0} flexDirection="column">
         <SidebarPanelFrame
           panel={active}
+          contentWidth={contentWidth}
           flexGrow={1}
           switcher={
             <SidebarSwitcher
@@ -51,7 +54,12 @@ export function Sidebar(props: {
   return (
     <box width={width} flexShrink={0} flexDirection="column">
       {props.panels.map((panel) => (
-        <SidebarPanelFrame key={panel.regionId} panel={panel} flexGrow={1} />
+        <SidebarPanelFrame
+          key={panel.regionId}
+          panel={panel}
+          contentWidth={contentWidth}
+          flexGrow={1}
+        />
       ))}
     </box>
   );

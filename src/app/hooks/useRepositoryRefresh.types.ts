@@ -1,5 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type {
+  RepositoryRefreshOptions,
   RepositoryRefreshResult,
   RepositoryStore,
 } from "@/app/providers/RepositoryProvider.types";
@@ -27,15 +28,17 @@ export interface RepositoryRefreshCycle {
   /**
    * Reads status, then the graph window.
    *
+   * @param options - Optional follow-up rule for a command-triggered refresh.
    * @returns The refresh result.
    */
-  refresh(): Promise<RepositoryRefreshResult>;
+  refresh(options?: RepositoryRefreshOptions): Promise<RepositoryRefreshResult>;
   /**
    * Reads status without history.
    *
+   * @param options - Optional follow-up rule for a command-triggered refresh.
    * @returns The refresh result.
    */
-  refreshStatus(): Promise<RepositoryRefreshResult>;
+  refreshStatus(options?: RepositoryRefreshOptions): Promise<RepositoryRefreshResult>;
   /**
    * Bumps the graph generation and awaits the registered window reloader.
    *
@@ -48,4 +51,33 @@ export interface RepositoryRefreshCycle {
    * @param refresher - Reloader, or null to clear it.
    */
   registerGraphWindowRefresher(refresher: (() => Promise<void>) | null): void;
+}
+
+/** Store flag that one coalescing task owns while it is in flight. */
+export type RepositoryRefreshFlag = "statusInFlight" | "graphInFlight" | "refreshing";
+
+/** Inputs accepted by `useRefreshFlagTask`. */
+export interface RefreshFlagTaskInput {
+  /** Store flag to raise while the task is in flight. */
+  readonly flag: RepositoryRefreshFlag;
+  /** Store writer. */
+  readonly setStore: Dispatch<SetStateAction<RepositoryStore>>;
+  /** False after unmount, so no flag is written then. */
+  readonly mountedRef: MutableRefObject<boolean>;
+}
+
+/** Refs shared by the refresh tasks and operations. */
+export interface RepositoryRefreshRefs {
+  /** Last generation reserved by any read. */
+  readonly generationRef: MutableRefObject<number>;
+  /** Registered graph-window reloader, or null. */
+  readonly graphRefresherRef: MutableRefObject<(() => Promise<void>) | null>;
+  /** Controller of the last status read. */
+  readonly readControllerRef: MutableRefObject<AbortController | null>;
+  /** Controller of the queued follow-up read, or null when no follow-up is queued. */
+  readonly followUpControllerRef: MutableRefObject<AbortController | null>;
+  /** Queued status follow-up, or null. */
+  readonly followUpStatusRef: MutableRefObject<Promise<RepositoryRefreshResult> | null>;
+  /** Queued combined follow-up, or null. */
+  readonly followUpCombinedRef: MutableRefObject<Promise<RepositoryRefreshResult> | null>;
 }

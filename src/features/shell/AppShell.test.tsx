@@ -45,6 +45,7 @@ function ShellHarness(props: {
   width?: number;
   height?: number;
   topBarTitle?: string;
+  panels?: readonly SidebarPanel[];
 }): ReactNode {
   const [consoleOpen, setConsoleOpen] = useState(false);
 
@@ -56,7 +57,7 @@ function ShellHarness(props: {
         layoutMode={props.layoutMode ?? "full"}
         topBar={<text> Gitminal branch main</text>}
         topBarTitle={props.topBarTitle ?? "Gitminal"}
-        sidebarPanels={PANELS}
+        sidebarPanels={props.panels ?? PANELS}
         graph={<text>graph body</text>}
         rightPane={<text>composer body</text>}
         diffPanel={<text>diff body</text>}
@@ -72,6 +73,11 @@ function ShellHarness(props: {
 /**
  * Renders the shell harness.
  *
+ * @param width - Terminal width.
+ * @param layoutMode - Sidebar layout mode.
+ * @param height - Terminal height.
+ * @param topBarTitle - Optional repository title.
+ * @param panels - Optional panel descriptors to override the fixture.
  * @returns The renderer setup.
  */
 async function renderShell(
@@ -79,6 +85,7 @@ async function renderShell(
   layoutMode: "full" | "sidebar-collapsed" = "full",
   height: number = 40,
   topBarTitle?: string,
+  panels?: readonly SidebarPanel[],
 ): Promise<Awaited<ReturnType<typeof testRender>>> {
   latestFocus = undefined;
 
@@ -89,6 +96,7 @@ async function renderShell(
         width={width}
         height={height}
         topBarTitle={topBarTitle}
+        panels={panels}
       />
     </ShellTestProviders>,
     { width, height },
@@ -330,6 +338,53 @@ describe("AppShell", () => {
 
     expect(latestFocus?.state.activeRegion).toBe("console");
     expect(setup.captureCharFrame()).toContain("console body");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps the counted title in the frame and short names in the collapsed tabs", async () => {
+    const counted: readonly SidebarPanel[] = [
+      {
+        regionId: "branches",
+        label: "Branches (2)",
+        shortLabel: "Branches",
+        content: <text>branch body</text>,
+      },
+      { regionId: "remotes", label: "Remotes (1)", content: <text>remote body</text> },
+      { regionId: "tags", label: "Tags (0)", shortLabel: "Tags", content: <text>tag body</text> },
+      {
+        regionId: "stashes",
+        label: "Stashes (4)",
+        shortLabel: "Stashes",
+        content: <text>stash body</text>,
+      },
+      {
+        regionId: "worktrees",
+        label: "Worktrees (1)",
+        shortLabel: "Worktrees",
+        content: <text>worktree body</text>,
+      },
+    ];
+    const setup = await renderShell(85, "sidebar-collapsed", 30, undefined, counted);
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const switcher = setup.renderer.root.findDescendantById(SIDEBAR_SWITCHER_ID) as
+      | TabSelectRenderable
+      | undefined;
+
+    expect(switcher?.options.map((option) => option.name)).toEqual([
+      "Branches",
+      "Remotes (1)",
+      "Tags",
+      "Stashes",
+      "Worktrees",
+    ]);
+    expect(setup.captureCharFrame()).toContain("Branches (2)");
 
     await act(async () => {
       await setup.dispose();

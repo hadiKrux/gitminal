@@ -212,7 +212,10 @@ describe("AppShellHost quit", () => {
       invoke: async (options): Promise<GitInvocationResult> => {
         const key = options.args.join(" ");
 
-        if (key === "status --porcelain=v2 --branch -z --untracked-files=all") {
+        if (
+          key === "status --porcelain=v2 --branch -z --untracked-files=all" &&
+          options.cwd === "/repo"
+        ) {
           statusReads += 1;
 
           if (statusReads >= 2) {

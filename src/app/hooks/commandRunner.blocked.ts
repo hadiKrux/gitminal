@@ -28,6 +28,7 @@ export function readBlockedResult(input: {
     input.request.commandId,
     input.request.target,
     input.region,
+    input.request.formValues,
   );
 
   if (availability.available) {

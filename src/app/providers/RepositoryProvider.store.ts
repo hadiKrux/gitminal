@@ -2,14 +2,25 @@ import type {
   RepositoryStore,
   RepositoryWatcherInput,
 } from "@/app/providers/RepositoryProvider.types";
-import type { GitWatcher, GitWatchMode, GitWatchStatus } from "@/domain/git/git.types";
+import type {
+  BranchRecord,
+  GitWatcher,
+  GitWatchMode,
+  GitWatchStatus,
+  WorktreeRecord,
+} from "@/domain/git/git.types";
+import { applyWorktreePaths } from "@/domain/repository/repository.refs";
 import { createRepositorySignals } from "@/domain/repository/repository.states";
 import type {
   RemoteCheckKind,
   RemoteCheckRecord,
+  RemoteTagCheck,
+  RemoteTagChecks,
+  RepositoryListFailures,
   RepositoryReadResult,
   RepositorySelection,
   RepositorySignals,
+  RepositorySnapshot,
 } from "@/domain/repository/repository.types";
 
 /**
@@ -32,6 +43,8 @@ export function createInitialStore(
     generation: 0,
     watch: createInactiveWatch(worktreeWatch),
     remoteChecks: {},
+    remoteTagChecks: {},
+    listFailures: {},
     lastRefreshError: null,
     upstreamStatus: "none",
     statusInFlight: false,
@@ -62,9 +75,14 @@ export function createInactiveWatch(worktreeWatch: boolean): GitWatchStatus {
  * A failed read keeps the previous snapshot and records the message. A genuine environment failure
  * (`missing-git`, `permission`) updates the signals that decide the whole-shell state; a transient or
  * unresolved failure keeps the previous signals so a cancelled, timed-out, auth-network, or unknown
- * read can never become `not-a-repository` or `empty`. A successful read replaces the snapshot
- * exactly, including the null snapshot of a bare or non-repository directory, and merges remote
- * check records by name so their timestamps survive a refresh.
+ * read can never become `not-a-repository` or `empty`.
+ *
+ * A successful read replaces the snapshot, including the null snapshot of a bare or non-repository
+ * directory, and merges remote check records by name so their timestamps survive a refresh. Optional
+ * ref lists are applied one by one: every successfully read list is replaced, a list named in
+ * `listFailures` keeps the previous snapshot's value, and the failure map itself is stored so a panel
+ * can name only its own failing list. A retained worktree list re-derives the branch worktree paths
+ * on the newly read branch rows. A fully successful read therefore clears the map.
  *
  * @param previous - Current store.
  * @param result - Read result.
@@ -95,12 +113,100 @@ export function applyReadToStore(
 
   return {
     ...previous,
-    snapshot: result.snapshot,
+    snapshot: keepFailedLists(previous.snapshot, result.snapshot, result.listFailures),
     signals: { ...result.signals, operationRunning },
     upstreamStatus: result.upstreamStatus,
     remoteChecks: mergeRemoteChecks(previous.remoteChecks, result.signals.remotes),
+    remoteTagChecks: mergeRemoteTagChecks(previous.remoteTagChecks, result.signals.remotes),
+    listFailures: result.listFailures,
     lastRefreshError: null,
   };
+}
+
+/**
+ * Keeps the previous snapshot's value for every optional list that failed to read.
+ *
+ * A first successful read has no previous snapshot, so the empty values of the failed lists stand.
+ * When the worktree list is kept, its current-worktree path is kept with it, because the two describe
+ * the same read. Branch worktree attribution is derived from the worktree list, so whenever either
+ * list fails the branch rows are re-derived from the worktrees this snapshot stores. A failed
+ * worktree read therefore keeps the marker and guard aligned with the retained worktrees, and a
+ * failed branch read keeps them aligned with the newly read worktrees instead of the stale paths on
+ * the retained branch rows.
+ *
+ * @param previous - Snapshot before this read, or null before the first successful read.
+ * @param next - Snapshot produced by this read, or null outside a work tree.
+ * @param failures - Optional lists that failed in this read.
+ * @returns The snapshot to store.
+ */
+function keepFailedLists(
+  previous: RepositorySnapshot | null,
+  next: RepositorySnapshot | null,
+  failures: RepositoryListFailures,
+): RepositorySnapshot | null {
+  if (previous === null || next === null) {
+    return next;
+  }
+
+  const worktreesFailed = failures.worktrees !== undefined;
+  const branchesFailed = failures.branches !== undefined;
+  const branches = keepListedValue(failures.branches, next.branches, previous.branches);
+  const worktrees = keepListedValue(failures.worktrees, next.worktrees, previous.worktrees);
+
+  return {
+    ...next,
+    branches:
+      worktreesFailed || branchesFailed ? rederiveWorktreePaths(branches, worktrees) : branches,
+    remoteBranches: keepListedValue(
+      failures.remoteBranches,
+      next.remoteBranches,
+      previous.remoteBranches,
+    ),
+    tags: keepListedValue(failures.tags, next.tags, previous.tags),
+    stashes: keepListedValue(failures.stashes, next.stashes, previous.stashes),
+    worktrees,
+    currentWorktreePath: worktreesFailed ? previous.currentWorktreePath : next.currentWorktreePath,
+  };
+}
+
+/**
+ * Re-derives branch worktree paths from the worktrees this snapshot stores.
+ *
+ * Every existing path is cleared first, so a branch that no longer appears in the worktree list
+ * loses a path retained by an earlier read instead of keeping stale attribution.
+ *
+ * @param branches - Branch rows this snapshot keeps.
+ * @param worktrees - Worktrees this snapshot stores.
+ * @returns New branch rows with `worktreePath` resolved only from the supplied worktrees.
+ */
+function rederiveWorktreePaths(
+  branches: readonly BranchRecord[],
+  worktrees: readonly WorktreeRecord[],
+): readonly BranchRecord[] {
+  const cleared = branches.map((branch) =>
+    branch.worktreePath === null ? branch : { ...branch, worktreePath: null },
+  );
+
+  return applyWorktreePaths(cleared, worktrees);
+}
+
+/**
+ * Chooses the value a list keeps after one read.
+ *
+ * A list absent from the failure map read successfully and contributes this read's value; a list
+ * named there failed and keeps the previous snapshot's value.
+ *
+ * @param failure - Failure message for this list, or undefined when it read successfully.
+ * @param next - Value produced by this read.
+ * @param previous - Value from the previous snapshot.
+ * @returns The value to store for this list.
+ */
+function keepListedValue<T>(
+  failure: string | undefined,
+  next: readonly T[],
+  previous: readonly T[],
+): readonly T[] {
+  return failure === undefined ? next : previous;
 }
 
 /**
@@ -169,6 +275,40 @@ export function updateRemoteCheck(
   return kind === "fetch"
     ? { ...current, lastSuccessfulFetchAt: at }
     : { ...current, lastSuccessfulCheckAt: at };
+}
+
+/**
+ * Keeps tag knowledge for remotes that still exist and seeds new remotes as never checked.
+ *
+ * A read must never turn a failed or never-run check into an empty known set, so a record that
+ * already exists keeps its names, timestamp, and status. Only a remote the store has never seen
+ * starts at `neverChecked`, which is the state the tags panel renders while it waits for its first
+ * `ls-remote` read.
+ *
+ * @param previous - Existing tag knowledge.
+ * @param remotes - Configured remote names.
+ * @returns The merged tag knowledge for the configured remotes only.
+ */
+function mergeRemoteTagChecks(
+  previous: RemoteTagChecks,
+  remotes: readonly string[],
+): RemoteTagChecks {
+  const next: Record<string, RemoteTagCheck> = {};
+
+  for (const remote of remotes) {
+    next[remote] = previous[remote] ?? createNeverCheckedTags();
+  }
+
+  return next;
+}
+
+/**
+ * Builds the tag knowledge of a remote that has never been read.
+ *
+ * @returns A frozen never-checked record.
+ */
+function createNeverCheckedTags(): RemoteTagCheck {
+  return Object.freeze({ names: Object.freeze([]), checkedAt: null, status: "neverChecked" });
 }
 
 /**

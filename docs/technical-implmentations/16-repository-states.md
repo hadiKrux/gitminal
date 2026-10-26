@@ -50,7 +50,7 @@ AppShell                          (src/features/shell/AppShell.tsx)
 -> ErrorOverlay                   permission, missing git, auth/network, hook output
 ```
 
-The state gate is a render decision in AppShell, not a new renderable. Screens and banners are composed from the `ui/` primitives `EmptyState`, `ErrorState`, `Badge`, `StatusBadge`, and `TextMarker`.
+The state gate is a render decision in AppShell, not a new renderable. Screens and banners are composed from the `ui/` primitives `EmptyState`, `ErrorState`, `StatusBadge`, and `TextMarker`.
 
 ## 5. Enforced files and folders
 

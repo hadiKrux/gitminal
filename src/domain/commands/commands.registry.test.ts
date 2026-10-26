@@ -56,4 +56,31 @@ describe("command registry", () => {
       expect(getCommandDescriptor(commandId)?.scope, commandId).toBe("global");
     }
   });
+
+  it("declares the internal selection commands without an action id", () => {
+    expect(getCommandDescriptor("graph.selectCommit")?.actionId).toBeUndefined();
+    expect(getCommandDescriptor("stash.select")?.actionId).toBeUndefined();
+    expect(getCommandDescriptor("worktree.select")?.actionId).toBeUndefined();
+
+    for (const commandId of ["graph.selectCommit", "stash.select", "worktree.select"]) {
+      const descriptor = getCommandDescriptor(commandId);
+
+      expect(descriptor?.kind, commandId).toBe("navigation");
+      expect(descriptor?.paletteInvocable, commandId).toBeTrue();
+    }
+  });
+
+  it("keeps every other command bound to its own action id", () => {
+    for (const descriptor of listCommandDescriptors()) {
+      if (descriptor.id === "graph.selectCommit" || descriptor.id === "stash.select") {
+        continue;
+      }
+
+      if (descriptor.id === "worktree.select") {
+        continue;
+      }
+
+      expect(descriptor.actionId, descriptor.id).toBe(descriptor.id);
+    }
+  });
 });

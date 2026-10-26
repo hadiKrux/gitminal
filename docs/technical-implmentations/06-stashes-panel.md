@@ -41,12 +41,12 @@ Hooks used:
 | Hook | Where used | Why |
 | --- | --- | --- |
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
-| `useAction` | `useStashes.ts` registers the region-scoped handlers `stash.create`, `stash.apply`, `stash.pop`, `stash.delete`, and `nav.activate` with `scope: "stashes"` | One handler per `(actionId, scope)`; global actions such as `app.refresh` and `focus.*` are owned by the app or shell and are never registered here |
-| `useListCursor` | `useStashes.ts` navigation and double click detection | Shared cursor and double click logic for custom rows |
-| `useFocusRegion` | `StashesPanel.tsx` refreshes the stash list when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
+| `useAction` | `useStashCreateCommand.ts` registers `stash.create` and `useStashRowCommands.ts` registers `stash.apply`, `stash.pop`, and `stash.delete`, all with `scope: "stashes"`; `useStashes.ts` composes both hooks and owns rows, cursor, and selection state; `useListCursor` registers `nav.up`, `nav.down`, and `nav.activate` in the same scope | One handler per `(actionId, scope)`; global actions such as `app.refresh` and `focus.*` are owned by the app or shell and are never registered here |
+| `useListCursor` | `useStashes.ts` navigation through `useStashSelection.ts`, and double click detection | Shared cursor and double click logic for custom rows |
+| `useFocusRegion` | `useStashes.ts` refreshes the stash list when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `StashRow.tsx` computes the message truncation budget | Budget-aware truncation through `@/lib/text.ts` |
-| `useOverlay` | `StashesPanel.tsx` opens the Create, Pop, and Delete modals | Modal stack lives in `OverlayProvider` |
-| `useConfig` | `useStashes.ts` reads `stash.includeUntrackedByDefault` | Config is the single source of the checkbox default |
+| `useOverlay` | `useStashCreateCommand.ts` opens the Create Stash modal and `useStashRowCommands.ts` opens the Pop and Delete modals | Modal stack lives in `OverlayProvider` |
+| `useConfig` | `useStashCreateCommand.ts` reads `stash.includeUntrackedByDefault` for the Create Stash checkbox default | Config is the single source of the checkbox default |
 | `useRepository`, `useStatus` | `useStashes.ts` reads the snapshot and publishes status | Provider state is never copied locally |
 
 All icons and markers used by this feature come from `src/theme/icons.ts`; see architecture section 6.1. No glyph literal is written in feature code.
@@ -54,33 +54,29 @@ All icons and markers used by this feature come from `src/theme/icons.ts`; see a
 ## 4. Component tree
 
 ```text
-StashesPanel
-  Panel
-    PanelHeader (title "Stashes", count)
-    ScrollableList (scrollbox, viewportCulling, scrollbar when overflowing)
-      StashRow (one per stash, newest first)
-        ListRow (box)
-          TextMarker (selection marker ">")
-          text (index, for example stash@{0})
-            span (source branch, when git records it)
-            span (relative age)
-          text (message, truncated)
-      LoadingRow (while the first read is in flight)
-      EmptyState (no stashes)
-      ErrorState (read failed, with Retry)
+StashesPanel (body only; SidebarPanelFrame owns the Panel, border title, and scrollbox)
+  StashRow (one per stash, newest first)
+    ListRow (box)
+      TextMarker (selection marker ">")
+      text (index, for example stash@{0})
+        span (source branch, when git records it)
+        span (relative age)
+      text (message, truncated)
+  LoadingRow (while the first read is in flight)
+  EmptyState (no stashes)
+  ErrorState (read failed, with Retry)
 ```
 
 The right pane is composed by `AppShellHost` from `RepositoryProvider.selection` (architecture section 9). A stash selection renders `StashDetails` instead of the composer or commit details:
 
 ```text
 StashDetails (when selection.kind === "stash")
-  Panel
-    PanelHeader (title "Stash <message>")
+  Panel (title "Stash <message>")
     text (source branch, relative age, and short object name)
     text ("Read-only. The stash diff is shown in the Diff panel.")
 ```
 
-Modals are pushed onto `OverlayProvider` (F-15), not nested in the panel:
+The body has no title or count row: the shell border title carries `Stashes (<count>)`. Modals are pushed onto `OverlayProvider` (F-15), not nested in the panel:
 
 ```text
 CreateStashModal
@@ -101,15 +97,18 @@ The Pop confirmation uses the shared `ConfirmModal` from `src/features/overlays/
 
 ## 5. Enforced files and folders
 
-- `src/features/stashes/StashesPanel.tsx` - panel composition, region registration, action wiring, focus refresh, modal opening.
+- `src/features/stashes/StashesPanel.tsx` - panel composition and region registration. The modal openers and the focus refresh live in the stash hooks (`useStashCreateCommand.ts`, `useStashRowCommands.ts`, `useStashes.ts`).
 - `src/features/stashes/StashRow.tsx` - one stash row: index, message, source branch, relative age, selection marker.
 - `src/features/stashes/StashDetails.tsx` - right-pane read-only summary for the selected stash, driven by `RepositoryProvider.selection.kind === "stash"`.
 - `src/features/stashes/CreateStashModal.tsx` - required message, prefill, include-untracked checkbox, validation.
 - `src/features/stashes/DeleteStashModal.tsx` - destructive confirmation that names the stash message.
-- `src/features/stashes/useStashes.ts` - reads the stash snapshot, owns cursor and draft state, dispatches commands.
+- `src/features/stashes/useStashes.ts` - reads the stash snapshot, owns cursor, selection repair, and draft state, dispatches commands.
+- `src/features/stashes/stash.prefill.ts` - pure message prefill and display-message helpers.
+- `src/features/stashes/stash.resolve.ts` - pure resolution of the just-created stash from the refreshed list.
+- `src/features/stashes/stash.age.ts` - pure relative-age formatter used until `@/lib/time.ts` lands.
 - `src/domain/git/git.stashes.ts` - stash reads, ordering, and command builders for push, apply, pop, and drop.
 - `src/domain/git/parsers/parse.stash.ts` - parses recorded `git stash list` output, including the source branch.
-- Tests colocated: `src/domain/git/parsers/parse.stash.test.ts`, `src/domain/git/git.stashes.test.ts`, `src/features/stashes/StashesPanel.test.tsx`, `src/features/stashes/StashRow.test.tsx`, `src/features/stashes/StashDetails.test.tsx`, `src/features/stashes/CreateStashModal.test.tsx`, `src/features/stashes/DeleteStashModal.test.tsx`, plus the shared `src/domain/commands/commands.availability.test.ts` matrix.
+- Tests colocated: `src/domain/git/parsers/parse.stash.test.ts`, `src/domain/git/git.stashes.test.ts`, `src/features/stashes/StashesPanel.test.tsx`, `src/features/stashes/StashRow.test.tsx`, `src/features/stashes/StashDetails.test.tsx`, `src/features/stashes/CreateStashModal.test.tsx`, `src/features/stashes/DeleteStashModal.test.tsx`, `src/features/stashes/useStashes.test.tsx`, `src/features/stashes/stash.prefill.test.ts`, `src/features/stashes/stash.resolve.test.ts`, `src/features/stashes/stash.age.test.ts`, plus the shared `src/domain/commands/commands.availability.test.ts` matrix.
 
 ## 6. State model
 
@@ -129,7 +128,7 @@ Provider state (read, never recomputed here):
 - `OverlayProvider`: modal stack and the error overlay.
 - `ConsoleProvider`: the bounded command log entry written by every command.
 
-Rules: this feature never recomputes ordering, source branch, or relative age. The row identity is always the immutable object name, never `stash@{n}`. Ordering comes from `git.stashes.ts`, and relative age comes from `@/lib/time.ts` (architecture section 9).
+Rules: this feature never recomputes ordering or source branch. The row identity is always the immutable object name, never `stash@{n}`. Ordering comes from `git.stashes.ts`. `@/lib/time.ts` is still a planned shared module, so M7 keeps the pure `formatStashAge` helper in `stash.age.ts`; it moves to `@/lib/time.ts` when that module lands. `stash.prefill.ts` owns the message prefill and `stash.resolve.ts` owns created-stash resolution so the hook stays panel state only.
 
 ## 7. Data flow
 
@@ -144,25 +143,29 @@ key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(re
 
 | Action ID or refresh | Domain module | Git subcommand |
 | --- | --- | --- |
-| repository refresh (stash list) | `git.stashes.ts` `listStashes()` -> `parsers/parse.stash.ts` | `git stash list --format=%gd%x00%H%x00%gs%x00%ct` |
+| repository refresh (stash list) | `git.stashes.ts` `readStashes()` -> `parsers/parse.stash.ts` `parseStashes()` | `git stash list --format=%gd%x00%H%x00%gs%x00%ct` |
 | working tree and index state for create availability | `git.status.ts` -> `parsers/parse.status.ts` | `git status --porcelain=v2 --branch -z --untracked-files=all` |
 | source branch extraction | `git.stashes.ts` `parseSourceBranch()` (pure) | none; reads the `WIP on <branch>:` or `On <branch>:` prefix of the subject |
-| newest-first ordering | `git.stashes.ts` `sortStashesNewestFirst()` (pure) | none; orders by index descending |
-| `stash.create` (tracked only) | `git.stashes.ts` `createStash()` | `git stash push -m <message>` |
-| `stash.create` (include untracked) | `git.stashes.ts` `createStash()` with untracked | `git stash push -u -m <message>` |
-| `stash.apply` | `git.stashes.ts` `applyStash()` after `resolveStashRef()` | `git stash apply <current-index>` |
-| `stash.pop` | `git.stashes.ts` `popStash()` after `resolveStashRef()` | `git stash pop <current-index>` |
-| `stash.delete` | `git.stashes.ts` `dropStash()` after `resolveStashRef()` | `git stash drop <current-index>` |
-| `nav.activate` (show stash diff) | `git.stashes.ts` `showStash()` -> `parsers/parse.diff.ts`, rendered by F-11 | `git stash show -p --no-color <current-index>` |
-| `nav.activate` (selection) | internal command `stash.select` sets the `RepositoryProvider` selection to `{ kind: "stash", objectName }` | none; no git call |
+| newest-first ordering | `git.stashes.ts` `sortStashesNewestFirst()` (pure) | none; orders by ascending index because `stash@{0}` is newest |
+| `stash.create` (tracked only) | `planCreateStash()` -> `commands.stashes.ts` `executeStashCreate()` | `git stash push -m <message>` |
+| `stash.create` (include untracked) | `planCreateStash()` with untracked -> `executeStashCreate()` | `git stash push -u -m <message>` |
+| `stash.apply` | `planApplyStash()` after `resolveStashRef()` -> `executeStashApply()` | `git stash apply <current-index>` |
+| `stash.pop` | `planPopStash()` after `resolveStashRef()` -> `executeStashPop()` | `git stash pop <current-index>` |
+| `stash.delete` | `planDropStash()` after `resolveStashRef()` -> `executeStashDelete()` | `git stash drop <current-index>` |
+| `nav.activate` (show stash diff) | deferred to F-11; `git.stashes.ts` `buildShowStashArgs()` is ready | `git stash show -p --no-color <current-index>` |
+| `nav.activate` (selection) | sets the `RepositoryProvider` selection to `{ kind: "stash", objectName }` (the internal `stash.select` semantics) | none; no git call |
 
 Command and handler model (architecture section 8.1):
 
-- `useStashes.ts` registers `stash.create`, `stash.apply`, `stash.pop`, `stash.delete`, and `nav.activate` with `scope: "stashes"`. Exactly one handler exists per `(actionId, scope)`. The feature never registers `app.refresh`, `focus.*`, or `overlay.close`; those are owned by the app, shell, or overlay host.
-- Targets are explicit. `stash.apply`, `stash.pop`, and `stash.delete` use `{ kind: "stash", objectName }` for the selected row. `stash.create` uses `{ kind: "form", formId: "create-stash" }` while the modal is open and `{ kind: "none" }` for the initial open from the panel.
-- `nav.activate` dispatches the internal command `stash.select`. `stash.select` is a command ID only: it has no action ID, no default key, and it sets `RepositoryProvider.selection` so `AppShellHost` renders `StashDetails` and F-11 reads the stash diff.
+- `useStashCreateCommand.ts` registers `stash.create` and `useStashRowCommands.ts` registers `stash.apply`, `stash.pop`, and `stash.delete`, all with `scope: "stashes"`, composed by `useStashes.ts`. Exactly one handler exists per `(actionId, scope)`. `useListCursor` owns the region's `nav.*` handlers. The feature never registers `app.refresh`, `focus.*`, or `overlay.close`; those are owned by the app, shell, or overlay host.
+- Targets are explicit. `stash.apply`, `stash.pop`, and `stash.delete` use `{ kind: "stash", objectName }` for the selected row. `stash.create` always uses `{ kind: "none" }`; the initial modal open carries no target, and while the modal is open the draft travels in the form values as `message` and `includeUntracked` (the exact strings `"true"` or `"false"`).
+- `nav.activate` sets the internal `stash.select` semantics by writing `RepositoryProvider.selection` to `{ kind: "stash", objectName }`, so `AppShellHost` renders `StashDetails` and F-11 can read the stash diff. `stash.select` remains a command ID only: it has no action ID and no default key.
 
 Stash identity and action-time resolution: a row keeps the immutable object name from `%H`. Every apply, pop, drop, and stash-diff read resolves that object name against a fresh `git stash list` at action time. `git.stashes.ts` `resolveStashRef(objectName)` returns the current `stash@{n}` for the matching object name, or `{ status: "missing" }` when the stash no longer exists. The action aborts before any mutation when the object name is missing or when the current index at the resolved position holds a different object, and reports "stash changed externally; list refreshed" while refreshing the list. The app never reuses the index captured when the row was selected, so an external `git stash push` or `git stash drop` can never make Pop or Delete hit a different stash.
+
+Create Stash prefill: `stash.prefill.ts` `buildStashMessagePrefill()` reads only snapshot facts. An attached HEAD produces exactly `WIP on <branch>: <short hash> <subject>` from `branch`, `headOid`, and `headSubject`, and drops the subject when it was not read. A detached HEAD produces `WIP at <short hash> <subject>`; an unborn HEAD keeps the branch-based `WIP at` fallback; and `WIP` alone is returned before the first snapshot. The modal starts from that string, and the user can edit it before submission.
+
+Create Stash selection: after a successful `stash.create`, `useStashes` waits for the snapshot identity to change, resolves the created row with `stash.resolve.ts` `resolveCreatedStash()` (newest row matching the submitted message, with a newest-row fallback for a different git subject shape), moves the cursor to that row, and writes `RepositoryProvider.selection` to its immutable object name. An empty refreshed list leaves the selection untouched.
 
 Create Stash availability: `commands.availability.ts` delegates to the pure `getStashCreateAvailability(status, includeUntracked)` in `git.stashes.ts`. It returns "no commits yet" in an empty repository, "nothing to stash" when there are no staged, unstaged, or untracked changes, and "only untracked changes; include untracked files to stash" when the only changes are untracked and Include untracked files is off. The panel's `stash.create` handler still opens the modal, because the checkbox is the remedy; the modal's Create stash confirm is the target-aware `stash.create` invocation and is disabled with the live reason until the checkbox is on. The palette's Create stash entry shows the same reason for the config default when it would open the modal with the checkbox off. This prevents the case where `git stash push` exits successfully without creating a stash while keeping the checkbox reachable.
 
@@ -194,10 +197,10 @@ Notes: `app.refresh` is a global action owned by the app or shell; it is not reg
 - Disabled, the Create stash confirm and `stash.create` command with only untracked changes and Include untracked files off: unavailable with the reason "only untracked changes; include untracked files to stash", because `git stash push` otherwise exits successfully without creating a stash. The modal stays open and re-evaluates the reason when the checkbox changes.
 - Disabled, `stash.create` in an empty repository: unavailable with the reason "no commits yet" (F-16).
 - Disabled, `stash.apply`, `stash.pop`, `stash.delete`: unavailable with the reason "no stash selected" when the list is empty.
-- Stale target: when the selected object name no longer resolves to a current stash index, the action aborts without a git mutation and shows "stash changed externally; list refreshed". The list and `StashDetails` refresh; selection moves to the nearest surviving row or the Pending Changes row.
+- Stale target: when the selected object name no longer resolves to a current stash index, the action aborts without a git mutation and shows "stash changed externally; list refreshed". The list and `StashDetails` refresh; selection repair moves the right-pane selection to the nearest surviving row at the last known position, or to `{ kind: "pending" }` when no row survives.
 - Conflict, apply or pop: a persistent error overlay with the git output, the stash kept, and no silent discard. The console records the command and output.
 - Right-pane `StashDetails` loading: the summary renders from the selected snapshot; the stash diff loads in F-11 with its own loading and error states.
-- Right-pane `StashDetails` error: when the selected stash disappears, the pane shows "Stash no longer exists" and the parent selection falls back to the nearest row.
+- Right-pane `StashDetails` error: the pane can still render "Stash no longer exists" for a transient render, but `useStashes` repairs the selection to the nearest surviving row or Pending Changes after the snapshot changes, so the missing state is not the resting state.
 - Operation in progress: the panel is read-only and a second mutation is blocked with the reason from the runner.
 - Detached HEAD: stash creation stays available; the prefill uses the short hash in place of the branch name.
 
@@ -225,10 +228,10 @@ Notes: `app.refresh` is a global action owned by the app or shell; it is not reg
 
 | F-06 acceptance bullet | Implementing module or component |
 | --- | --- |
-| Stash creation uses the entered message and optional untracked behavior | `CreateStashModal.tsx` message field and checkbox; `git.stashes.ts` `createStash()` |
-| Pop with confirmation drops the stash only after a successful apply | Pop confirmation through `ConfirmModal`; `git.stashes.ts` `popStash()`; drop semantics in section 7 |
+| Stash creation uses the entered message and optional untracked behavior | `CreateStashModal.tsx` message field and checkbox; `git.stashes.ts` `planCreateStash()` and `commands.stashes.ts` `executeStashCreate()` |
+| Pop with confirmation drops the stash only after a successful apply | Pop confirmation through `ConfirmModal`; `git.stashes.ts` `planPopStash()` and `commands.stashes.ts` `executeStashPop()`; drop semantics in section 7 |
 | Apply, pop, and delete failures preserve the stash | Command result handling in `useStashes.ts`; git leaves the stash on a failed pop; error overlay keeps the row |
-| Stash action keys do not trigger Pull when the Stashes panel is focused | `src/domain/keymap/keymap.resolve.ts` context precedence; `useStashes.ts` registers `stash.pop` |
+| Stash action keys do not trigger Pull when the Stashes panel is focused | `src/domain/keymap/keymap.resolve.ts` context precedence; `useStashRowCommands.ts` registers `stash.pop` |
 | The list is newest first with index, message, source branch, and relative age | `git.stashes.ts` `sortStashesNewestFirst()` and `parseSourceBranch()`; `StashRow.tsx` |
 | Enter shows a read-only stash diff that replaces the composer area | `stash.select` command sets `RepositoryProvider.selection`; `StashDetails.tsx` renders the summary; F-11 `DiffPanel` read-only mode |
 | Selecting the Pending Changes row returns to the composer | `RepositoryProvider` selection; F-08 and F-09 |
@@ -243,15 +246,19 @@ Notes: `app.refresh` is a global action owned by the app or shell; it is not reg
 - `src/domain/git/git.stashes.test.ts`: `sortStashesNewestFirst` ordering; `parseSourceBranch` for both prefixes and for a missing prefix; `resolveStashRef` returning the current index for a matching object name, a moved index, a missing object name, and an index whose object name changed; argument construction for `stash push`, `stash push -u`, `stash apply`, `stash pop`, `stash drop`, and `stash show`; no spawning in unit tests.
 - `src/domain/git/git.stashes.test.ts`: `getStashCreateAvailability` returns "no commits yet", "nothing to stash", and "only untracked changes; include untracked files to stash" from the status snapshot, never from a spawn.
 - `src/features/stashes/StashRow.test.tsx`: index, source branch, relative age, selection marker, object-name identity across an index shift, and message truncation behavior.
-- `src/features/stashes/StashDetails.test.tsx`: renders only when `RepositoryProvider.selection.kind === "stash"`, shows the stash message, source branch, age, and read-only text, and never duplicates diff content.
-- `src/features/stashes/StashesPanel.test.tsx`: `stash.pop` overriding `remote.pull` while focused; `stash.create` disabled with "nothing to stash" and with the only-untracked reason; a failed pop keeps the row; an external stash change aborts with "stash changed externally; list refreshed"; exactly one handler per `(actionId, stashes)` with no `app.refresh` registration.
-- `src/features/stashes/CreateStashModal.test.tsx`: the message is required; the checkbox default follows `stash.includeUntrackedByDefault`; the prefill matches `WIP on <branch>: <short hash> <subject>`; the confirm button is disabled with the only-untracked reason until the checkbox is on.
+- `src/features/stashes/StashDetails.test.tsx`: renders only when `RepositoryProvider.selection.kind === "stash"`, shows the stash message, source branch, age, and read-only text, renders nothing for another selection, and explains a selected stash that no longer exists.
+- `src/features/stashes/useStashes.test.tsx`: registers exactly the stash actions plus cursor navigation and no global action; selects the immutable object name without a git call; keeps the cursor on the same object name when the display index shifts; targets the double-clicked row; repairs the selection to the nearest surviving stash or Pending Changes; publishes availability and clears it on unmount; passes the deterministic prefill and config default to the create modal; selects the created stash and moves the cursor to it after the refresh; and covers apply, pop, delete, availability, and focus refresh.
+- `src/app/providers/RepositoryProvider.test.tsx` (shared): a command-triggered refresh that joins an in-flight read performs exactly one follow-up read, starts no follow-up after unmount, and aborts a queued follow-up that has already started when the provider unmounts.
+- `src/features/stashes/StashesPanel.test.tsx`: `stash.pop` overriding `remote.pull` while focused; the empty and read-error states; the create modal opening when the default checkbox would block; a failed pop keeping the row; and an external stash change aborting with "stash changed externally; list refreshed" and never dropping another stash.
+- `src/features/stashes/CreateStashModal.test.tsx`: the message is required and the modal closes only after a valid submit; the checkbox starts from `stash.includeUntrackedByDefault`; the supplied prefill is rendered; and the confirm is blocked with the only-untracked, nothing-to-stash, and no-commits-yet reasons.
+- `src/features/stashes/stash.prefill.test.ts`: the exact attached-HEAD pattern with the HEAD subject, the short attached form without a subject, the detached `WIP at` forms, the unborn-HEAD fallback, and `WIP` before the first snapshot.
+- `src/features/stashes/stash.resolve.test.ts`: the newest message match, the newest-row fallback for another subject shape, and null for an empty list.
+- `src/features/stashes/stash.age.test.ts`: unknown age, the small units, the day-to-month switch, and no "0y ago" around the year boundary.
 - `src/features/stashes/DeleteStashModal.test.tsx`: the confirm label is "Drop stash", Cancel holds the default focus, and the target is the object name rather than a captured index.
 - `src/domain/keymap/keymap.resolve.test.ts` (shared): `p` resolves to `stash.pop` in the `stashes` context and to `remote.pull` elsewhere.
 
 ## 14. Open questions
 
 - Whether apply and pop should restore the staged state with `--index`. F-06 does not say; this doc uses the git default of not restoring the index and lists the choice as open.
-- Whether Delete should reuse the "Drop stash" label or use a distinct label such as "Delete stash". F-15 lists only "Drop stash".
 - Whether the source branch should fall back to `git log -g refs/stash --format=%gs` for stashes created by older git versions that lack the `WIP on` prefix.
 - Whether the stash diff should include untracked content when the stash was created with `-u`, which is stored in a third parent, or only the tracked diff from `git stash show -p`.

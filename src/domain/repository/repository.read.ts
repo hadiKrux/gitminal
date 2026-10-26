@@ -3,6 +3,7 @@ import { readRemotes } from "@/domain/git/git.remotes";
 import {
   readGitIdentity,
   readHeadProbe,
+  readHeadSubject,
   readOperationProbe,
   readRepositoryProbeDetail,
 } from "@/domain/git/git.repo";
@@ -13,7 +14,10 @@ import type {
   GitFailureKind,
   GitIdentity,
   RemoteInfo,
+  WorktreeRecord,
 } from "@/domain/git/git.types";
+import { NO_LIST_FAILURES, readSnapshotRefs } from "./repository.refs";
+import type { SnapshotRefsRead } from "./repository.refs.types";
 import { createRepositorySignals } from "./repository.states";
 import type {
   RepositoryReadOptions,
@@ -33,14 +37,19 @@ const UNKNOWN_IDENTITY: GitIdentity = Object.freeze({ name: null, email: null })
  *
  * Discovery runs first so a directory that is not a repository, a bare repository, or a missing git
  * executable is reported without attempting deeper reads. For a work tree, head, operation markers,
- * status, remotes, identity, the local upstream set, and upstream classification are read together;
- * status is the only required deeper read, because every count and ahead/behind value comes from it.
+ * status, remotes, and identity are read together; status and the remote list are the required deeper
+ * reads, because every count, every remote-tracking ref, and every remote action depends on them.
+ * Branches, remote-tracking branches, tags, stashes, and worktrees are read next in one parallel
+ * batch, and each of those settled independently: a failed list still produces a snapshot with an
+ * empty value for that list and a classified entry in `listFailures`, so a corrupt stash reflog never
+ * freezes the branch, status, or working-tree facts.
+ *
  * The function never throws for a git failure: it returns `ok: false` with a classified message and
  * the caller keeps its previous snapshot.
  *
  * @param client - Git client bound to the configured executable.
  * @param options - Working directory, signal, clock, and upstream evidence.
- * @returns The snapshot, signals, upstream status, and any classified error.
+ * @returns The snapshot, signals, optional list failures, upstream status, and any classified error.
  */
 export async function readRepositorySnapshot(
   client: GitClient,
@@ -77,15 +86,14 @@ async function readWorkTreeSnapshot(
   probe: { readonly root: string | null; readonly gitDir: string | null },
 ): Promise<RepositoryReadResult> {
   const repoOptions = { cwd: options.cwd, signal: options.signal };
-  const [head, operations, statusRead, remotesRead, identity, hasUpstreamBranches] =
-    await Promise.all([
-      readHeadProbe(client, repoOptions),
-      readOperationProbe(client, repoOptions),
-      readStatus(client, repoOptions),
-      readRemotes(client, repoOptions),
-      readGitIdentity(client, repoOptions),
-      readHasUpstreamBranches(client, repoOptions),
-    ]);
+  const [head, headSubject, operations, statusRead, remotesRead, identity] = await Promise.all([
+    readHeadProbe(client, repoOptions),
+    readHeadSubject(client, repoOptions),
+    readOperationProbe(client, repoOptions),
+    readStatus(client, repoOptions),
+    readRemotes(client, repoOptions),
+    readGitIdentity(client, repoOptions),
+  ]);
 
   if (!statusRead.ok || statusRead.snapshot === null) {
     return createFailureResult(options.cwd, statusRead.failure, probe.gitDir);
@@ -98,6 +106,8 @@ async function readWorkTreeSnapshot(
     return createFailureResult(options.cwd, remotesRead.failure, probe.gitDir);
   }
 
+  const refs = await readSnapshotRefs(client, options, remotesRead.remotes, probe.root);
+
   const status = statusRead.snapshot;
   const branch = head.branch ?? status.branch;
   const upstream = await readUpstreamStatus(client, {
@@ -105,24 +115,18 @@ async function readWorkTreeSnapshot(
     branch,
     evidence: options.evidence,
   });
-  const upstreamRef = upstream.upstream ?? status.upstream;
-  const snapshot: RepositorySnapshot = {
-    cwd: options.cwd,
-    root: probe.root,
-    gitDir: probe.gitDir,
-    branch,
-    headOid: status.headOid,
-    shortHash: head.shortHash,
-    detached: head.detached,
-    bare: false,
-    remotes: remotesRead.remotes,
-    upstream: upstreamRef,
-    ahead: status.ahead,
-    behind: status.behind,
+  const snapshot = buildSnapshot({
+    options,
+    probe,
     status,
+    head,
+    headSubject,
+    branch,
+    remotes: remotesRead.remotes,
+    refs,
+    upstream: upstream.upstream ?? status.upstream,
     identity,
-    readAt: options.now(),
-  };
+  });
   const signals = buildWorkTreeSignals({
     cwd: options.cwd,
     snapshot,
@@ -132,8 +136,11 @@ async function readWorkTreeSnapshot(
     remotes: remotesRead.remotes,
     identity,
     upstreamStatus: upstream.status,
-    upstreamRef,
-    hasUpstreamBranches,
+    upstreamRef: snapshot.upstream,
+    hasUpstreamBranches:
+      refs.branches.length > 0
+        ? refs.branches.some((record) => record.upstream !== null)
+        : await readHasUpstreamBranches(client, repoOptions),
     root: probe.root,
     gitDir: probe.gitDir,
   });
@@ -142,11 +149,66 @@ async function readWorkTreeSnapshot(
     ok: true,
     snapshot,
     signals,
+    listFailures: refs.listFailures,
     upstreamStatus: upstream.status,
     gitAvailable: true,
     error: null,
     failureKind: null,
   };
+}
+
+/**
+ * Builds the snapshot object for one successful working-tree read.
+ *
+ * @param input - Probe, head, status, remotes, ref lists, upstream ref, and identity.
+ * @returns The frozen snapshot.
+ */
+function buildSnapshot(input: {
+  readonly options: RepositoryReadOptions;
+  readonly probe: { readonly root: string | null; readonly gitDir: string | null };
+  readonly status: NonNullable<RepositorySnapshot["status"]>;
+  readonly head: Awaited<ReturnType<typeof readHeadProbe>>;
+  readonly headSubject: string | null;
+  readonly branch: string | null;
+  readonly remotes: readonly RemoteInfo[];
+  readonly refs: SnapshotRefsRead;
+  readonly upstream: string | null;
+  readonly identity: GitIdentity;
+}): RepositorySnapshot {
+  return {
+    cwd: input.options.cwd,
+    root: input.probe.root,
+    gitDir: input.probe.gitDir,
+    branch: input.branch,
+    headOid: input.status.headOid,
+    headSubject: input.headSubject,
+    shortHash: input.head.shortHash,
+    detached: input.head.detached,
+    bare: false,
+    remotes: input.remotes,
+    upstream: input.upstream,
+    ahead: input.status.ahead,
+    behind: input.status.behind,
+    status: input.status,
+    branches: input.refs.branches,
+    remoteBranches: input.refs.remoteBranches,
+    tags: input.refs.tags,
+    stashes: input.refs.stashes,
+    worktrees: input.refs.worktrees,
+    currentWorktreePath: readCurrentWorktreePath(input.refs.worktrees),
+    identity: input.identity,
+    readAt: input.options.now(),
+  };
+}
+
+/**
+ * Reads the absolute path of the worktree that contains this session's repository root.
+ *
+ * @param worktrees - Worktrees read in the same snapshot.
+ * @returns The current worktree path, or null when git reported none.
+ */
+function readCurrentWorktreePath(worktrees: readonly WorktreeRecord[]): string | null {
+  return worktrees.find((worktree) => worktree.current)?.path ?? null;
 }
 
 /**
@@ -239,6 +301,7 @@ function createNonWorkTreeResult(
       notARepository: !bare,
       identity: UNKNOWN_IDENTITY,
     }),
+    listFailures: NO_LIST_FAILURES,
     upstreamStatus: "none",
     gitAvailable: true,
     error: null,
@@ -280,6 +343,7 @@ function createFailureResult(
       notARepository: kind === "not-a-repository",
       identity: UNKNOWN_IDENTITY,
     }),
+    listFailures: NO_LIST_FAILURES,
     upstreamStatus: "none",
     gitAvailable: !missingGit,
     error: redactText(failure?.message ?? "repository read failed"),

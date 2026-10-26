@@ -134,23 +134,23 @@ Token-to-OpenTUI-prop mapping (the resolver supplies a final color per prop):
 | Token | OpenTUI target | Prop |
 | --- | --- | --- |
 | `background` | root `<box>` and `<text>` base | `backgroundColor` |
-| `panel` | `Panel`, `PanelHeader`, sidebar `<box>` | `backgroundColor` |
-| `surface` | raised rows, modals, inputs, native `<select>` backgrounds, `ProgressBar` track cells | `backgroundColor`; FrameBuffer fill color for the progress track |
+| `panel` | sidebar, diff, and console panel surfaces (no current consumer) | `backgroundColor` |
+| `surface` | selected sidebar `ListRow` fill, modals, inputs, native `<select>` backgrounds, `ProgressBar` track cells | `backgroundColor`; FrameBuffer fill color for the progress track |
 | `border` | inactive `<box>` borders, separators, and idle `Button` background | `borderColor`; `backgroundColor` on `Button` |
 | `focus` | focused `<box>` border | `focusedBorderColor` |
 | `text` | `<text>` and `<select>` option names | `fg` |
 | `muted` | secondary `<text>` and the selected `<select>` option description | `fg` |
 | `dim` | hints, disabled text, and `<select>` option descriptions | `fg` (with the dim attribute) |
-| `selection` | selected `<box>` row, selected `<select>` option, and focused `Button` | `backgroundColor` |
-| `accent` | ref badges and `ProgressBar` filled cells | `fg` on `Badge`; FrameBuffer fill color for the progress fill |
+| `selection` | native `<select>` option and focused `Button`; selected sidebar `<box>` rows use `surface` instead | `backgroundColor` |
+| `accent` | key hints, current and worktree markers, and `ProgressBar` filled cells | `fg`; FrameBuffer fill color for the progress fill |
 | `success` | `StatusBadge`, add counts | `fg` |
 | `warning` | `StatusBadge`, pending state | `fg` |
 | `error` | `StatusBadge`, destructive labels | `fg` |
 | `info` | `StatusBadge`, hunk headers | `fg` |
 | `scrollbar` | `<scrollbox>` thumb | scrollbar thumb color |
-| `tag` | tag `Badge` | `fg` |
-| `branchLocal` | local branch `Badge` | `fg` |
-| `branchRemote` | remote branch `Badge` | `fg` |
+| `tag` | tag labels (no current consumer) | `fg` |
+| `branchLocal` | local branch labels (no current consumer) | `fg` |
+| `branchRemote` | remote branch labels (no current consumer) | `fg` |
 | `diffAdd` | `<diff>` | `addedSignColor` |
 | `diffRemove` | `<diff>` | `removedSignColor` |
 | `diffAddBackground` | `<diff>` | `addedBg` |

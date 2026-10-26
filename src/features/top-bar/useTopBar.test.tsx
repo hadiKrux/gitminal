@@ -292,23 +292,28 @@ async function pressKey(
 }
 
 /**
- * Finds the first captured span whose text contains the given text.
+ * Finds the captured span for one button run.
+ *
+ * A disabled button renders its icon and its reason in the same run, so the span is matched by
+ * containment rather than equality. Several spans can contain the same short ASCII icon, so the
+ * expected background color selects the button run and a stray text run cannot satisfy the check.
  *
  * @param frame - Captured frame with colored spans.
  * @param text - Text the span must contain.
+ * @param expected - Expected background token value.
  * @returns The matching span.
  * @throws When no span matches.
  */
-function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
+function findSpanContaining(frame: CapturedFrame, text: string, expected: string): CapturedSpan {
   for (const line of frame.lines) {
     for (const span of line.spans) {
-      if (span.text.includes(text)) {
+      if (span.text.includes(text) && span.bg.equals(RGBA.fromHex(expected))) {
         return span;
       }
     }
   }
 
-  throw new Error(`No captured span contains ${text}`);
+  throw new Error(`No captured span contains ${text} with background ${expected}`);
 }
 
 /**
@@ -321,9 +326,8 @@ function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
 function expectButtonFocused(frame: CapturedFrame, text: string, focused: boolean): void {
   const tokens = THEME_FLAVORS[DEFAULT_THEME_NAME].tokens;
   const expected = focused ? tokens.selection : tokens.border;
-  const span = findSpanContaining(frame, text);
 
-  expect(span.bg.equals(RGBA.fromHex(expected))).toBe(true);
+  findSpanContaining(frame, text, expected);
 }
 
 beforeEach(() => {

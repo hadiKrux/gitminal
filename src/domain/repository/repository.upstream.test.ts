@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
+import type { BranchRecord, GitClient, GitInvocationResult } from "@/domain/git/git.types";
 import type { UpstreamEvidence } from "@/domain/repository/repository.types";
 import {
+  classifyBranchUpstreams,
   classifyUpstream,
+  clearConfirmedPresence,
   confirmRemoteBranch,
   EMPTY_UPSTREAM_EVIDENCE,
   formatUpstreamRef,
@@ -190,6 +192,16 @@ describe("classifyUpstream", () => {
       }),
     ).toBe("deleted-after-prune");
   });
+
+  it("reports healthy even while stale deletion evidence still exists", () => {
+    expect(
+      classifyUpstream({
+        configuredRef: "origin/main",
+        refExists: true,
+        evidence: evidence({ prunedRefs: ["origin/main"], appDeletedRefs: ["origin/main"] }),
+      }),
+    ).toBe("healthy");
+  });
 });
 
 describe("upstream evidence helpers", () => {
@@ -216,6 +228,39 @@ describe("upstream evidence helpers", () => {
     const unknown = withUnknownCheck(evidence(), "origin/main");
 
     expect(unknown.unknownRefs).toEqual(["origin/main"]);
+  });
+
+  it("clears prune and app-deletion evidence for a ref observed present again", () => {
+    const stale = evidence({
+      prunedRefs: ["origin/main", "origin/topic"],
+      appDeletedRefs: ["origin/gone"],
+    });
+
+    const cleared = clearConfirmedPresence(stale, ["origin/main"]);
+
+    expect(cleared.prunedRefs).toEqual(["origin/topic"]);
+    expect(cleared.appDeletedRefs).toEqual(["origin/gone"]);
+  });
+
+  it("clears both evidence sets for the same re-observed ref", () => {
+    const stale = evidence({
+      prunedRefs: ["origin/main"],
+      appDeletedRefs: ["origin/main"],
+    });
+
+    const cleared = clearConfirmedPresence(stale, ["origin/main"]);
+
+    expect(cleared.prunedRefs).toEqual([]);
+    expect(cleared.appDeletedRefs).toEqual([]);
+  });
+
+  it("returns the same evidence when nothing matches", () => {
+    const stale = evidence({ prunedRefs: ["origin/main"] });
+
+    expect(clearConfirmedPresence(stale, ["origin/topic"])).toBe(stale);
+    expect(clearConfirmedPresence(EMPTY_UPSTREAM_EVIDENCE, ["origin/main"])).toBe(
+      EMPTY_UPSTREAM_EVIDENCE,
+    );
   });
 });
 
@@ -365,5 +410,77 @@ describe("confirmRemoteBranch", () => {
     expect(await confirmRemoteBranch(timedOut, { cwd: "/repo", signal }, descriptor)).toBe(
       "unknown",
     );
+  });
+});
+
+/**
+ * Builds one local branch with a configured upstream.
+ *
+ * @param name - Branch name.
+ * @param upstream - Configured upstream ref, or null.
+ * @returns The branch record.
+ */
+function branchWithUpstream(name: string, upstream: string | null): BranchRecord {
+  const [remote, ...rest] = upstream === null ? [] : upstream.split("/");
+
+  return {
+    name,
+    head: false,
+    tipOid: "abc123",
+    committerDate: null,
+    upstream,
+    upstreamRemote: remote ?? null,
+    upstreamBranch: rest.length === 0 ? null : rest.join("/"),
+    ahead: 0,
+    behind: 0,
+    worktreePath: null,
+    upstreamStatus: upstream === null ? "none" : "unknown",
+  };
+}
+
+describe("classifyBranchUpstreams", () => {
+  it("maps every classification to its branch row status", () => {
+    const branches = [
+      branchWithUpstream("tracked", "origin/tracked"),
+      branchWithUpstream("gone", "origin/gone"),
+      branchWithUpstream("unknown", "origin/unknown"),
+      branchWithUpstream("pruned", "origin/pruned"),
+      branchWithUpstream("deleted", "origin/deleted"),
+    ];
+    const remoteBranches = [
+      {
+        ref: "refs/remotes/origin/tracked",
+        remote: "origin",
+        branch: "tracked",
+        tipOid: "abc123",
+        committerDate: null,
+        subject: "subject",
+      },
+    ];
+    let evidence: UpstreamEvidence = EMPTY_UPSTREAM_EVIDENCE;
+    evidence = withUnknownCheck(evidence, "origin/unknown");
+    evidence = withPruneConfirmation(evidence, "origin/pruned");
+    evidence = withAppDeletion(evidence, "origin/deleted");
+
+    const classified = classifyBranchUpstreams(branches, remoteBranches, evidence);
+
+    expect(classified.map((branch) => branch.upstreamStatus)).toEqual([
+      "tracked",
+      "notFound",
+      "unknown",
+      "deleted",
+      "deleted",
+    ]);
+    expect(classified[0]?.upstream).toBe("origin/tracked");
+  });
+
+  it("keeps a branch without an upstream as none", () => {
+    const classified = classifyBranchUpstreams(
+      [branchWithUpstream("feature", null)],
+      [],
+      EMPTY_UPSTREAM_EVIDENCE,
+    );
+
+    expect(classified[0]?.upstreamStatus).toBe("none");
   });
 });

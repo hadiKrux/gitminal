@@ -412,7 +412,7 @@ The Remotes panel lists remote-tracking branches, grouped or sorted by remote na
 
 - A filter field is available at the top, as shown in the [UI reference](../gitminal.png). Typing filters the list case-insensitively against the full remote branch name. `Esc` clears the filter before leaving the field.
 - A scrollbar appears when the filtered list overflows.
-- Rows show the remote branch, its last known commit summary and date where space permits, and a stale indicator if the remote-tracking ref has not been updated recently.
+- Rows are one line: the remote branch plus a text stale or unknown marker. The row truncates the branch name when the sidebar width cannot fit it and reserves room for the marker, so the marker is never the part dropped. There is no commit summary or date in the row.
 - Remote branches are not checked out directly. Selecting one offers creation of a local branch.
 
 Fetch scope and the Remotes panel:
@@ -1434,13 +1434,13 @@ Rules:
 | --- | --- | --- |
 | `background` | App background | base |
 | `panel` | Sidebar, diff, and console panels | mantle |
-| `surface` | Raised rows, modals, inputs | surface0 |
+| `surface` | Raised rows, modals, inputs, selected sidebar list rows | surface0 |
 | `border` | Inactive borders and separators | surface1 |
 | `focus` | Focused border and active accent | mauve |
 | `text` | Primary text | text |
 | `muted` | Secondary text and author names | subtext0 |
 | `dim` | Hints, context lines, disabled text | overlay1 |
-| `selection` | Selected row background | surface2 |
+| `selection` | Selected native select option and focused button background (sidebar list rows deliberately use `surface`) | surface2 |
 | `accent` | Primary buttons and ref badges | mauve |
 | `success` | Success status and added counts | green |
 | `warning` | Warnings and pending state | yellow |

@@ -1,4 +1,12 @@
-import type { GitClient } from "@/domain/git/git.types";
+import type {
+  BranchRecord,
+  GitClient,
+  RemoteBranchRecord,
+  StashRecord,
+  StatusSnapshot,
+  TagRowRecord,
+  WorktreeRecord,
+} from "@/domain/git/git.types";
 import type { ActionCategory } from "@/domain/keymap/keymap.types";
 import type {
   RepositoryGateReason,
@@ -176,6 +184,29 @@ export interface CommandRequest {
 /** Whether a mutation is currently running. */
 export type CommandOperation = "idle" | "running";
 
+/**
+ * Snapshot facts a target-aware availability check may read.
+ *
+ * The repository provider builds these from its own snapshot and remote tag knowledge, so a command
+ * is validated against the same data the panel renders. Every field is optional: an absent list means
+ * the caller has no panel projection, and a check that needs it stays permissive rather than
+ * blocking on missing evidence.
+ */
+export interface CommandPanelFacts {
+  /** Local branches with upstream classification and worktree attribution. */
+  readonly branches?: readonly BranchRecord[];
+  /** Remote-tracking branches, used to confirm a remote branch still exists. */
+  readonly remoteBranches?: readonly RemoteBranchRecord[];
+  /** Stash list in git order, keyed by object name for action targets. */
+  readonly stashes?: readonly StashRecord[];
+  /** Worktrees, including the current-worktree flag. */
+  readonly worktrees?: readonly WorktreeRecord[];
+  /** Merged local and remote tag rows, including remote scope knowledge. */
+  readonly tagRows?: readonly TagRowRecord[];
+  /** Canonical status snapshot, used by the stash creation check. */
+  readonly status?: StatusSnapshot | null;
+}
+
 /** Everything availability needs, passed as plain values from the providers. */
 export interface CommandContext {
   /** Detected repository state. */
@@ -188,6 +219,10 @@ export interface CommandContext {
   readonly region: CommandRegion;
   /** Whether another mutation is running. */
   readonly operation: CommandOperation;
+  /** Panel facts for target-aware checks, absent when no panel projection exists. */
+  readonly panel?: CommandPanelFacts;
+  /** Values collected by the owning form, when the check depends on them. */
+  readonly formValues?: CommandFormValues;
 }
 
 /** Machine-readable reason a command is unavailable. */
@@ -197,6 +232,17 @@ export type CommandAvailabilityReason =
   | "invalid-target"
   | "unknown-remote"
   | "cannot-delete-current-branch"
+  | "checked-out-in-worktree"
+  | "no-remote-branch"
+  | "nothing-to-stash"
+  | "only-untracked-changes"
+  | "no-stash-selected"
+  | "stash-changed-externally"
+  | "remote-tag-unknown"
+  | "tag-already-on-remote"
+  | "tag-already-exists"
+  | "current-worktree"
+  | "worktree-missing"
   | "resolve-conflicts-first"
   | "merge-state"
   | "command-not-found"

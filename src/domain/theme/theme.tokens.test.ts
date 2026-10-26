@@ -28,6 +28,14 @@ describe("theme token targets", () => {
     expect(props.get("graph")).toBe("fg and backgroundColor per lane");
   });
 
+  it("records the sidebar list-row surface exception on the selection target", () => {
+    const targets = new Map(THEME_TOKEN_TARGETS.map((target) => [target.token, target]));
+
+    expect(targets.get("selection")?.target).toContain("native select");
+    expect(targets.get("selection")?.target).toContain("surface");
+    expect(targets.get("surface")?.target).toContain("selected sidebar ListRow");
+  });
+
   it("freezes the shared target list and every target", () => {
     expect(Object.isFrozen(THEME_TOKEN_TARGETS)).toBe(true);
 

@@ -1,4 +1,10 @@
-import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
+import type {
+  BranchRecord,
+  BranchUpstreamStatus,
+  GitClient,
+  GitInvocationResult,
+  RemoteBranchRecord,
+} from "@/domain/git/git.types";
 import type {
   RemoteBranchCheck,
   UpstreamClassificationInput,
@@ -129,6 +135,78 @@ export function classifyUpstream(input: UpstreamClassificationInput): UpstreamSt
 }
 
 /**
+ * Classifies every local branch's configured upstream from one batched read.
+ *
+ * Existence comes from the remote-tracking refs read in the same snapshot rather than one
+ * `rev-parse` per branch, so a repository with hundreds of branches still costs one branch read and
+ * one remote-tracking read. Session evidence is applied through the same `classifyUpstream` rules the
+ * current branch uses, so a confirmed prune or app deletion marks every branch that tracked the ref.
+ *
+ * @param branches - Local branches as parsed, with a placeholder `upstreamStatus`.
+ * @param remoteBranches - Remote-tracking branches read in the same snapshot.
+ * @param evidence - Upstream deletion and failure evidence from this session.
+ * @returns New branch records with the real classification.
+ */
+export function classifyBranchUpstreams(
+  branches: readonly BranchRecord[],
+  remoteBranches: readonly RemoteBranchRecord[],
+  evidence: UpstreamEvidence,
+): readonly BranchRecord[] {
+  const existingRefs = new Set(
+    remoteBranches.map((record) => formatUpstreamRef(record.remote, record.branch)),
+  );
+
+  return branches.map((branch) => ({
+    ...branch,
+    upstreamStatus: classifyBranchUpstream(branch, existingRefs, evidence),
+  }));
+}
+
+/**
+ * Classifies one branch against the refs and evidence of the snapshot read.
+ *
+ * @param branch - Local branch record.
+ * @param existingRefs - Remote-tracking refs read in the same snapshot.
+ * @param evidence - Upstream deletion and failure evidence from this session.
+ * @returns The branch-level upstream status.
+ */
+function classifyBranchUpstream(
+  branch: BranchRecord,
+  existingRefs: ReadonlySet<string>,
+  evidence: UpstreamEvidence,
+): BranchUpstreamStatus {
+  const status = classifyUpstream({
+    configuredRef: branch.upstream,
+    refExists: branch.upstream !== null && existingRefs.has(branch.upstream),
+    evidence,
+  });
+
+  return toBranchUpstreamStatus(status);
+}
+
+/**
+ * Maps the repository-level upstream classification to the branch-row classification.
+ *
+ * @param status - Repository-level classification.
+ * @returns The branch-row status.
+ */
+function toBranchUpstreamStatus(status: UpstreamStatus): BranchUpstreamStatus {
+  switch (status) {
+    case "none":
+      return "none";
+    case "healthy":
+      return "tracked";
+    case "gone":
+      return "notFound";
+    case "deleted-after-prune":
+    case "deleted-after-app-deletion":
+      return "deleted";
+    case "unknown":
+      return "unknown";
+  }
+}
+
+/**
  * Adds a prune confirmation for one upstream ref.
  *
  * @param evidence - Existing evidence.
@@ -175,6 +253,40 @@ export function withUnknownCheck(evidence: UpstreamEvidence, ref: string): Upstr
   }
 
   return { ...evidence, unknownRefs: [...evidence.unknownRefs, ref] };
+}
+
+/**
+ * Drops deletion evidence for refs a successful read observed present again.
+ *
+ * Prune and app-deletion evidence describes one interval: the ref was confirmed absent, so the next
+ * successful read that sees it is proof the remote advertises it again. Keeping the old evidence
+ * would let a later external removal be classified as a confirmed deletion the app never witnessed.
+ * Failed checks are left alone, because a failed check does not prove presence either way.
+ *
+ * @param evidence - Existing evidence.
+ * @param presentRefs - Upstream refs the successful read observed as remote-tracking refs.
+ * @returns The evidence with re-observed refs removed from both deletion sets.
+ */
+export function clearConfirmedPresence(
+  evidence: UpstreamEvidence,
+  presentRefs: Iterable<string>,
+): UpstreamEvidence {
+  if (evidence.prunedRefs.length === 0 && evidence.appDeletedRefs.length === 0) {
+    return evidence;
+  }
+
+  const present = new Set(presentRefs);
+  const prunedRefs = evidence.prunedRefs.filter((ref) => !present.has(ref));
+  const appDeletedRefs = evidence.appDeletedRefs.filter((ref) => !present.has(ref));
+
+  if (
+    prunedRefs.length === evidence.prunedRefs.length &&
+    appDeletedRefs.length === evidence.appDeletedRefs.length
+  ) {
+    return evidence;
+  }
+
+  return { ...evidence, prunedRefs, appDeletedRefs };
 }
 
 /**

@@ -1,8 +1,10 @@
 import { createContext, type ReactNode, useMemo } from "react";
 import { useRepositoryAvailability } from "@/app/hooks/useRepositoryAvailability";
+import { useRepositoryBranchRisk } from "@/app/hooks/useRepositoryBranchRisk";
 import { useRepositoryEvidence } from "@/app/hooks/useRepositoryEvidence";
 import { useRepositoryInitialRead } from "@/app/hooks/useRepositoryInitialRead";
 import { useRepositoryRefreshCycle } from "@/app/hooks/useRepositoryRefresh";
+import { useRepositoryRemoteTags } from "@/app/hooks/useRepositoryRemoteTags";
 import { useRepositoryRuntime } from "@/app/hooks/useRepositoryRuntime";
 import { useRepositoryStore } from "@/app/hooks/useRepositoryStore";
 import { useRepositoryStoreWatcher } from "@/app/hooks/useRepositoryStoreWatcher";
@@ -51,6 +53,19 @@ export function RepositoryProvider(props: RepositoryProviderProps): ReactNode {
     evidenceRef,
   });
   const getAvailabilityFor = useRepositoryAvailability({ storeRef });
+  const remoteTags = useRepositoryRemoteTags({
+    client: runtime.gitClient,
+    cwd: runtime.cwd,
+    setStore,
+    storeRef,
+    mountedRef,
+    now: runtime.now,
+  });
+  const branchRisk = useRepositoryBranchRisk({
+    client: runtime.gitClient,
+    cwd: runtime.cwd,
+    storeRef,
+  });
 
   useRepositoryInitialRead({
     refresh: refreshCycle.refresh,
@@ -81,6 +96,8 @@ export function RepositoryProvider(props: RepositoryProviderProps): ReactNode {
       watch: store.watch,
       upstreamStatus: store.upstreamStatus,
       remoteChecks: store.remoteChecks,
+      remoteTagChecks: store.remoteTagChecks,
+      listFailures: store.listFailures,
       lastRefreshError: store.lastRefreshError,
       isRefreshing: store.refreshing,
       isStatusInFlight: store.statusInFlight,
@@ -92,12 +109,24 @@ export function RepositoryProvider(props: RepositoryProviderProps): ReactNode {
       registerGraphWindowRefresher: refreshCycle.registerGraphWindowRefresher,
       setSelection,
       recordRemoteCheck: evidence.recordRemoteCheck,
+      refreshRemoteTags: remoteTags.refreshRemoteTags,
+      readBranchRisk: branchRisk.readBranchRisk,
       confirmUpstreamAbsent: evidence.confirmUpstreamAbsent,
       markUpstreamUnknown: evidence.markUpstreamUnknown,
       recordUpstreamEvidence: evidence.recordUpstreamEvidence,
       getAvailability: getAvailabilityFor,
     }),
-    [state, store, runtime.gitClient, refreshCycle, setSelection, evidence, getAvailabilityFor],
+    [
+      state,
+      store,
+      runtime.gitClient,
+      refreshCycle,
+      setSelection,
+      evidence,
+      remoteTags,
+      branchRisk,
+      getAvailabilityFor,
+    ],
   );
 
   return <RepositoryContext.Provider value={value}>{props.children}</RepositoryContext.Provider>;

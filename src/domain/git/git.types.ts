@@ -479,3 +479,231 @@ export interface GitWatcher {
 
 /** Factory used to create a watcher, injectable for tests and future watch settings. */
 export type GitWatcherFactory = (options: GitWatcherOptions) => GitWatcher;
+
+/**
+ * Result of a pure argument planner.
+ *
+ * A planner validates every value that becomes an argv element, so an unsafe value is reported as a
+ * plan error instead of reaching the git client.
+ */
+export type GitArgPlan =
+  | { readonly ok: true; readonly args: readonly string[] }
+  | { readonly ok: false; readonly error: string };
+
+/** Upstream classification shown on one local branch row. */
+export type BranchUpstreamStatus = "none" | "tracked" | "notFound" | "unknown" | "deleted";
+
+/** One local branch read from `refs/heads`. */
+export interface BranchRecord {
+  /** Short branch name. */
+  readonly name: string;
+  /** True when the branch is checked out in this worktree. */
+  readonly head: boolean;
+  /** Commit the branch points at. */
+  readonly tipOid: string;
+  /** Committer date in strict ISO form, or null when git reports none. */
+  readonly committerDate: string | null;
+  /** Configured upstream ref such as `origin/main`, or null when none is configured. */
+  readonly upstream: string | null;
+  /** Remote half of the configured upstream, or null when none is configured. */
+  readonly upstreamRemote: string | null;
+  /** Branch half of the configured upstream, or null when none is configured. */
+  readonly upstreamBranch: string | null;
+  /** Commits ahead of the configured upstream. */
+  readonly ahead: number;
+  /** Commits behind the configured upstream. */
+  readonly behind: number;
+  /** Absolute path of the worktree that has the branch checked out, or null in this worktree. */
+  readonly worktreePath: string | null;
+  /** Upstream classification; the repository read replaces the parse placeholder. */
+  readonly upstreamStatus: BranchUpstreamStatus;
+}
+
+/** Result of one local branch read. */
+export interface LocalBranchReadResult {
+  /** True when git exited cleanly and the output parsed. */
+  readonly ok: boolean;
+  /** Parsed branches, empty when the read failed. */
+  readonly branches: readonly BranchRecord[];
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/** One remote-tracking branch read from `refs/remotes`. */
+export interface RemoteBranchRecord {
+  /** Full ref name such as `refs/remotes/origin/main`. */
+  readonly ref: string;
+  /** Remote name, exactly as configured, including any slash it contains. */
+  readonly remote: string;
+  /** Branch name inside that remote. */
+  readonly branch: string;
+  /** Commit the remote-tracking ref points at. */
+  readonly tipOid: string;
+  /** Committer date in strict ISO form, or null when git reports none. */
+  readonly committerDate: string | null;
+  /** Subject of the tip commit. */
+  readonly subject: string;
+}
+
+/** Result of one remote-tracking branch read. */
+export interface RemoteBranchReadResult {
+  /** True when git exited cleanly and the output parsed. */
+  readonly ok: boolean;
+  /** Parsed remote-tracking branches, empty when the read failed. */
+  readonly remoteBranches: readonly RemoteBranchRecord[];
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/** One local tag read from `refs/tags`. */
+export interface TagRecord {
+  /** Short tag name. */
+  readonly name: string;
+  /** Object type: `tag` for an annotated tag, `commit` for a lightweight tag. */
+  readonly objectType: "tag" | "commit";
+  /** Commit the tag ultimately points at. */
+  readonly targetOid: string;
+  /** Subject of the tagged commit, never the annotated tag message. */
+  readonly subject: string;
+}
+
+/** Result of one local tag read. */
+export interface LocalTagReadResult {
+  /** True when git exited cleanly and the output parsed. */
+  readonly ok: boolean;
+  /** Parsed local tags, empty when the read failed. */
+  readonly tags: readonly TagRecord[];
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/** Result of one advertised remote tag read. */
+export interface RemoteTagReadResult {
+  /** True when git exited cleanly. */
+  readonly ok: boolean;
+  /** Advertised tag names, empty when the read failed. */
+  readonly names: readonly string[];
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/** Local and remote presence of one logical tag row. */
+export type TagScopeState = "local" | "remote" | "unpushed" | "local-only" | "unknown" | "both";
+
+/** One logical tag row merged from local tags and remote tag knowledge. */
+export interface TagRowRecord extends TagRecord {
+  /** True when the tag exists locally. */
+  readonly local: boolean;
+  /** Configured remotes whose last known tag set contains the tag, sorted by name. */
+  readonly remotes: readonly string[];
+  /** Merged scope indicator consumed by the tags panel. */
+  readonly state: TagScopeState;
+}
+
+/** One stash read from `git stash list`. */
+export interface StashRecord {
+  /** Display index such as `stash@{0}`; it can change after an external stash operation. */
+  readonly index: string;
+  /** Immutable stash commit id, used as the row identity. */
+  readonly objectName: string;
+  /** Raw reflog subject. */
+  readonly subject: string;
+  /** Source branch parsed from the reflog subject, or null when git did not record one. */
+  readonly sourceBranch: string | null;
+  /** Commit timestamp in seconds since the epoch. */
+  readonly committedAt: number;
+}
+
+/** Result of one stash list read. */
+export interface StashReadResult {
+  /** True when git exited cleanly and the output parsed. */
+  readonly ok: boolean;
+  /** Parsed stashes, empty when the read failed. */
+  readonly stashes: readonly StashRecord[];
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/** One worktree read from `git worktree list --porcelain`. */
+export interface WorktreeRecord {
+  /** Absolute worktree path. */
+  readonly path: string;
+  /** HEAD commit id, or null when git reports none. */
+  readonly headOid: string | null;
+  /** Checked-out branch name, or null when detached or bare. */
+  readonly branch: string | null;
+  /** True when HEAD is detached in this worktree. */
+  readonly detached: boolean;
+  /** True for the bare main worktree. */
+  readonly bare: boolean;
+  /** True when the worktree is locked. */
+  readonly locked: boolean;
+  /** Reported lock reason, or null when locked without a reason. */
+  readonly lockReason: string | null;
+  /** True when the worktree is prunable. */
+  readonly prunable: boolean;
+  /** Reported prune reason, or null when prunable without a reason. */
+  readonly pruneReason: string | null;
+  /** True for the worktree that contains the repository root of this session. */
+  readonly current: boolean;
+  /** True when the worktree has uncommitted changes; false before the bounded read runs. */
+  readonly dirty: boolean;
+}
+
+/** Result of one worktree list read. */
+export interface WorktreeReadResult {
+  /** True when git exited cleanly and the output parsed. */
+  readonly ok: boolean;
+  /** Parsed worktrees, empty when the read failed. */
+  readonly worktrees: readonly WorktreeRecord[];
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/** Result of one dirty-state read for another worktree. */
+export interface WorktreeDirtyReadResult {
+  /** True when git exited cleanly. */
+  readonly ok: boolean;
+  /** True when the worktree has staged, unstaged, untracked, or conflicted entries. */
+  readonly dirty: boolean;
+  /** Classified failure, or null on success. */
+  readonly failure: GitFailure | null;
+}
+
+/**
+ * Result of resolving a stash action target against a fresh list.
+ *
+ * `found` carries the selector that currently holds the target. `missing` means the stash no longer
+ * exists. `changed` means the target is a display selector whose position now holds a different
+ * stash, so the action must abort instead of touching the new stash.
+ */
+export type StashRefResolution =
+  | { readonly status: "found"; readonly index: string }
+  | { readonly status: "missing" }
+  | { readonly status: "changed" };
+
+/** Branch mode of the worktree creation form. */
+export type WorktreeBranchMode = "new" | "existing";
+
+/** Number of force flags the worktree remove planner may emit. */
+export type WorktreeForceLevel = 0 | 1 | 2;
+
+/** Inputs to the pure worktree creation validation. */
+export interface NewWorktreeValidationInput {
+  /** Absolute or relative path the new worktree will occupy. */
+  readonly path: string;
+  /** Whether the worktree checks out a new or an existing branch. */
+  readonly mode: WorktreeBranchMode;
+  /** Branch name for the selected mode. */
+  readonly branch: string;
+}
+
+/** Snapshot facts the pure worktree creation validation compares against. */
+export interface NewWorktreeValidationFacts {
+  /** Known local branches, as names or branch records. */
+  readonly branches: readonly (string | { readonly name: string })[];
+  /** Known worktrees and the branches they have checked out. */
+  readonly worktrees: readonly WorktreeRecord[];
+  /** Whether the target path already exists, supplied by the bounded filesystem check. */
+  readonly pathExists: boolean;
+}

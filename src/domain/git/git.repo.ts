@@ -1,4 +1,5 @@
 import { classifyGitFailure } from "./git.errors";
+import { isTruncatedOutput } from "./git.remotes";
 import type {
   GitClient,
   GitIdentity,
@@ -152,6 +153,35 @@ export async function readHeadProbe(
 }
 
 /**
+ * Reads the subject of the HEAD commit.
+ *
+ * One bounded `git log -1 --format=%s` invocation supplies the subject the stash prefill needs. The
+ * subject is display data, so a failed, truncated, or empty read returns null instead of failing the
+ * snapshot.
+ *
+ * @param client - Git client bound to the configured executable.
+ * @param options - Working directory and cancellation signal.
+ * @returns The first subject line, or null when HEAD is unborn or the read did not complete.
+ */
+export async function readHeadSubject(
+  client: GitClient,
+  options: GitReadOptions,
+): Promise<string | null> {
+  const result = await client.invoke({
+    args: ["log", "-1", "--format=%s"],
+    cwd: options.cwd,
+    signal: options.signal,
+    operationClass: "read",
+  });
+
+  if (!result.ok || isTruncatedOutput(result)) {
+    return null;
+  }
+
+  return firstLine(result.stdout) || null;
+}
+
+/**
  * Reads the abbreviated HEAD commit id.
  *
  * @param client - Git client bound to the configured executable.
@@ -289,4 +319,22 @@ function readLines(stdout: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+/**
+ * Reads the first non-empty line of captured output.
+ *
+ * @param stdout - Captured standard output.
+ * @returns The trimmed first line, or an empty string when the output is blank.
+ */
+function firstLine(stdout: string): string {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  return "";
 }

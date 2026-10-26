@@ -45,8 +45,15 @@ export type RegionCursor = string;
 export interface SidebarPanel {
   /** Region the panel frame represents. */
   readonly regionId: SidebarRegionId;
-  /** Tab and header label. */
+  /** Border title, including the row count the panel renders. */
   readonly label: string;
+  /**
+   * Plain section name for the collapsed switcher tabs.
+   *
+   * The border title keeps the count, while the compact tab labels stay short enough for the
+   * switcher width and never repeat the count. Falls back to `label` when omitted.
+   */
+  readonly shortLabel?: string;
   /** Panel body. */
   readonly content: ReactNode;
 }

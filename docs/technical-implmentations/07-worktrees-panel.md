@@ -42,9 +42,9 @@ Hooks used:
 | Hook | Where used | Why |
 | --- | --- | --- |
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
-| `useAction` | `useWorktrees.ts` registers the region-scoped handlers `worktree.create`, `worktree.delete`, `nav.activate`, and `list.filter` with `scope: "worktrees"` | One handler per `(actionId, scope)`; global actions such as `app.refresh` and `focus.*` are owned by the app or shell and are never registered here |
+| `useAction` | `useWorktreeActions.ts` registers the region-scoped handlers `worktree.create`, `worktree.delete`, and `list.filter` with `scope: "worktrees"`; `useWorktrees.ts` composes that hook and owns rows, filter, and cursor state; `useListCursor` registers `nav.up`, `nav.down`, and `nav.activate` in the same scope | One handler per `(actionId, scope)`; global actions such as `app.refresh` and `focus.*` are owned by the app or shell and are never registered here |
 | `useListCursor` | `useWorktrees.ts` navigation and double click detection | Shared cursor and double click logic for custom rows |
-| `useFocusRegion` | `WorktreesPanel.tsx` refreshes the worktree list when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
+| `useFocusRegion` | `useWorktrees.ts` refreshes the worktree list when `focused` flips true | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
 | `useTerminalDimensions` | `WorktreeRow.tsx` computes the path truncation budget | Budget-aware truncation through `@/lib/text.ts` |
 | `useOverlay` | `WorktreesPanel.tsx` opens the New and Delete modals | Modal stack lives in `OverlayProvider` |
 | `useRepository`, `useStatus` | `useWorktrees.ts` reads the snapshot and publishes status | Provider state is never copied locally |
@@ -56,38 +56,34 @@ All icons and markers used by this feature come from `src/theme/icons.ts`; see a
 ## 4. Component tree
 
 ```text
-WorktreesPanel
-  Panel
-    PanelHeader (title "Worktrees", count)
-    SearchField (filter, focused by list.filter)
-    ScrollableList (scrollbox, viewportCulling, scrollbar when overflowing)
-      WorktreeRow (one per worktree)
-        ListRow (box)
-          TextMarker (selection marker ">"; current marker "*")
-          text (branch name, or detached short hash)
-            span (current marker)
-            span (locked marker)
-            span (prunable marker)
-            span (dirty marker)
-          text (shortened path, truncated)
-      LoadingRow (while the first read is in flight)
-      EmptyState (no worktrees, or no matches)
-      ErrorState (read failed, with Retry)
+WorktreesPanel (body only; SidebarPanelFrame owns the Panel, border title, and scrollbox)
+  SearchField (filter, focused by list.filter)
+  WorktreeRow (one per worktree)
+    ListRow (box)
+      TextMarker (selection marker ">"; current marker "*")
+      text (branch name, or detached short hash)
+        span (current marker)
+        span (locked marker)
+        span (prunable marker)
+        span (dirty marker)
+      text (shortened path, truncated)
+  LoadingRow (while the first read is in flight)
+  EmptyState (no worktrees, or no matches)
+  ErrorState (read failed, with Retry)
 ```
 
 The right pane is composed by `AppShellHost` from `RepositoryProvider.selection` (architecture section 9). A worktree selection renders `WorktreeDetails` instead of the composer or commit details:
 
 ```text
 WorktreeDetails (when selection.kind === "worktree")
-  Panel
-    PanelHeader (title "Worktree")
+  Panel (title "Worktree")
     text (branch name or detached short hash)
     text (full path and the shortened display path)
     text (HEAD short hash, current/locked/prunable/dirty state, and lock or prune reason)
     text ("Read-only. This panel never switches the active repository.")
 ```
 
-Modals are pushed onto `OverlayProvider` (F-15), not nested in the panel:
+The body has no title or count row: the shell border title carries `Worktrees (<count>)`. Modals are pushed onto `OverlayProvider` (F-15), not nested in the panel:
 
 ```text
 NewWorktreeModal
@@ -110,15 +106,17 @@ DeleteWorktreeModal
 
 ## 5. Enforced files and folders
 
-- `src/features/worktrees/WorktreesPanel.tsx` - panel composition, region registration, action wiring, filter, focus refresh, modal opening.
+- `src/features/worktrees/WorktreesPanel.tsx` - panel composition, region registration, and the overlay entries for the two modals. Focus refresh lives in `useWorktrees.ts`.
 - `src/features/worktrees/WorktreeRow.tsx` - one worktree row: branch or hash, markers, shortened path, selection marker.
 - `src/features/worktrees/WorktreeDetails.tsx` - right-pane read-only summary for the selected worktree, driven by `RepositoryProvider.selection.kind === "worktree"`.
 - `src/features/worktrees/NewWorktreeModal.tsx` - path prefill, branch mode, branch-name or existing-branch input, validation.
 - `src/features/worktrees/DeleteWorktreeModal.tsx` - clean confirmation and the dirty or locked force confirmation.
-- `src/features/worktrees/useWorktrees.ts` - reads the worktree snapshot, owns filter, cursor, and draft state, dispatches commands.
+- `src/features/worktrees/useWorktrees.ts` - reads the worktree snapshot, owns filter, cursor, selection repair, and draft state, dispatches commands.
+- `src/features/worktrees/useWorktreeActions.ts` - registers `worktree.create`, `worktree.delete`, and `list.filter` with `scope: "worktrees"`, refuses an unavailable create or delete before opening a modal, and focuses the filter, composed by `useWorktrees.ts`.
+- `src/features/worktrees/worktree.path.ts` - pure path derivation, parent lookup, and branch-to-directory sanitization extracted from the modal.
 - `src/domain/git/git.worktrees.ts` - worktree reads, the branch map, validation, and command builders for add and remove.
 - `src/domain/git/parsers/parse.worktrees.ts` - parses recorded `git worktree list --porcelain` output.
-- Tests colocated: `src/domain/git/parsers/parse.worktrees.test.ts`, `src/domain/git/git.worktrees.test.ts`, `src/features/worktrees/WorktreesPanel.test.tsx`, `src/features/worktrees/WorktreeRow.test.tsx`, `src/features/worktrees/WorktreeDetails.test.tsx`, `src/features/worktrees/NewWorktreeModal.test.tsx`, `src/features/worktrees/DeleteWorktreeModal.test.tsx`, plus the shared `src/domain/commands/commands.availability.test.ts` matrix.
+- Tests colocated: `src/domain/git/parsers/parse.worktrees.test.ts`, `src/domain/git/git.worktrees.test.ts`, `src/features/worktrees/WorktreesPanel.test.tsx`, `src/features/worktrees/WorktreeRow.test.tsx`, `src/features/worktrees/WorktreeDetails.test.tsx`, `src/features/worktrees/NewWorktreeModal.test.tsx`, `src/features/worktrees/DeleteWorktreeModal.test.tsx`, `src/features/worktrees/useWorktrees.test.tsx`, `src/features/worktrees/worktree.path.test.ts`, plus the shared `src/domain/commands/commands.availability.test.ts` matrix.
 
 ## 6. State model
 
@@ -156,29 +154,29 @@ key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(re
 
 | Action ID or refresh | Domain module | Git subcommand |
 | --- | --- | --- |
-| repository refresh (worktree list) | `git.worktrees.ts` `listWorktrees()` -> `parsers/parse.worktrees.ts` | `git worktree list --porcelain` |
+| repository refresh (worktree list) | `git.worktrees.ts` `readWorktrees()` -> `parsers/parse.worktrees.ts` | `git worktree list --porcelain` |
 | current worktree resolution | `git.worktrees.ts` `markCurrentWorktree()` (pure) | none; compares each path with the repository root |
 | branch map for F-03 | `git.worktrees.ts` `buildWorktreeBranchMap()` (pure) | none |
 | path shortening | `@/lib/paths.ts` `shortenPath()` (pure) | none; repository-relative or `~`-shortened home path |
 | dirty marker (cheap, cached) | `git.worktrees.ts` `readWorktreeDirty(path)` -> `parsers/parse.status.ts` | `git -C <path> status --porcelain=v2 --branch -z --untracked-files=all` |
-| `worktree.create` (new branch from HEAD) | `git.worktrees.ts` `addWorktreeWithNewBranch()` | `git worktree add -b <branch> <path> HEAD` |
-| `worktree.create` (existing branch) | `git.worktrees.ts` `addWorktreeWithExistingBranch()` | `git worktree add <path> <branch>` |
-| `worktree.delete` (clean) | `git.worktrees.ts` `removeWorktree()` | `git worktree remove <path>` |
-| `worktree.delete` (dirty, one force) | `git.worktrees.ts` `removeWorktree({ force: 1 })` | `git worktree remove --force <path>` |
-| `worktree.delete` (locked, two forces) | `git.worktrees.ts` `removeWorktree({ force: 2 })` | `git worktree remove -f -f <path>` |
-| create validation (branch name) | `git.worktrees.ts` `validateNewWorktree()` (pure) plus a format check | `git check-ref-format --branch <name>` |
-| create validation (branch exists) | `git.worktrees.ts` `validateNewWorktree()` (pure) | `git rev-parse --verify refs/heads/<branch>` |
-| `nav.activate` (details) | internal command `worktree.select` sets `RepositoryProvider.selection` to `{ kind: "worktree", path }` | none; no git call |
+| `worktree.create` (new branch from HEAD) | `planAddWorktreeNewBranch()` -> `commands.worktrees.ts` `executeWorktreeCreate()` | `git worktree add -b <branch> <path> HEAD` |
+| `worktree.create` (existing branch) | `planAddWorktreeExistingBranch()` -> `commands.worktrees.ts` `executeWorktreeCreate()` | `git worktree add <path> <branch>` |
+| `worktree.delete` (clean) | `planRemoveWorktree()` -> `commands.worktrees.ts` `executeWorktreeDelete()` | `git worktree remove <path>` |
+| `worktree.delete` (dirty, one force) | `planRemoveWorktree(path, { force: 1 })` -> `executeWorktreeDelete()` | `git worktree remove --force <path>` |
+| `worktree.delete` (locked, two forces) | `planRemoveWorktree(path, { force: 2 })` -> `executeWorktreeDelete()` | `git worktree remove -f -f <path>` |
+| create validation (branch name) | `NewWorktreeModal.tsx` `validateNewWorktree()` plus the shared `git.branches.ts` `isValidBranchName()` | none; both are pure and no git process runs while typing or submitting |
+| create validation (branch exists and is free) | `NewWorktreeModal.tsx` against the snapshot branch list and worktree branch map | none; a branch checked out elsewhere or a duplicate new name is refused from the snapshot, and git remains the final authority at execution |
+| `nav.activate` (details) | sets the `RepositoryProvider` selection to `{ kind: "worktree", path }` (the internal `worktree.select` semantics) | none; no git call |
 | `list.filter` | local view state in `useWorktrees.ts` | none |
 
 Command and handler model (architecture section 8.1):
 
-- `useWorktrees.ts` registers `worktree.create`, `worktree.delete`, `nav.activate`, and `list.filter` with `scope: "worktrees"`. Exactly one handler exists per `(actionId, scope)`. The feature never registers `app.refresh`, `focus.*`, or `overlay.close`; those are owned by the app, shell, or overlay host.
-- Targets are explicit. `worktree.delete` uses `{ kind: "worktree", path }`. `worktree.create` uses `{ kind: "form", formId: "new-worktree" }` while the modal is open and `{ kind: "none" }` for the initial open. The path is the worktree identity; the row's branch or hash is display-only.
-- `nav.activate` dispatches the internal command `worktree.select`. `worktree.select` is a command ID only: it has no action ID, no default key, and it sets `RepositoryProvider.selection` so `AppShellHost` renders `WorktreeDetails`.
+- `useWorktreeActions.ts` registers `worktree.create`, `worktree.delete`, and `list.filter` with `scope: "worktrees"`, composed by `useWorktrees.ts`. Exactly one handler exists per `(actionId, scope)`. `useListCursor` owns the region's `nav.*` handlers. The feature never registers `app.refresh`, `focus.*`, or `overlay.close`; those are owned by the app, shell, or overlay host.
+- Targets are explicit. `worktree.delete` uses `{ kind: "worktree", path }`. `worktree.create` always uses `{ kind: "none" }`; the path, the branch mode, and the branch name or selected existing branch travel in the form values (`path`, `mode`, `branch`). The path is the worktree identity; the row's branch or hash is display-only.
+- `nav.activate` writes the internal `worktree.select` semantics by setting `RepositoryProvider.selection` to `{ kind: "worktree", path }`, so `AppShellHost` renders `WorktreeDetails`. `worktree.select` remains a command ID only: it has no action ID and no default key.
 - Availability is target-aware through `@/domain/commands/commands.availability.ts`. `worktree.create` is unavailable in an empty repository with the reason "no commits yet", because there is no HEAD to branch from. `worktree.delete` is unavailable for the current worktree with the reason "current worktree" and for a missing target with "worktree no longer exists".
 
-Validation rules in `validateNewWorktree()`: the path must be non-empty and must not exist; the branch name must be a valid ref; the branch must not already be checked out in another worktree; the parent directory must be writable. The first three are pure against the snapshot; the writability and existence checks run through `git.client.ts` (the only spawn point) or a bounded filesystem check in the domain layer, never in a component.
+Validation rules in `NewWorktreeModal.tsx`: the path must be non-empty and must not be a snapshot-known path; the branch name must pass the shared domain `isValidBranchName()` git-ref rules; a new branch must not duplicate a local branch; and an existing branch must not already be checked out in another worktree. All of this is pure against the snapshot and none of it runs git. Two product checks are deliberately deferred and recorded in the M7 index: the parent directory's writability is not probed, and an arbitrary directory that exists on disk but is absent from the snapshot cannot be detected. Git rejects such a path at execution time instead of the form guessing, and no component touches the filesystem.
 
 Delete semantics: `git worktree remove` removes the worktree directory and its administrative entry only. The branch ref is left untouched, so deleting a worktree never deletes its branch (F-07, F-18). The app computes the exact flag set from the reported state: no flag for a clean worktree, one `--force` for a dirty worktree, and two force flags (`-f -f`) for a locked worktree. A locked worktree also requires the stronger confirmation even when it is clean, because git rejects removal with a single force and exits 128. A worktree that is both locked and dirty uses the two-force form, which covers both conditions. The flags are chosen in `git.worktrees.ts` from `locked` and `dirty`, never from a user-supplied raw argument.
 
@@ -196,7 +194,7 @@ Repository switching: this feature never runs `cd` or changes the repository roo
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`) |
 | `focus.region.worktrees` | Direct jump to this panel (default `5`), shell-owned |
 
-Notes: `app.refresh` is a global action owned by the app or shell; it is not registered by this feature. `nav.first` and `nav.last` are unbound in the Worktrees context per product spec section 6, so `g` and `G` are not claimed here. Double click does not change the active repository (F-07); it only performs the row primary action, which is showing details. Modals are overlays and own all keys while open, with `overlay.close` cancelling. Availability comes from `@/domain/commands/commands.availability.ts` so the footer, help, and palette agree.
+Notes: `app.refresh` is a global action owned by the app or shell; it is not registered by this feature. `nav.first` and `nav.last` are unbound in the Worktrees context per product spec section 6, so `g` and `G` are not claimed here. Double click does not change the active repository (F-07); it only performs the row primary action, which is showing details, using the clicked row index so a double click before a render cannot target the previous cursor row. Modals are overlays and own all keys while open, with `overlay.close` cancelling. New Worktree has an explicit keyboard control cycle: `nav.up` and `nav.down` move through the path field, branch mode, the new-branch field or existing-branch picker, Cancel, and Create; `nav.activate` focuses the selected field or select, so typing and a select's native Up/Down and Enter stay native. Delete Worktree has its own cycle over the force checkbox when it is shown, Cancel, and Delete, with Left and Right between Cancel and Delete. Availability comes from `@/domain/commands/commands.availability.ts`, and the panel publishes the selected target's availability so the footer agrees.
 
 ## 9. Loading, empty, error, and disabled states
 
@@ -207,8 +205,8 @@ Notes: `app.refresh` is a global action owned by the app or shell; it is not reg
 - Disabled, `worktree.delete` on the current worktree: unavailable with the reason "current worktree" (F-07).
 - Disabled, `worktree.create` in an empty repository: unavailable with the reason "no commits yet", because there is no HEAD to branch from.
 - Dirty or locked: the Delete confirmation requires the force checkbox before the confirm button becomes active, and the risk text names the state. Removing a dirty worktree uses one `--force`; removing a locked worktree uses `-f -f`.
-- Right-pane `WorktreeDetails` empty or missing: when the selected path disappears, the pane shows "Worktree no longer exists" and the selection falls back to the nearest row.
-- Right-pane `WorktreeDetails` loading: the summary renders from the selected snapshot; dirty state that is still being read shows "checking..." without blocking the rest of the details.
+- Right-pane `WorktreeDetails` empty or missing: production never rests on a missing selection, because `useWorktrees` repairs it to the nearest surviving path or `{ kind: "pending" }` when the selected path disappears. `WorktreeDetails` still renders "Worktree no longer exists" for a transient render before the repair lands.
+- Right-pane `WorktreeDetails` loading: the summary renders from the selected snapshot; the dirty state is part of that snapshot and needs no separate loading state.
 - Permission or filesystem error on delete: the git or filesystem error is shown, the row is kept, and no success is claimed (F-16).
 - Operation in progress: the panel is read-only and a second mutation is blocked with the reason from the runner.
 
@@ -216,7 +214,7 @@ Notes: `app.refresh` is a global action owned by the app or shell; it is not reg
 
 - Worktrees render inside a `<scrollbox>` with `viewportCulling`; a soft cap of 500 rendered rows applies, beyond which a notice row reports the truncation. Worktree counts are normally small.
 - The worktree list read is cheap and runs on region focus, manual refresh, and after every mutation. It is never re-read on every render.
-- Dirty-marker reads are opt-in and bounded. `git -C <path> status --porcelain=v2 --branch -z --untracked-files=all` runs per worktree with bounded concurrency and a last-checked timestamp, and is skipped for a missing or prunable path. The marker shows only when the read has completed, matching "when cheaply available" (F-07). The `-z` form keeps rename pairs and unusual paths unambiguous.
+- Dirty-marker reads are bounded and part of the repository read. `git -C <path> status --porcelain=v2 --branch -z --untracked-files=all` runs per worktree with a maximum of four probes in flight; the current worktree and prunable worktrees are skipped. A failed probe leaves that worktree's dirty flag false and never fails the snapshot, so an unreadable worktree is not claimed dirty. The marker shows only a completed true read, matching "when cheaply available" (F-07). The `-z` form keeps rename pairs and unusual paths unambiguous.
 - Row truncation uses `@/lib/text.ts` with a budget from `useTerminalDimensions`; the path drops before the branch name and the markers.
 - Create and delete are single writes serialized by `commands.runner.ts`; the panel does not optimistically mutate the list.
 
@@ -237,13 +235,13 @@ Notes: `app.refresh` is a global action owned by the app or shell; it is not reg
 | --- | --- |
 | The current worktree is marked and cannot be deleted | `git.worktrees.ts` `markCurrentWorktree()`; `WorktreeRow.tsx` current marker; `commands.availability.ts` "current worktree" reason |
 | Branches checked out in another worktree are marked in the Branches panel and cannot be deleted there | `git.worktrees.ts` `buildWorktreeBranchMap()` consumed by F-03 through `repository.selectors.ts` |
-| Creating a worktree with a new branch makes that branch appear in the Branches panel with the worktree marker | `git.worktrees.ts` `addWorktreeWithNewBranch()`; the refresh rebuilds the branch map for F-03 |
-| Worktree operations never silently remove a directory | `DeleteWorktreeModal.tsx` confirmation; `git.worktrees.ts` `removeWorktree()`; failure keeps the row |
+| Creating a worktree with a new branch makes that branch appear in the Branches panel with the worktree marker | `git.worktrees.ts` `planAddWorktreeNewBranch()` and `commands.worktrees.ts` `executeWorktreeCreate()`; the refresh rebuilds the branch map for F-03 |
+| Worktree operations never silently remove a directory | `DeleteWorktreeModal.tsx` confirmation; `git.worktrees.ts` `planRemoveWorktree()` and `commands.worktrees.ts` `executeWorktreeDelete()`; failure keeps the row |
 | A locked worktree requires two force flags and a dirty worktree requires one | `git.worktrees.ts` computes the flag set from `locked` and `dirty`; `DeleteWorktreeModal.tsx` requires the force acknowledgement |
 | Enter shows worktree details without switching repositories | internal command `worktree.select` sets `RepositoryProvider.selection`; `WorktreeDetails.tsx`; no repository switch |
 | Worktree creation is unavailable in an empty repository | `commands.availability.ts` returns "no commits yet"; `NewWorktreeModal.tsx` keeps the reason visible |
 | Each row shows branch or detached hash, shortened path, current, locked, prunable, and dirty markers | `parse.worktrees.ts`; `@/lib/paths.ts` `shortenPath()`; `WorktreeRow.tsx` |
-| Delete never deletes the branch | `git.worktrees.ts` `removeWorktree()`; the branch-kept text in `DeleteWorktreeModal.tsx` |
+| Delete never deletes the branch | `git.worktrees.ts` `planRemoveWorktree()`; the branch-kept text in `DeleteWorktreeModal.tsx` |
 | The app never switches repositories in v1 | `useWorktrees.ts`; `nav.activate` only sets a selection (D8) |
 
 ## 13. Tests to add
@@ -253,15 +251,14 @@ Notes: `app.refresh` is a global action owned by the app or shell; it is not reg
 - `src/domain/commands/commands.availability.test.ts` (shared): `worktree.create` returns "no commits yet" in an empty repository; `worktree.delete` returns "current worktree" for the current path and "worktree no longer exists" for a stale target.
 - `src/lib/paths.test.ts` (shared): path shortening for a repository-relative path, a home-relative path, and an absolute path on macOS, Linux, and Windows separators.
 - `src/features/worktrees/WorktreeRow.test.tsx`: branch versus detached short hash, current marker, locked, prunable, and dirty markers, and truncation behavior.
-- `src/features/worktrees/WorktreeDetails.test.tsx`: renders only when `RepositoryProvider.selection.kind === "worktree"`, shows path, branch or detached hash, lock and prune reasons, and the read-only text; never switches the repository.
-- `src/features/worktrees/WorktreesPanel.test.tsx`: `worktree.delete` disabled on the current worktree with the reason "current worktree"; the filter narrows the list; a failed delete keeps the row; exactly one handler per `(actionId, worktrees)` with no `app.refresh` registration.
-- `src/features/worktrees/NewWorktreeModal.test.tsx`: path prefill, the branch-mode switch, inline validation errors, an existing-branch picker that excludes branches checked out elsewhere, and the empty-repository reason.
+- `src/features/worktrees/WorktreeDetails.test.tsx`: renders only when `RepositoryProvider.selection.kind === "worktree"`, shows path, branch or detached hash, lock and prune reasons, and the read-only text, explains a missing selected path, and never switches the repository.
+- `src/features/worktrees/WorktreesPanel.test.tsx`: `worktree.delete` disabled on the current worktree with the reason "current worktree"; the filter narrows the list and the no-match state; the read error keeps Retry; the truncation notice appears; a failed delete keeps the row; and the panel registers the worktree actions plus cursor navigation without `app.refresh`.
+- `src/features/worktrees/useWorktrees.test.tsx`: the filter narrows the list, the selected worktree availability is published and cleared, the selection is repaired to the nearest surviving path or Pending Changes, and the region refresh runs on focus.
+- `src/features/worktrees/NewWorktreeModal.test.tsx`: path prefill, the branch-mode switch, inline validation errors, an existing-branch picker that excludes branches checked out elsewhere, the empty-repository reason, the explicit control cycle, and the derived path staying in sync until the user edits it.
 - `src/features/worktrees/DeleteWorktreeModal.test.tsx`: force is required for a dirty or locked worktree; the flag set is one `--force` for dirty and `-f -f` for locked; the branch-kept text is present; Cancel holds the default focus.
+- `src/features/worktrees/worktree.path.test.ts`: sibling-path derivation, the empty base path, branch sanitization for slashes and unsafe characters, and the fallback directory name.
 
 ## 14. Open questions
 
-- How to detect dirty cheaply. This doc reads `git -C <path> status --porcelain=v2 --branch -z --untracked-files=all` per worktree with bounded concurrency and caching; confirm that policy and whether the marker should be omitted when the read is slow or the path is on a different filesystem.
-- Whether the existing-branch picker lists only local branches not checked out elsewhere, or also remote branches. F-07 says an existing branch not already checked out elsewhere; this doc uses local branches only.
-- Whether to offer `git worktree prune` for prunable entries in v1. The spec lists prunable as a state to show but defers pruning.
-- The path prefill rule. This doc prefills a sibling directory named after the branch under the repository parent; confirm the base directory and the sanitization of branch names for filesystem paths.
+- How to detect dirty cheaply. This doc reads `git -C <path> status --porcelain=v2 --branch -z --untracked-files=all` per worktree with a maximum of four probes in flight, skipping the current and prunable worktrees, and leaves a failed probe at `dirty: false`; confirm that policy and whether the marker should instead be omitted when the read is slow or the path is on a different filesystem.
 - Whether the New Worktree modal should also offer a detached-HEAD start point. F-07 lists only new branch from HEAD and existing branch.

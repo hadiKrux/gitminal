@@ -1,21 +1,37 @@
 import { describe, expect, it } from "bun:test";
+import type {
+  BranchRecord,
+  RemoteBranchRecord,
+  StashRecord,
+  WorktreeRecord,
+} from "@/domain/git/git.types";
 import {
   REMOTE_STALE_AFTER_MS,
   selectAheadBehind,
   selectBranchDisplay,
+  selectBranchRows,
   selectPendingCounts,
+  selectRemoteBranchGroups,
   selectRemoteFreshness,
   selectRepositoryPath,
   selectRepositoryView,
+  selectStashRows,
   selectStateDisplay,
   selectSyncState,
+  selectTagRows,
   selectUpstreamDisplay,
+  selectWorktreeBranchMap,
+  selectWorktreeRows,
 } from "@/domain/repository/repository.selectors";
 import {
   createRepositorySignals,
   detectRepositoryState,
 } from "@/domain/repository/repository.states";
-import type { RemoteCheckRecord, RepositorySnapshot } from "@/domain/repository/repository.types";
+import type {
+  RemoteCheckRecord,
+  RemoteTagChecks,
+  RepositorySnapshot,
+} from "@/domain/repository/repository.types";
 
 /**
  * Builds a snapshot with the values the selectors read.
@@ -30,6 +46,7 @@ function snapshot(overrides: Partial<RepositorySnapshot> = {}): RepositorySnapsh
     gitDir: "/repo/.git",
     branch: "main",
     headOid: "abc123",
+    headSubject: null,
     shortHash: null,
     detached: false,
     bare: false,
@@ -50,6 +67,12 @@ function snapshot(overrides: Partial<RepositorySnapshot> = {}): RepositorySnapsh
       unstagedCount: 4,
       untrackedCount: 2,
     },
+    branches: [],
+    remoteBranches: [],
+    tags: [],
+    stashes: [],
+    worktrees: [],
+    currentWorktreePath: null,
     identity: { name: "Test User", email: "test@example.com" },
     readAt: 1,
     ...overrides,
@@ -190,5 +213,210 @@ describe("repository selectors", () => {
     expect(view.sync).toBe("diverged");
     expect(view.pending.total).toBe(6);
     expect(view.state.primary).toBe("normal");
+  });
+});
+
+/**
+ * Builds one local branch record.
+ *
+ * @param overrides - Branch values to override.
+ * @returns The branch record.
+ */
+function branch(overrides: Partial<BranchRecord> = {}): BranchRecord {
+  return {
+    name: "main",
+    head: false,
+    tipOid: "abc123",
+    committerDate: "2026-01-02T00:00:00+00:00",
+    upstream: null,
+    upstreamRemote: null,
+    upstreamBranch: null,
+    ahead: 0,
+    behind: 0,
+    worktreePath: null,
+    upstreamStatus: "none",
+    ...overrides,
+  };
+}
+
+/**
+ * Builds one remote-tracking branch record.
+ *
+ * @param remote - Remote name.
+ * @param name - Branch name inside that remote.
+ * @returns The remote branch record.
+ */
+function remoteBranch(remote: string, name: string): RemoteBranchRecord {
+  return {
+    ref: `refs/remotes/${remote}/${name}`,
+    remote,
+    branch: name,
+    tipOid: "abc123",
+    committerDate: "2026-01-02T00:00:00+00:00",
+    subject: "subject",
+  };
+}
+
+/**
+ * Builds one stash record.
+ *
+ * @param index - Display selector position.
+ * @returns The stash record.
+ */
+function stash(index: number): StashRecord {
+  return {
+    index: `stash@{${index}}`,
+    objectName: `object-${index}`,
+    subject: `WIP on main: ${index}`,
+    sourceBranch: "main",
+    committedAt: 1_700_000_000 + index,
+  };
+}
+
+/**
+ * Builds one worktree record.
+ *
+ * @param path - Absolute worktree path.
+ * @param overrides - Worktree values to override.
+ * @returns The worktree record.
+ */
+function worktree(path: string, overrides: Partial<WorktreeRecord> = {}): WorktreeRecord {
+  return {
+    path,
+    headOid: "abc123",
+    branch: "main",
+    detached: false,
+    bare: false,
+    locked: false,
+    lockReason: null,
+    prunable: false,
+    pruneReason: null,
+    current: false,
+    dirty: false,
+    ...overrides,
+  };
+}
+
+describe("panel selectors", () => {
+  it("orders branches current first, then newest commit, then name", () => {
+    const rows = selectBranchRows(
+      snapshot({
+        branches: [
+          branch({ name: "old", committerDate: "2026-01-01T00:00:00+00:00" }),
+          branch({ name: "new", committerDate: "2026-01-03T00:00:00+00:00" }),
+          branch({
+            name: "current",
+            head: true,
+            committerDate: "2025-12-01T00:00:00+00:00",
+          }),
+          branch({ name: "same-b", committerDate: "2026-01-02T00:00:00+00:00" }),
+          branch({ name: "same-a", committerDate: "2026-01-02T00:00:00+00:00" }),
+          branch({ name: "undated", committerDate: null }),
+        ],
+      }),
+    );
+
+    expect(rows.map((record) => record.name)).toEqual([
+      "current",
+      "new",
+      "same-a",
+      "same-b",
+      "old",
+      "undated",
+    ]);
+  });
+
+  it("keeps the branch order stable for the same snapshot", () => {
+    const base = snapshot({
+      branches: [
+        branch({ name: "b", committerDate: "2026-01-01T00:00:00+00:00" }),
+        branch({ name: "a", committerDate: "2026-01-01T00:00:00+00:00" }),
+      ],
+    });
+
+    expect(selectBranchRows(base).map((record) => record.name)).toEqual(
+      selectBranchRows(base).map((record) => record.name),
+    );
+    expect(selectBranchRows(base).map((record) => record.name)).toEqual(["a", "b"]);
+  });
+
+  it("groups remote branches by remote and then by branch", () => {
+    const groups = selectRemoteBranchGroups(
+      snapshot({
+        remoteBranches: [
+          remoteBranch("upstream", "main"),
+          remoteBranch("origin", "topic"),
+          remoteBranch("origin", "main"),
+        ],
+      }),
+    );
+
+    expect(groups.map((group) => group.remote)).toEqual(["origin", "upstream"]);
+    expect(groups[0]?.branches.map((record) => record.branch)).toEqual(["main", "topic"]);
+  });
+
+  it("merges tag scope and orders tags by version descending", () => {
+    const remoteTagChecks: RemoteTagChecks = {
+      origin: { names: ["v1.2.9", "remote-only"], checkedAt: 5, status: "known" },
+    };
+    const rows = selectTagRows(
+      snapshot({
+        tags: [
+          { name: "v1.2.10", objectType: "commit", targetOid: "a", subject: "a" },
+          { name: "v1.2.9", objectType: "commit", targetOid: "b", subject: "b" },
+          { name: "v1.2.2", objectType: "tag", targetOid: "c", subject: "c" },
+        ],
+      }),
+      remoteTagChecks,
+    );
+
+    expect(rows.map((row) => row.name)).toEqual(["v1.2.10", "v1.2.9", "v1.2.2", "remote-only"]);
+    expect(rows.map((row) => row.state)).toEqual(["unpushed", "both", "unpushed", "remote"]);
+  });
+
+  it("keeps a failed remote check unknown instead of unpushed", () => {
+    const rows = selectTagRows(
+      snapshot({
+        tags: [{ name: "v1", objectType: "commit", targetOid: "a", subject: "a" }],
+      }),
+      { origin: { names: [], checkedAt: null, status: "failed" } },
+    );
+
+    expect(rows[0]?.state).toBe("unknown");
+  });
+
+  it("orders stashes newest first and preserves the object name", () => {
+    const rows = selectStashRows(snapshot({ stashes: [stash(1), stash(3), stash(2)] }));
+
+    expect(rows.map((record) => record.index)).toEqual(["stash@{1}", "stash@{2}", "stash@{3}"]);
+    expect(rows[0]?.objectName).toBe("object-1");
+  });
+
+  it("orders worktrees current first and maps branches to worktrees", () => {
+    const current = worktree("/repo", { current: true });
+    const feature = worktree("/repo-feature", { branch: "feature" });
+    const detached = worktree("/repo-detached", { branch: null, detached: true });
+    const panelSnapshot = snapshot({ worktrees: [feature, detached, current] });
+
+    expect(selectWorktreeRows(panelSnapshot).map((record) => record.path)).toEqual([
+      "/repo",
+      "/repo-detached",
+      "/repo-feature",
+    ]);
+
+    const map = selectWorktreeBranchMap(panelSnapshot);
+
+    expect(map.get("feature")?.path).toBe("/repo-feature");
+    expect(map.get("main")?.path).toBe("/repo");
+    expect(map.size).toBe(2);
+  });
+
+  it("returns empty panel projections before the first read", () => {
+    expect(selectBranchRows(null)).toEqual([]);
+    expect(selectRemoteBranchGroups(null)).toEqual([]);
+    expect(selectTagRows(null, {})).toEqual([]);
+    expect(selectStashRows(null)).toEqual([]);
+    expect(selectWorktreeRows(null)).toEqual([]);
+    expect(selectWorktreeBranchMap(null).size).toBe(0);
   });
 });

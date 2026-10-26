@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import type { SelectRenderable } from "@opentui/core";
+import type { SelectRenderable, TabSelectRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { AppShellHost } from "@/app/AppShellHost";
@@ -11,6 +11,8 @@ import {
 } from "@/app/hooks/useAction";
 import type { ActionScope } from "@/app/hooks/useAction.types";
 import { useFocusState } from "@/app/hooks/useFocusState";
+import { registerInputEscapeClear, resetInputEscapeClear } from "@/app/hooks/useInputEscapeClear";
+import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { ConsoleProvider } from "@/app/providers/ConsoleProvider";
@@ -22,9 +24,11 @@ import { StatusProvider } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
 import { resetCommandRunner } from "@/domain/commands/commands.runner";
+import { buildListLocalTagsArgs, buildLsRemoteTagsArgs } from "@/domain/git/git.tags";
 import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
+import { REMOTES_FILTER_INPUT_ID } from "@/features/remotes/RemoteFilter.constants";
 import type { FocusContextValue } from "@/features/shell/focus.types";
-import { FOCUS_ACTION_BY_REGION } from "@/features/shell/regions";
+import { FOCUS_ACTION_BY_REGION, SIDEBAR_SWITCHER_ID } from "@/features/shell/regions";
 import { MORE_MENU_SELECT_ID } from "@/features/top-bar/MoreMenu.constants";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
 
@@ -53,6 +57,9 @@ let latestFocus: FocusContextValue | undefined;
 /** Latest status context captured by the probe. */
 let latestStatus: StatusContextValue | undefined;
 
+/** Latest repository context captured by the probe. */
+let latestRepository: ReturnType<typeof useRepository> | undefined;
+
 /**
  * Captures the active region below the shell.
  *
@@ -76,16 +83,66 @@ function StatusProbe(): ReactNode {
 }
 
 /**
+ * Captures the repository context below the shell.
+ *
+ * @returns Nothing.
+ */
+function RepositoryProbe(): ReactNode {
+  latestRepository = useRepository();
+
+  return null;
+}
+
+/**
+ * Builds a client that advertises one remote-only tag.
+ *
+ * @param fake - Fake git client to wrap.
+ * @param noLocalTags - Whether the local tag list is empty.
+ * @param remoteTag - Remote tag name to advertise.
+ * @returns The git client.
+ */
+function createRemoteTagClient(
+  fake: ReturnType<typeof createFakeGitClient>,
+  noLocalTags: boolean,
+  remoteTag: string = "v2.0.0",
+): GitClient {
+  const lsRemoteKey = buildLsRemoteTagsArgs("origin")?.join(" ") ?? "";
+  const localTagsKey = buildListLocalTagsArgs().join(" ");
+
+  return {
+    ...fake.client,
+    invoke: async (options) => {
+      const key = options.args.join(" ");
+
+      if (key === lsRemoteKey) {
+        return fakeGitResult(`abc123\trefs/tags/${remoteTag}\n`);
+      }
+
+      if (noLocalTags && key === localTagsKey) {
+        return fakeGitResult("");
+      }
+
+      return await fake.client.invoke(options);
+    },
+  };
+}
+
+/**
  * Renders the composition root with the required providers.
  *
  * @param client - Git client used by the repository provider.
+ * @param width - Terminal width, which also selects the responsive layout mode.
+ * @param height - Terminal height.
  * @returns The renderer setup.
  */
 async function renderHost(
   client: GitClient = INERT_CLIENT,
+  width: number = 120,
+  height: number = 40,
 ): Promise<Awaited<ReturnType<typeof testRender>>> {
   latestFocus = undefined;
   latestStatus = undefined;
+  latestRepository = undefined;
 
   return testRender(
     <ConfigProvider>
@@ -96,10 +153,11 @@ async function renderHost(
               <OverlayProvider>
                 <StatusProvider>
                   <ConsoleProvider>
-                    <box flexDirection="column" flexGrow={1} width={120} height={40}>
+                    <box flexDirection="column" flexGrow={1} width={width} height={height}>
                       <AppShellHost />
                       <FocusProbe />
                       <StatusProbe />
+                      <RepositoryProbe />
                     </box>
                   </ConsoleProvider>
                 </StatusProvider>
@@ -109,7 +167,7 @@ async function renderHost(
         </KeymapProvider>
       </ThemeProvider>
     </ConfigProvider>,
-    { width: 120, height: 40, exitOnCtrlC: false, kittyKeyboard: true },
+    { width, height, exitOnCtrlC: false, kittyKeyboard: true },
   );
 }
 
@@ -148,6 +206,7 @@ beforeEach(() => {
   resetActionRegistry();
   resetCommandRunner();
   resetCommandOrchestration();
+  resetInputEscapeClear();
 });
 
 afterEach(() => {
@@ -166,10 +225,75 @@ describe("AppShellHost", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("/repo");
-    expect(frame).toContain("Branches");
+    expect(frame).toContain("Branches (0)");
+    expect(frame).toContain("Remotes (0)");
+    expect(frame).toContain("Tags (0)");
+    expect(frame).toContain("Stashes (0)");
+    expect(frame).toContain("Worktrees (0)");
     expect(frame).toContain("Commit graph");
     expect(frame).toContain("Commit composer");
     expect(frame).toContain("Diffs");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps the collapsed switcher tabs free of the border-title count", async () => {
+    const setup = await renderHost(INERT_CLIENT, 85, 30);
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const switcher = setup.renderer.root.findDescendantById(SIDEBAR_SWITCHER_ID) as
+      | TabSelectRenderable
+      | undefined;
+
+    expect(switcher?.options.map((option) => option.name)).toEqual([
+      "Branches",
+      "Remotes",
+      "Tags",
+      "Stashes",
+      "Worktrees",
+    ]);
+    expect(setup.captureCharFrame()).toContain("Branches (0)");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("counts a local tag plus a remote-only tag in the Tags border title", async () => {
+    const fake = createFakeGitClient();
+    const setup = await renderHost(createRemoteTagClient(fake, false));
+
+    await waitForFrame(setup, "Tags (1)");
+
+    await act(async () => {
+      await latestRepository?.refreshRemoteTags();
+    });
+    await waitForFrame(setup, "Tags (2)");
+
+    expect(setup.captureCharFrame()).toContain("Tags (2)");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("counts a remote-only tag when the repository has no local tag", async () => {
+    const fake = createFakeGitClient();
+    const setup = await renderHost(createRemoteTagClient(fake, true, "v2.0.0"));
+
+    await waitForFrame(setup, "Tags (0)");
+
+    await act(async () => {
+      await latestRepository?.refreshRemoteTags();
+    });
+    await waitForFrame(setup, "Tags (1)");
+
+    expect(setup.captureCharFrame()).toContain("Tags (1)");
 
     await act(async () => {
       await setup.dispose();
@@ -198,6 +322,40 @@ describe("AppShellHost", () => {
       ["nav.left", "top-bar"],
       ["nav.right", "top-bar"],
       ["nav.activate", "top-bar"],
+      ["branch.create", "branches"],
+      ["branch.delete", "branches"],
+      ["nav.up", "branches"],
+      ["nav.down", "branches"],
+      ["nav.activate", "branches"],
+      ["nav.first", "branches"],
+      ["nav.last", "branches"],
+      ["remote.createLocal", "remotes"],
+      ["list.filter", "remotes"],
+      ["nav.up", "remotes"],
+      ["nav.down", "remotes"],
+      ["nav.activate", "remotes"],
+      ["nav.first", "remotes"],
+      ["nav.last", "remotes"],
+      ["tag.create", "tags"],
+      ["tag.delete", "tags"],
+      ["tag.push", "tags"],
+      ["list.filter", "tags"],
+      ["nav.up", "tags"],
+      ["nav.down", "tags"],
+      ["nav.activate", "tags"],
+      ["stash.create", "stashes"],
+      ["stash.apply", "stashes"],
+      ["stash.pop", "stashes"],
+      ["stash.delete", "stashes"],
+      ["nav.up", "stashes"],
+      ["nav.down", "stashes"],
+      ["nav.activate", "stashes"],
+      ["worktree.create", "worktrees"],
+      ["worktree.delete", "worktrees"],
+      ["list.filter", "worktrees"],
+      ["nav.up", "worktrees"],
+      ["nav.down", "worktrees"],
+      ["nav.activate", "worktrees"],
     ];
     const setup = await renderHost();
 
@@ -384,6 +542,56 @@ describe("AppShellHost", () => {
     expect(latestStatus?.status).toBeNull();
     expect(latestFocus?.state.activeRegion).toBe("graph");
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("region-graph");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("clears a focused filter on the first Esc and leaves the field on the next", async () => {
+    const setup = await renderHost();
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    let clears = 0;
+    let unregister = (): void => {};
+    unregister = registerInputEscapeClear(REMOTES_FILTER_INPUT_ID, () => {
+      clears += 1;
+      unregister();
+    });
+
+    await act(async () => {
+      latestFocus?.focusRenderable(REMOTES_FILTER_INPUT_ID);
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(REMOTES_FILTER_INPUT_ID);
+
+    await act(async () => {
+      setup.mockInput.pressEscape();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(clears).toBe(1);
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(REMOTES_FILTER_INPUT_ID);
+    expect(latestFocus?.state.activeRegion).toBe("remotes");
+
+    await act(async () => {
+      setup.mockInput.pressEscape();
+    });
+    await waitForCondition(
+      setup,
+      () => setup.renderer.currentFocusedRenderable?.id === "region-remotes",
+    );
+
+    expect(clears).toBe(1);
+    expect(latestFocus?.state.activeRegion).toBe("remotes");
 
     await act(async () => {
       await setup.dispose();
@@ -835,7 +1043,7 @@ describe("AppShellHost", () => {
     fake.setFetchResult(fakeGitResult("", false, "fatal: could not resolve host: example.com"));
     const setup = await renderHost(fake.client);
 
-    await waitForFrame(setup, "origin/main");
+    await waitForFrame(setup, "Branches (2)");
 
     await act(async () => {
       setup.mockInput.pressKey("f");
@@ -855,8 +1063,11 @@ describe("AppShellHost", () => {
       setup,
       () => setup.renderer.currentFocusedRenderable?.id === "region-console",
     );
+    await act(async () => {
+      await setup.renderOnce();
+    });
 
-    expect(setup.captureCharFrame()).toContain("entries");
+    expect(setup.captureCharFrame()).toContain("1 entry");
     expect(latestFocus?.state.activeRegion).toBe("console");
 
     await act(async () => {

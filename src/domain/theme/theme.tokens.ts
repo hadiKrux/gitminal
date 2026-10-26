@@ -52,15 +52,17 @@ export const THEME_TOKEN_TARGETS: readonly ThemeTokenTarget[] = [
   },
   {
     token: "panel",
-    target: "Panel, PanelHeader, sidebar box",
+    target: "sidebar, diff, and console panel surfaces (no current consumer)",
     prop: "backgroundColor",
     purpose: "Sidebar, diff, and console panels",
   },
   {
     token: "surface",
-    target: "raised rows, modals, inputs, native modal selects, ProgressBar track",
+    target:
+      "raised rows, selected sidebar ListRow, modals, inputs, native modal selects, ProgressBar track",
     prop: "backgroundColor",
-    purpose: "Raised rows, modals, inputs, and native select backgrounds",
+    purpose:
+      "Raised rows, selected sidebar list rows, modals, inputs, and native select backgrounds",
   },
   {
     token: "border",
@@ -94,15 +96,15 @@ export const THEME_TOKEN_TARGETS: readonly ThemeTokenTarget[] = [
   },
   {
     token: "selection",
-    target: "selected box row, selected native select option, and focused Button",
+    target: "selected native select option and focused Button (sidebar ListRow uses surface)",
     prop: "backgroundColor",
-    purpose: "Selected row, selected option, and focused button background",
+    purpose: "Selected option and focused button background; sidebar rows use surface",
   },
   {
     token: "accent",
-    target: "ref badges and ProgressBar fill",
+    target: "key hints, current and worktree markers, and ProgressBar fill",
     prop: "fg and FrameBuffer fill color",
-    purpose: "Ref badges and progress fill",
+    purpose: "Key hints, current markers, and progress fill",
   },
   {
     token: "success",
@@ -136,19 +138,19 @@ export const THEME_TOKEN_TARGETS: readonly ThemeTokenTarget[] = [
   },
   {
     token: "tag",
-    target: "tag Badge",
+    target: "tag labels (no current consumer)",
     prop: "fg",
     purpose: "Tag badges",
   },
   {
     token: "branchLocal",
-    target: "local branch Badge",
+    target: "local branch labels (no current consumer)",
     prop: "fg",
     purpose: "Local branch badges",
   },
   {
     token: "branchRemote",
-    target: "remote branch Badge",
+    target: "remote branch labels (no current consumer)",
     prop: "fg",
     purpose: "Remote branch badges",
   },

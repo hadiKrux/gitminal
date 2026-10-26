@@ -1,13 +1,17 @@
 import type { ReactNode } from "react";
 import type {
   CommandAvailability,
+  CommandFormValues,
   CommandRegion,
   CommandTarget,
 } from "@/domain/commands/commands.types";
 import type { GitClient, GitWatcherFactory, GitWatchStatus } from "@/domain/git/git.types";
 import type {
+  BranchRiskRead,
   RemoteCheckKind,
   RemoteCheckRecord,
+  RemoteTagChecks,
+  RepositoryListFailures,
   RepositorySelection,
   RepositorySignals,
   RepositorySnapshot,
@@ -25,6 +29,18 @@ export interface RepositoryRefreshResult {
   readonly error: string | null;
   /** Repository generation after the request settled. */
   readonly generation: number;
+}
+
+/** Options accepted by the repository refresh entry points. */
+export interface RepositoryRefreshOptions {
+  /**
+   * Queues exactly one follow-up read when this request joins an in-flight read.
+   *
+   * A command-triggered refresh sets this so its result can never describe the repository state
+   * from before the command. Focus, watcher, and manual refreshes leave it unset and keep joining
+   * the in-flight read without an extra read.
+   */
+  readonly followUp?: boolean;
 }
 
 /** Value exposed by `RepositoryProvider` and read through `useRepository`. */
@@ -45,6 +61,10 @@ export interface RepositoryContextValue {
   readonly upstreamStatus: UpstreamStatus;
   /** Per-remote last successful check and fetch timestamps. */
   readonly remoteChecks: Readonly<Record<string, RemoteCheckRecord>>;
+  /** Last known tag names per configured remote, with the status of the latest read. */
+  readonly remoteTagChecks: RemoteTagChecks;
+  /** Classified failure per optional ref list, empty when the last read succeeded for every list. */
+  readonly listFailures: RepositoryListFailures;
   /** Non-blocking message from the last failed refresh, or null. */
   readonly lastRefreshError: string | null;
   /** True while a full refresh is in flight. */
@@ -58,15 +78,17 @@ export interface RepositoryContextValue {
   /**
    * Reads status, then the graph window.
    *
+   * @param options - Optional follow-up rule for a command-triggered refresh.
    * @returns The refresh result.
    */
-  refresh(): Promise<RepositoryRefreshResult>;
+  refresh(options?: RepositoryRefreshOptions): Promise<RepositoryRefreshResult>;
   /**
    * Reads status, refs, remotes, identity, and upstreams without reading history.
    *
+   * @param options - Optional follow-up rule for a command-triggered refresh.
    * @returns The refresh result.
    */
-  refreshStatus(): Promise<RepositoryRefreshResult>;
+  refreshStatus(options?: RepositoryRefreshOptions): Promise<RepositoryRefreshResult>;
   /**
    * Bumps the graph generation and awaits the registered window reloader.
    *
@@ -96,6 +118,28 @@ export interface RepositoryContextValue {
    * @param succeeded - False records a failed attempt without moving the timestamp.
    */
   recordRemoteCheck(remote: string, kind: RemoteCheckKind, succeeded: boolean): void;
+  /**
+   * Re-reads every configured remote's advertised tags with `git ls-remote --tags`.
+   *
+   * A successful read replaces that remote's names and records the check time; a failed read keeps
+   * the previous names and marks the attempt failed. The snapshot is never refreshed, so a tags panel
+   * can call this on region focus without re-reading the repository. Calls are coalesced while one
+   * refresh is in flight.
+   *
+   * @returns A promise that settles after every configured remote has been attempted.
+   */
+  refreshRemoteTags(): Promise<void>;
+  /**
+   * Reads the capped commits a branch holds that its deletion base does not.
+   *
+   * The base is the branch's configured upstream, or HEAD when it has none, so the list matches what
+   * `git branch -d` would refuse. The read is bounded and never throws: a failure returns an empty
+   * list plus a message the panel can show beside the acknowledgement.
+   *
+   * @param name - Branch whose at-risk commits are read.
+   * @returns The capped commit list plus any classified error.
+   */
+  readBranchRisk(name: string): Promise<BranchRiskRead>;
   /**
    * Records a confirmed absent upstream and re-reads the repository once.
    *
@@ -138,12 +182,14 @@ export interface RepositoryContextValue {
    * @param commandId - Command id.
    * @param target - Explicit target captured at dispatch time.
    * @param region - Focus context that dispatched the command.
+   * @param formValues - Values collected by the owning form, when the check depends on them.
    * @returns Availability with a machine-readable reason when unavailable.
    */
   getAvailability(
     commandId: string,
     target: CommandTarget,
     region: CommandRegion,
+    formValues?: CommandFormValues,
   ): CommandAvailability;
 }
 
@@ -183,6 +229,10 @@ export interface RepositoryStore {
   readonly watch: GitWatchStatus;
   /** Per-remote last successful interactions. */
   readonly remoteChecks: Readonly<Record<string, RemoteCheckRecord>>;
+  /** Last known tag names per configured remote, with the status of the latest read. */
+  readonly remoteTagChecks: RemoteTagChecks;
+  /** Classified failure per optional ref list from the last applied read. */
+  readonly listFailures: RepositoryListFailures;
   /** Non-blocking message from the last failed refresh. */
   readonly lastRefreshError: string | null;
   /** Upstream classification read with the snapshot. */

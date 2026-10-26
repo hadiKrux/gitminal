@@ -1,6 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { getAvailability } from "@/domain/commands/commands.availability";
-import type { CommandContext, CommandTarget } from "@/domain/commands/commands.types";
+import type {
+  CommandContext,
+  CommandPanelFacts,
+  CommandTarget,
+} from "@/domain/commands/commands.types";
+import type {
+  BranchRecord,
+  StashRecord,
+  TagRowRecord,
+  WorktreeRecord,
+} from "@/domain/git/git.types";
 import {
   createRepositorySignals,
   detectRepositoryState,
@@ -51,6 +61,108 @@ function createContext(overrides: Partial<CommandContext> = {}): CommandContext 
     target: overrides.target ?? NO_TARGET,
     region: overrides.region ?? "graph",
     operation: overrides.operation ?? "idle",
+    panel: overrides.panel,
+    formValues: overrides.formValues,
+  };
+}
+
+/**
+ * Builds one panel facts value.
+ *
+ * @param overrides - Facts to override.
+ * @returns The panel facts.
+ */
+function createPanel(overrides: Partial<CommandPanelFacts> = {}): CommandPanelFacts {
+  return {
+    branches: [],
+    remoteBranches: [],
+    stashes: [],
+    worktrees: [],
+    tagRows: [],
+    status: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Builds one local branch record.
+ *
+ * @param name - Branch name.
+ * @param worktreePath - Path of the worktree that has it checked out, or null.
+ * @returns The branch record.
+ */
+function branch(name: string, worktreePath: string | null = null): BranchRecord {
+  return {
+    name,
+    head: false,
+    tipOid: "abc123",
+    committerDate: null,
+    upstream: null,
+    upstreamRemote: null,
+    upstreamBranch: null,
+    ahead: 0,
+    behind: 0,
+    worktreePath,
+    upstreamStatus: "none",
+  };
+}
+
+/**
+ * Builds one stash record.
+ *
+ * @param objectName - Immutable stash object name.
+ * @returns The stash record.
+ */
+function stash(objectName: string): StashRecord {
+  return {
+    index: "stash@{0}",
+    objectName,
+    subject: "WIP on main: abc123 work",
+    sourceBranch: "main",
+    committedAt: 1_700_000_000,
+  };
+}
+
+/**
+ * Builds one tag row.
+ *
+ * @param name - Tag name.
+ * @param overrides - Row values to override.
+ * @returns The tag row.
+ */
+function tagRow(name: string, overrides: Partial<TagRowRecord> = {}): TagRowRecord {
+  return {
+    name,
+    objectType: "commit",
+    targetOid: "abc123",
+    subject: "subject",
+    local: true,
+    remotes: [],
+    state: "unpushed",
+    ...overrides,
+  };
+}
+
+/**
+ * Builds one worktree record.
+ *
+ * @param path - Absolute worktree path.
+ * @param current - Whether it is the current worktree.
+ * @returns The worktree record.
+ */
+function worktree(path: string, current: boolean): WorktreeRecord {
+  return {
+    path,
+    headOid: "abc123",
+    branch: "feature",
+    detached: false,
+    bare: false,
+    locked: false,
+    lockReason: null,
+    prunable: false,
+    pruneReason: null,
+    current,
+    dirty: false,
   };
 }
 
@@ -285,4 +397,322 @@ describe("getAvailability", () => {
       reason: "command-not-found",
     });
   });
+
+  it("blocks deleting a branch checked out in another worktree", () => {
+    const panel = createPanel({ branches: [branch("feature", "/repo-feature")] });
+
+    expect(
+      getAvailability(
+        "branch.delete",
+        createContext({ panel, target: { kind: "branch", name: "feature" } }),
+      ),
+    ).toEqual({ available: false, reason: "checked-out-in-worktree" });
+
+    expect(
+      getAvailability(
+        "branch.delete",
+        createContext({
+          panel: createPanel({ branches: [branch("feature")] }),
+          target: { kind: "branch", name: "feature" },
+        }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("blocks creating a local branch from a remote branch the snapshot does not hold", () => {
+    const target: CommandTarget = { kind: "remoteBranch", remote: "origin", branch: "topic" };
+
+    expect(
+      getAvailability("remote.createLocal", createContext({ panel: createPanel(), target })),
+    ).toEqual({ available: false, reason: "no-remote-branch" });
+
+    expect(
+      getAvailability(
+        "remote.createLocal",
+        createContext({
+          panel: createPanel({
+            remoteBranches: [
+              {
+                ref: "refs/remotes/origin/topic",
+                remote: "origin",
+                branch: "topic",
+                tipOid: "abc123",
+                committerDate: null,
+                subject: "topic",
+              },
+            ],
+          }),
+          target,
+        }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("guards tag push with the last known remote tag set", () => {
+    const target: CommandTarget = { kind: "tag", name: "v1" };
+
+    expect(
+      getAvailability(
+        "tag.push",
+        createContext({
+          panel: createPanel({ tagRows: [tagRow("v1", { state: "both" })] }),
+          target,
+        }),
+      ),
+    ).toEqual({ available: false, reason: "tag-already-on-remote" });
+
+    expect(
+      getAvailability(
+        "tag.push",
+        createContext({
+          panel: createPanel({ tagRows: [tagRow("v1", { state: "unknown" })] }),
+          target,
+        }),
+      ),
+    ).toEqual({ available: false, reason: "remote-tag-unknown" });
+
+    expect(
+      getAvailability(
+        "tag.push",
+        createContext({
+          panel: createPanel({
+            tagRows: [tagRow("v1", { local: false, remotes: ["origin"], state: "remote" })],
+          }),
+          target,
+        }),
+      ),
+    ).toEqual({ available: false, reason: "invalid-target" });
+
+    expect(
+      getAvailability(
+        "tag.push",
+        createContext({
+          panel: createPanel({ tagRows: [tagRow("v1", { state: "unpushed" })] }),
+          target,
+        }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("blocks pushing a tag when no remote is configured", () => {
+    const signals = createSignals({ remotes: [] });
+
+    expect(
+      getAvailability(
+        "tag.push",
+        createContext({
+          signals,
+          panel: createPanel({ tagRows: [tagRow("v1", { state: "local-only" })] }),
+          target: { kind: "tag", name: "v1" },
+        }),
+      ),
+    ).toEqual({ available: false, reason: "no-remote" });
+  });
+
+  it("requires the deleted tag to still exist", () => {
+    expect(
+      getAvailability(
+        "tag.delete",
+        createContext({ panel: createPanel(), target: { kind: "tag", name: "v1" } }),
+      ),
+    ).toEqual({ available: false, reason: "invalid-target" });
+
+    expect(
+      getAvailability(
+        "tag.delete",
+        createContext({
+          panel: createPanel({ tagRows: [tagRow("v1")] }),
+          target: { kind: "tag", name: "v1" },
+        }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("refuses a stash action without a selected or still-existing stash", () => {
+    const target: CommandTarget = { kind: "stash", objectName: "object-1" };
+
+    expect(getAvailability("stash.apply", createContext({ panel: createPanel(), target }))).toEqual(
+      { available: false, reason: "no-stash-selected" },
+    );
+
+    expect(
+      getAvailability(
+        "stash.apply",
+        createContext({ panel: createPanel({ stashes: [stash("object-2")] }), target }),
+      ),
+    ).toEqual({ available: false, reason: "stash-changed-externally" });
+
+    expect(
+      getAvailability(
+        "stash.apply",
+        createContext({ panel: createPanel({ stashes: [stash("object-1")] }), target }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("delegates stash creation to the status snapshot", () => {
+    const nothingToStash = createSignals({
+      stagedCount: 0,
+      unstagedCount: 0,
+      untrackedCount: 0,
+    });
+
+    expect(
+      getAvailability(
+        "stash.create",
+        createContext({
+          signals: nothingToStash,
+          panel: createPanel({ status: { ...emptyStatus(), untrackedCount: 0 } }),
+        }),
+      ),
+    ).toEqual({ available: false, reason: "nothing-to-stash" });
+
+    expect(
+      getAvailability(
+        "stash.create",
+        createContext({
+          panel: createPanel({ status: { ...emptyStatus(), untrackedCount: 1 } }),
+        }),
+      ),
+    ).toEqual({ available: false, reason: "only-untracked-changes" });
+
+    expect(
+      getAvailability(
+        "stash.create",
+        createContext({ panel: createPanel({ status: { ...emptyStatus(), unstagedCount: 1 } }) }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("reads the include-untracked form value for only-untracked changes", () => {
+    const panel = createPanel({ status: { ...emptyStatus(), untrackedCount: 1 } });
+
+    expect(
+      getAvailability(
+        "stash.create",
+        createContext({ panel, formValues: { includeUntracked: "false" } }),
+      ),
+    ).toEqual({ available: false, reason: "only-untracked-changes" });
+
+    expect(
+      getAvailability(
+        "stash.create",
+        createContext({ panel, formValues: { includeUntracked: "true" } }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("blocks deleting the current worktree or a worktree that no longer exists", () => {
+    const panel = createPanel({
+      worktrees: [worktree("/repo", true), worktree("/repo-feature", false)],
+    });
+
+    expect(
+      getAvailability(
+        "worktree.delete",
+        createContext({ panel, target: { kind: "worktree", path: "/repo" } }),
+      ),
+    ).toEqual({ available: false, reason: "current-worktree" });
+
+    expect(
+      getAvailability(
+        "worktree.delete",
+        createContext({ panel, target: { kind: "worktree", path: "/repo-gone" } }),
+      ),
+    ).toEqual({ available: false, reason: "worktree-missing" });
+
+    expect(
+      getAvailability(
+        "worktree.delete",
+        createContext({ panel, target: { kind: "worktree", path: "/repo-feature" } }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("blocks worktree creation in an empty repository", () => {
+    const signals = createSignals({
+      headExists: false,
+      branch: null,
+      upstream: null,
+      upstreamCheck: "none",
+    });
+
+    expect(getAvailability("worktree.create", createContext({ signals }))).toEqual({
+      available: false,
+      reason: "no-commits-yet",
+    });
+  });
+
+  it("allows creating a local branch in an empty repository that has remote-tracking refs", () => {
+    const signals = createSignals({
+      headExists: false,
+      branch: null,
+      upstream: null,
+      upstreamCheck: "none",
+    });
+    const panel = createPanel({
+      remoteBranches: [
+        {
+          ref: "refs/remotes/origin/topic",
+          remote: "origin",
+          branch: "topic",
+          tipOid: "abc123",
+          committerDate: null,
+          subject: "topic",
+        },
+      ],
+    });
+
+    expect(
+      getAvailability(
+        "remote.createLocal",
+        createContext({
+          signals,
+          panel,
+          target: { kind: "remoteBranch", remote: "origin", branch: "topic" },
+        }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("blocks creating a local branch when the repository has no commits and no remote refs", () => {
+    const signals = createSignals({
+      headExists: false,
+      branch: null,
+      upstream: null,
+      upstreamCheck: "none",
+    });
+
+    expect(
+      getAvailability(
+        "remote.createLocal",
+        createContext({
+          signals,
+          panel: createPanel({ remoteBranches: undefined }),
+          target: { kind: "remoteBranch", remote: "origin", branch: "topic" },
+        }),
+      ),
+    ).toEqual({ available: false, reason: "no-commits-yet" });
+  });
 });
+
+/**
+ * Builds a status snapshot with one change per bucket zeroed.
+ *
+ * @returns The status snapshot.
+ */
+function emptyStatus() {
+  return {
+    headOid: "abc123",
+    branch: "main",
+    detached: false,
+    upstream: "origin/main",
+    ahead: 0,
+    behind: 0,
+    entries: [],
+    conflictedPaths: [],
+    stagedCount: 0,
+    unstagedCount: 0,
+    untrackedCount: 0,
+  };
+}

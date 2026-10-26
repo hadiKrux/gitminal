@@ -5,13 +5,19 @@ import { useRepository } from "@/app/hooks/useRepository";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
 import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import type { RepositoryContextValue } from "@/app/providers/RepositoryProvider.types";
+import { buildBranchRiskArgs, buildListLocalBranchesArgs } from "@/domain/git/git.branches";
+import { buildListRemoteBranchesArgs } from "@/domain/git/git.remote-branches";
+import { buildListStashesArgs } from "@/domain/git/git.stashes";
+import { buildListLocalTagsArgs } from "@/domain/git/git.tags";
 import type {
   GitClient,
   GitInvocationResult,
   GitWatcher,
   GitWatcherOptions,
 } from "@/domain/git/git.types";
+import { buildListWorktreesArgs } from "@/domain/git/git.worktrees";
 import { selectRemoteFreshness } from "@/domain/repository/repository.selectors";
+import type { BranchRiskRead } from "@/domain/repository/repository.types";
 
 /** Latest repository context captured by the probe. */
 let latest: RepositoryContextValue | undefined;
@@ -19,6 +25,26 @@ let latest: RepositoryContextValue | undefined;
 /** Canonical status output for a clean branch two ahead and one behind. */
 const STATUS_OUTPUT =
   "# branch.oid abc123\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -1\0? untracked.txt\0";
+
+/** Committer date used by the recorded branch fixtures. */
+const FIXTURE_DATE = "2026-01-02T00:00:00+00:00";
+
+/** Recorded local branches for the provider read. */
+const BRANCHES_OUTPUT = [
+  `main\0abc123\0*\0${FIXTURE_DATE}\0origin\0refs/heads/main\0[ahead 2, behind 1]`,
+  `feature\0def456\0 \0${FIXTURE_DATE}\0\0\0`,
+].join("\n");
+
+/** Recorded remote-tracking branches for the provider read. */
+const REMOTE_BRANCHES_OUTPUT = `refs/remotes/origin/main\0abc123\0${FIXTURE_DATE}\0main\0\n`;
+
+/** Recorded local tags for the provider read. */
+const TAGS_OUTPUT = "v1.0.0\0commit\0\0abc123\0\0initial commit\n";
+
+/** Recorded worktrees for the provider read. */
+const WORKTREES_OUTPUT =
+  "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n" +
+  "worktree /repo-feature\nHEAD def456\nbranch refs/heads/feature\n";
 
 /**
  * Builds an invocation result.
@@ -51,6 +77,7 @@ interface FakeGit {
   readonly counts: Map<string, number>;
   setStatusOutput(output: string): void;
   setStatusFailure(failure: boolean): void;
+  setRemoteTagsResult(result: GitInvocationResult | null): void;
 }
 
 /**
@@ -62,6 +89,7 @@ function createFakeGit(): FakeGit {
   const counts = new Map<string, number>();
   let statusOutput = STATUS_OUTPUT;
   let statusFailure = false;
+  let remoteTagsResult: GitInvocationResult | null = null;
   const answers: Readonly<Record<string, () => GitInvocationResult>> = {
     "rev-parse --is-inside-work-tree": () => result("true\n"),
     "rev-parse --is-bare-repository --absolute-git-dir": () => result("false\n/repo/.git\n"),
@@ -78,6 +106,12 @@ function createFakeGit(): FakeGit {
     "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main": () =>
       result("origin\trefs/heads/main\n"),
     "rev-parse --verify --quiet refs/remotes/origin/main": () => result("abc123\n"),
+    "ls-remote --tags -- origin": () => remoteTagsResult ?? result("aaaaaaaa\trefs/tags/v1\n"),
+    [buildListLocalBranchesArgs().join(" ")]: () => result(BRANCHES_OUTPUT),
+    [buildListRemoteBranchesArgs().join(" ")]: () => result(REMOTE_BRANCHES_OUTPUT),
+    [buildListLocalTagsArgs().join(" ")]: () => result(TAGS_OUTPUT),
+    [buildListStashesArgs().join(" ")]: () => result(""),
+    [buildListWorktreesArgs().join(" ")]: () => result(WORKTREES_OUTPUT),
   };
 
   return {
@@ -86,7 +120,13 @@ function createFakeGit(): FakeGit {
       gitPath: "git",
       invoke: async (options) => {
         const key = options.args.join(" ");
-        counts.set(key, (counts.get(key) ?? 0) + 1);
+        const isWorktreeStatusRead =
+          key === "status --porcelain=v2 --branch -z --untracked-files=all" &&
+          options.cwd !== "/repo";
+
+        if (!isWorktreeStatusRead) {
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
 
         if (key === "status --porcelain=v2 --branch -z --untracked-files=all") {
           return statusFailure
@@ -104,6 +144,9 @@ function createFakeGit(): FakeGit {
     },
     setStatusFailure(failure: boolean): void {
       statusFailure = failure;
+    },
+    setRemoteTagsResult(next: GitInvocationResult | null): void {
+      remoteTagsResult = next;
     },
   };
 }
@@ -315,6 +358,415 @@ describe("RepositoryProvider", () => {
     });
   });
 
+  it("keeps the previous list and reports only the failed optional list", async () => {
+    const fake = createFakeGit();
+    const baseInvoke = fake.client.invoke;
+    const tagsKey = buildListLocalTagsArgs().join(" ");
+    let failTags = false;
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options) =>
+        options.args.join(" ") === tagsKey && failTags
+          ? result("", false, "fatal: unable to read tags")
+          : await baseInvoke(options),
+    };
+    const setup = await renderRepository(client);
+
+    await waitForLoad(setup);
+
+    expect(latest?.listFailures).toEqual({});
+    expect(latest?.snapshot?.tags.map((record) => record.name)).toEqual(["v1.0.0"]);
+
+    failTags = true;
+    fake.setStatusOutput("# branch.oid abc123\0# branch.head main\0? a.txt\0? b.txt\0");
+
+    await act(async () => {
+      await latest?.refreshStatus();
+    });
+
+    expect(latest?.listFailures.tags).toContain("unable to read tags");
+    expect(latest?.snapshot?.tags.map((record) => record.name)).toEqual(["v1.0.0"]);
+    expect(latest?.snapshot?.status?.untrackedCount).toBe(2);
+    expect(latest?.lastRefreshError).toBeNull();
+
+    await act(async () => {
+      failTags = false;
+      await latest?.refreshStatus();
+    });
+
+    expect(latest?.listFailures).toEqual({});
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("clears stale deletion evidence when a later read observes the upstream ref", async () => {
+    const fake = createFakeGit();
+    const baseInvoke = fake.client.invoke;
+    const remoteBranchesKey = buildListRemoteBranchesArgs().join(" ");
+    let refExists = false;
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options) => {
+        const key = options.args.join(" ");
+
+        if (key === "rev-parse --verify --quiet refs/remotes/origin/main" && !refExists) {
+          return result("", false);
+        }
+
+        if (key === remoteBranchesKey) {
+          return result(
+            refExists ? `refs/remotes/origin/main\0abc123\0${FIXTURE_DATE}\0main\0\n` : "",
+          );
+        }
+
+        return await baseInvoke(options);
+      },
+    };
+    const setup = await renderRepository(client);
+
+    await waitForLoad(setup);
+
+    expect(latest?.upstreamStatus).toBe("gone");
+
+    await act(async () => {
+      await latest?.confirmUpstreamAbsent("origin/main", "prune");
+    });
+
+    expect(latest?.upstreamStatus).toBe("deleted-after-prune");
+
+    refExists = true;
+
+    await act(async () => {
+      await latest?.refreshStatus();
+    });
+
+    expect(latest?.upstreamStatus).toBe("healthy");
+
+    refExists = false;
+
+    await act(async () => {
+      await latest?.refreshStatus();
+    });
+
+    expect(latest?.upstreamStatus).toBe("gone");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("reads the capped at-risk commits of a branch from its own base", async () => {
+    const fake = createFakeGit();
+    const baseInvoke = fake.client.invoke;
+    const riskKey = buildBranchRiskArgs("HEAD", "feature").join(" ");
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options) =>
+        options.args.join(" ") === riskKey
+          ? result("abc123\0risky commit\n")
+          : await baseInvoke(options),
+    };
+    const setup = await renderRepository(client);
+
+    await waitForLoad(setup);
+
+    let feature: BranchRiskRead | undefined;
+    let main: BranchRiskRead | undefined;
+
+    await act(async () => {
+      feature = await latest?.readBranchRisk("feature");
+      main = await latest?.readBranchRisk("main");
+    });
+
+    expect(feature).toEqual({
+      commits: [{ oid: "abc123", subject: "risky commit" }],
+      merged: false,
+      hasMore: false,
+      error: null,
+    });
+    expect(main?.commits).toEqual([]);
+    expect(main?.merged).toBeNull();
+    expect(main?.error).not.toBeNull();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("falls back to HEAD when the configured upstream ref is missing from the snapshot", async () => {
+    const fake = createFakeGit();
+    const baseInvoke = fake.client.invoke;
+    const remoteBranchKey = buildListRemoteBranchesArgs().join(" ");
+    let riskArgs: readonly string[] = [];
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options) => {
+        const key = options.args.join(" ");
+
+        if (key === remoteBranchKey) {
+          return result("");
+        }
+
+        if (options.args[0] === "log" && options.args.includes("--max-count=21")) {
+          riskArgs = options.args;
+
+          return result("def456\0local only commit\n");
+        }
+
+        return await baseInvoke(options);
+      },
+    };
+    const setup = await renderRepository(client);
+
+    await waitForLoad(setup);
+
+    let risk: BranchRiskRead | undefined;
+
+    await act(async () => {
+      risk = await latest?.readBranchRisk("main");
+    });
+
+    expect(riskArgs).toEqual(buildBranchRiskArgs("HEAD", "main"));
+    expect(risk).toEqual({
+      commits: [{ oid: "def456", subject: "local only commit" }],
+      merged: false,
+      hasMore: false,
+      error: null,
+    });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("queues one follow-up tag check when a mutation lands inside the in-flight window", async () => {
+    const fake = createFakeGit();
+    const baseInvoke = fake.client.invoke;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let tagReads = 0;
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options) => {
+        if (options.args.join(" ") !== "ls-remote --tags -- origin") {
+          return await baseInvoke(options);
+        }
+
+        tagReads += 1;
+
+        if (tagReads === 1) {
+          await gate;
+
+          return result("aaaaaaaa\trefs/tags/v1\n");
+        }
+
+        return result("bbbbbbbb\trefs/tags/v2\n");
+      },
+    };
+    const setup = await renderRepository(client);
+
+    await waitForLoad(setup);
+
+    let first: Promise<void> | undefined;
+    let joined: Promise<void> | undefined;
+    let third: Promise<void> | undefined;
+
+    await act(async () => {
+      first = latest?.refreshRemoteTags();
+      joined = latest?.refreshRemoteTags();
+      third = latest?.refreshRemoteTags();
+      release();
+      await Promise.all([first, joined, third]);
+    });
+
+    expect(tagReads).toBe(2);
+    expect(latest?.remoteTagChecks.origin).toEqual({
+      names: ["v2"],
+      checkedAt: 5_000,
+      status: "known",
+    });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("performs exactly one follow-up read when a command refresh joins an in-flight read", async () => {
+    const fake = createFakeGit();
+    const baseInvoke = fake.client.invoke;
+    const statusKey = "status --porcelain=v2 --branch -z --untracked-files=all";
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let rootStatusReads = 0;
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options) => {
+        if (options.args.join(" ") === statusKey && options.cwd === "/repo") {
+          rootStatusReads += 1;
+
+          if (rootStatusReads === 2) {
+            await gate;
+          }
+        }
+
+        return await baseInvoke(options);
+      },
+    };
+    const setup = await renderRepository(client);
+
+    await waitForLoad(setup);
+
+    const baseline = fake.counts.get(statusKey) ?? 0;
+    let first: Awaited<ReturnType<RepositoryContextValue["refresh"]>> | undefined;
+    let joined: Awaited<ReturnType<RepositoryContextValue["refresh"]>> | undefined;
+
+    await act(async () => {
+      const firstPromise = latest?.refresh();
+      const joinedPromise = latest?.refresh({ followUp: true });
+
+      release();
+      first = await firstPromise;
+      joined = await joinedPromise;
+    });
+
+    expect(rootStatusReads).toBe(3);
+    expect(fake.counts.get(statusKey)).toBe(baseline + 2);
+    expect(first?.coalesced).toBe(false);
+    expect(joined?.coalesced).toBe(false);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("does not start a queued follow-up after unmount", async () => {
+    const fake = createFakeGit();
+    const baseInvoke = fake.client.invoke;
+    const statusKey = "status --porcelain=v2 --branch -z --untracked-files=all";
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let rootStatusReads = 0;
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options) => {
+        if (options.args.join(" ") === statusKey && options.cwd === "/repo") {
+          rootStatusReads += 1;
+
+          if (rootStatusReads === 2) {
+            await gate;
+          }
+        }
+
+        return await baseInvoke(options);
+      },
+    };
+    const setup = await renderRepository(client);
+
+    await waitForLoad(setup);
+
+    const baseline = fake.counts.get(statusKey) ?? 0;
+    let first: Awaited<ReturnType<RepositoryContextValue["refresh"]>> | undefined;
+    let joined: Awaited<ReturnType<RepositoryContextValue["refresh"]>> | undefined;
+    let firstPromise: Promise<Awaited<ReturnType<RepositoryContextValue["refresh"]>>> | undefined;
+    let joinedPromise: Promise<Awaited<ReturnType<RepositoryContextValue["refresh"]>>> | undefined;
+
+    await act(async () => {
+      firstPromise = latest?.refresh();
+      joinedPromise = latest?.refresh({ followUp: true });
+    });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+
+    await act(async () => {
+      release();
+      first = await firstPromise;
+      joined = await joinedPromise;
+    });
+
+    expect(fake.counts.get(statusKey)).toBe(baseline + 1);
+
+    expect(first).toBeDefined();
+    expect(joined).toBeDefined();
+  });
+
+  it("aborts a queued follow-up that already started when the provider unmounts", async () => {
+    const fake = createFakeGit();
+    const baseInvoke = fake.client.invoke;
+    const statusKey = "status --porcelain=v2 --branch -z --untracked-files=all";
+    let releaseSecond: () => void = () => {};
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    let releaseFollowUp: () => void = () => {};
+    const followUpGate = new Promise<void>((resolve) => {
+      releaseFollowUp = resolve;
+    });
+    let followUpStarted: () => void = () => {};
+    const followUpStart = new Promise<void>((resolve) => {
+      followUpStarted = resolve;
+    });
+    let rootStatusReads = 0;
+    let followUpSignal: AbortSignal | undefined;
+    const client: GitClient = {
+      gitPath: "git",
+      invoke: async (options) => {
+        if (options.args.join(" ") === statusKey && options.cwd === "/repo") {
+          rootStatusReads += 1;
+
+          if (rootStatusReads === 2) {
+            await secondGate;
+          }
+
+          if (rootStatusReads === 3) {
+            followUpSignal = options.signal;
+            followUpStarted();
+            await followUpGate;
+          }
+        }
+
+        return await baseInvoke(options);
+      },
+    };
+    const setup = await renderRepository(client);
+
+    await waitForLoad(setup);
+
+    let firstPromise: Promise<Awaited<ReturnType<RepositoryContextValue["refresh"]>>> | undefined;
+    let joinedPromise: Promise<Awaited<ReturnType<RepositoryContextValue["refresh"]>>> | undefined;
+
+    await act(async () => {
+      firstPromise = latest?.refresh();
+      joinedPromise = latest?.refresh({ followUp: true });
+      releaseSecond();
+      await followUpStart;
+    });
+
+    expect(rootStatusReads).toBe(3);
+    expect(followUpSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+
+    expect(followUpSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      releaseFollowUp();
+      await firstPromise;
+      await joinedPromise;
+    });
+  });
+
   it("starts the git-directory watcher and refreshes status on an event", async () => {
     const fake = createFakeGit();
     const watcher = createFakeWatcher();
@@ -463,6 +915,77 @@ describe("RepositoryProvider", () => {
 
     await act(async () => {
       latest?.registerGraphWindowRefresher(null);
+      await setup.dispose();
+    });
+  });
+
+  it("tracks remote tag knowledge and keeps names after a failed check", async () => {
+    const fake = createFakeGit();
+    const setup = await renderRepository(fake.client);
+
+    await waitForLoad(setup);
+
+    expect(latest?.remoteTagChecks.origin?.status).toBe("neverChecked");
+
+    const statusReads = fake.counts.get("status --porcelain=v2 --branch -z --untracked-files=all");
+
+    await act(async () => {
+      await latest?.refreshRemoteTags();
+    });
+
+    expect(latest?.remoteTagChecks.origin).toEqual({
+      names: ["v1"],
+      checkedAt: 5_000,
+      status: "known",
+    });
+    expect(fake.counts.get("status --porcelain=v2 --branch -z --untracked-files=all")).toBe(
+      statusReads,
+    );
+
+    fake.setRemoteTagsResult(result("", false, "fatal: unable to access remote"));
+
+    await act(async () => {
+      await latest?.refreshRemoteTags();
+    });
+
+    expect(latest?.remoteTagChecks.origin).toEqual({
+      names: ["v1"],
+      checkedAt: 5_000,
+      status: "failed",
+    });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("builds panel facts for target-aware availability", async () => {
+    const setup = await renderRepository(createFakeGit().client);
+
+    await waitForLoad(setup);
+
+    expect(
+      latest?.getAvailability("branch.delete", { kind: "branch", name: "feature" }, "branches"),
+    ).toEqual({ available: false, reason: "checked-out-in-worktree" });
+    expect(latest?.getAvailability("tag.push", { kind: "tag", name: "v1.0.0" }, "tags")).toEqual({
+      available: false,
+      reason: "remote-tag-unknown",
+    });
+    expect(
+      latest?.getAvailability("worktree.delete", { kind: "worktree", path: "/repo" }, "worktrees"),
+    ).toEqual({ available: false, reason: "current-worktree" });
+    expect(
+      latest?.getAvailability("stash.create", { kind: "none" }, "stashes", {
+        includeUntracked: "false",
+      }),
+    ).toEqual({ available: false, reason: "only-untracked-changes" });
+    expect(
+      latest?.getAvailability("stash.create", { kind: "none" }, "stashes", {
+        includeUntracked: "true",
+      }),
+    ).toEqual({ available: true });
+
+    await act(async () => {
       await setup.dispose();
     });
   });

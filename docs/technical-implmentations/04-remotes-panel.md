@@ -12,6 +12,7 @@
   - `src/features/remotes/RemoteFilter.tsx`
   - `src/features/remotes/CreateLocalBranchModal.tsx`
   - `src/features/remotes/useRemotes.ts`
+  - `src/domain/git/git.remote-branches.ts`
   - `src/domain/git/git.remotes.ts`
 - Co-owned path: `src/domain/repository/repository.selectors.ts` owns the freshness classification and the grouping inputs consumed by this panel.
 
@@ -26,8 +27,8 @@ Non-goals: checking out a remote branch directly; adding, removing, or renaming 
 | Component | Where used | Why it is right |
 | --- | --- | --- |
 | `<box>` | Panel frame, group header rows, every remote-branch row, modal layout | The only layout primitive; rows need custom columns and a grouping header |
-| `<text>` | Remote branch name, group header label, last known commit summary and date, stale text, empty and error text | Every UI string must be rendered through `<text>` |
-| `<span>` | Inline stale indicator and the remote-name versus branch-name split inside one `<text>` | Inline styled runs inside a single `<text>` |
+| `<text>` | Remote branch name, group header label, inline stale or unknown marker, empty and error text | Every UI string must be rendered through `<text>` |
+| `<span>` | Inline stale or unknown marker and the remote-name versus branch-name split inside one `<text>` | Inline styled runs inside a single `<text>` |
 | `<scrollbox>` | The remote-branch list container, with `viewportCulling` and a scrollbar when the filtered list overflows | Scrollable region; required by F-04 for overflowing filtered lists |
 | `<input>` | The filter field, composed through the `SearchField` primitive in `RemoteFilter.tsx` | Single-line field; the filter is a single-line, case-insensitive text match |
 | `<select>` | Not used | Rows need grouping and multi-column content, so the list uses a scrollbox of box rows |
@@ -37,33 +38,33 @@ Hooks used:
 | Hook | Where used | Why |
 | --- | --- | --- |
 | `useKeyboard` | Only inside `src/app/hooks/useHotkeys.ts` | Central dispatcher; this feature never calls it directly |
-| `useAction` | `useRemotes.ts` registers only the region-scoped handlers `remote.createLocal`, `nav.activate`, and `list.filter` with `scope: "remotes"`; it never registers `app.refresh` or another global action | Features receive action IDs, never raw key strings; exactly one handler exists per `(actionId, scope)` |
+| `useAction` | `useRemoteActions.ts` registers only the region-scoped handlers `remote.createLocal` and `list.filter` with `scope: "remotes"`; `useRemotes.ts` composes that hook and owns rows, filter, and cursor state; `useListCursor` registers `nav.up`, `nav.down`, `nav.activate`, `nav.first`, and `nav.last` in the same scope; none registers `app.refresh` or another global action | Features receive action IDs, never raw key strings; exactly one handler exists per `(actionId, scope)` |
 | `useListCursor` | `useRemotes.ts` navigation, `g`/`G`, and double click detection | Shared cursor and double click logic for custom rows |
-| `useFocusRegion` | `RemotesPanel.tsx` refreshes the remote refs when `focused` flips true (D10) | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
-| `useTerminalDimensions` | `RemoteRow.tsx` computes the truncation budget for the commit summary and date | Budget-aware truncation via `@/lib/text.ts` |
+| `useFocusRegion` | `useRemotes.ts` refreshes the remote refs when `focused` flips true (D10) | Region focus is derived from native focus; `useFocus` only reports terminal-window focus |
+| `useScrollSelectedRow` | `useRemotes.ts` keeps the active row inside the shell scroll container | The shell owns the single scrollbox and exposes `scrollChildIntoView` |
+| `useInputEscapeClear` | `useRemoteFilter.ts` registers the first-`Esc` clear while the filter is non-empty, composed through `useRemotes.ts` | The dispatcher consumes the first `Esc` before `overlay.close` |
 
-`<scrollbox>` versus `<select>` decision: the remote list uses a `<scrollbox>` of `<box>` rows because F-04 requires grouping by remote, an optional stale indicator, and a commit summary and date where space permits. `<select>` cannot render group headers or multi-column rows. Navigation, selection, and `g`/`G` come from `useListCursor` (architecture section 6 rule 3).
+`<scrollbox>` versus `<select>` decision: the remote list uses a `<scrollbox>` of `<box>` rows because F-04 requires grouping by remote and an inline stale or unknown indicator. `<select>` cannot render group headers or custom row content. Navigation, selection, and `g`/`G` come from `useListCursor` (architecture section 6 rule 3). The row is deliberately one line (see section 4).
 
 All icons and markers used by this feature come from `src/theme/icons.ts`; see architecture section 6.1. No glyph literal is written in feature code.
 
 ## 4. Component tree
 
 ```text
-RemotesPanel
-  Panel
-    PanelHeader (title "Remotes", count of visible remote branches)
-    RemoteFilter (SearchField -> input, placeholder "Filter remote branches", focused by list.filter)
-    ScrollableList (scrollbox, viewportCulling, scrollbar when overflowing)
-      RemoteRow (one per remote-tracking branch)
-        ListRow (box)
-          TextMarker
-          text (remote name and branch name)
-            span (stale indicator when present)
-          text (last known commit summary and date, when width permits)
-      LoadingRow (while the first read is in flight)
-      EmptyState (no remote branches, or no matches for the filter)
-      ErrorState (read failed, with Retry)
+RemotesPanel (body only; SidebarPanelFrame owns the Panel, border title, and scrollbox)
+  RemoteFilter (SearchField -> input, placeholder "filter remote branches", focused by list.filter)
+  text (group header per remote)
+  RemoteRow (one per remote-tracking branch)
+    ListRow (box)
+      TextMarker
+      text (remote name and branch name)
+        span (stale or unknown indicator when present)
+  LoadingRow (while the first read is in flight)
+  EmptyState (no remote branches, or no matches for the filter)
+  ErrorState (read failed, with Retry)
 ```
+
+The panel has no title or count row: the shell border title carries `Remotes (<count>)`, and the body never duplicates it. Remote rows are deliberately one line, naming `<remote>/<branch>` plus an inline stale or unknown marker. The earlier tree also showed a last-known commit summary and date line; dropping it is a deliberate deviation, because the row must never lose the branch identity and the commit date is not what F-04 asks the row to prove. Freshness remains visible through the marker.
 
 The Create Local Branch modal is not nested in the panel. The panel pushes it onto `OverlayProvider` (F-15):
 
@@ -79,13 +80,15 @@ CreateLocalBranchModal
 
 ## 5. Enforced files and folders
 
-- `src/features/remotes/RemotesPanel.tsx` - panel composition, region registration, action wiring, focus refresh.
+- `src/features/remotes/RemotesPanel.tsx` - panel composition, region registration, and action wiring. Focus refresh lives in `useRemotes.ts`.
 - `src/features/remotes/RemoteRow.tsx` - one remote-branch row with columns and the stale indicator.
 - `src/features/remotes/RemoteFilter.tsx` - the filter field and its clear-on-Esc behavior.
 - `src/features/remotes/CreateLocalBranchModal.tsx` - prefilled name, read-only base ref, checkout checkbox, validation.
-- `src/features/remotes/useRemotes.ts` - derives grouped rows and freshness from repository selectors, owns filter and cursor state, calls `getAvailability(commandId, context)` with the selected remote branch target, registers the three scoped handlers, and dispatches commands.
-- `src/domain/git/git.remotes.ts` - remote-ref reads, grouping and sorting, and atomic local-branch creation from a remote ref.
-- Tests colocated: `src/domain/git/git.remotes.test.ts`, `src/domain/git/git.remotes.integration.test.ts`, `src/domain/repository/repository.selectors.test.ts`, `src/features/remotes/useRemotes.test.ts`, `src/features/remotes/RemotesPanel.test.tsx`, `src/features/remotes/RemoteRow.test.tsx`, `src/features/remotes/RemoteFilter.test.tsx`.
+- `src/features/remotes/useRemotes.ts` - derives grouped rows and freshness from repository selectors, owns filter and cursor state, calls `getAvailability(commandId, context)` with the selected remote branch target, composes `useRemoteActions.ts` for the two scoped handlers `remote.createLocal` and `list.filter`, and dispatches commands.
+- `src/features/remotes/useRemoteActions.ts` - registers `remote.createLocal` and `list.filter` with `scope: "remotes"`, publishes the selected-target availability, and builds the Retry handler.
+- `src/domain/git/git.remote-branches.ts` - the remote-tracking branch read, parse, grouping, and the atomic create-local planner.
+- `src/domain/git/git.remotes.ts` - remote configuration reads plus the push, fetch, and prune planners and helpers.
+- Tests colocated: `src/domain/git/git.remote-branches.test.ts`, `src/domain/git/git.remotes.test.ts`, `src/domain/git/git.remotes.integration.test.ts`, `src/domain/repository/repository.selectors.test.ts`, `src/features/remotes/useRemotes.test.tsx`, `src/features/remotes/RemotesPanel.test.tsx`, `src/features/remotes/RemoteRow.test.tsx`, `src/features/remotes/RemoteFilter.test.tsx`.
 
 ## 6. State model
 
@@ -105,7 +108,7 @@ Provider state (read, never recomputed here):
 - `StatusProvider`: operation progress and transient status.
 - `FocusProvider`: derived active region and cursor map.
 
-Rules: this feature never recomputes grouping, sorting, or freshness itself. It reads the grouped rows and freshness flags from `@/domain/git/git.remotes.ts` and `@/domain/repository/repository.selectors.ts` (architecture section 9). Freshness is based on the last successful remote check or fetch timestamp, not on the ref commit date. A remote with no successful check in this session is `unknown`; a failed, cancelled, or timed-out check leaves the previous timestamp and state in place. `unknown` is never rendered as absent, deleted, or unpushed.
+Rules: this feature never recomputes grouping, sorting, or freshness itself. It reads the grouped rows from `@/domain/git/git.remote-branches.ts` through `@/domain/repository/repository.selectors.ts`, and freshness from the selector (architecture section 9). Freshness is based on the last successful remote check or fetch timestamp, not on the ref commit date. A remote with no successful check in this session is `unknown`; a failed, cancelled, or timed-out check leaves the previous timestamp and state in place. `unknown` is never rendered as absent, deleted, or unpushed.
 
 ## 7. Data flow
 
@@ -113,20 +116,20 @@ Generic path (architecture section 9):
 
 ```text
 key or click -> action ID -> useAction handler -> useCommandRunner.runCommand(request)
-  -> command runner (availability + serialization) -> @/domain/git/git.remotes.ts -> git CLI
+  -> command runner (availability + serialization) -> @/domain/git/git.remote-branches.ts -> git CLI
   -> CommandResult -> useCommandRunner applies RepositoryProvider refresh, console entry, status, and error overlay
   -> RemotesPanel re-render
 ```
 
 | Action ID or refresh | Domain module | Git subcommand |
 | --- | --- | --- |
-| repository refresh (list) | `git.remotes.ts` `listRemoteBranches()` | `git for-each-ref refs/remotes --format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)%00%(objectname:short)%00%(subject)` |
-| grouping and sorting | `git.remotes.ts` `groupByRemote()` (pure) | none; sorts by remote name, then branch name, and drops the `origin/HEAD` symbolic ref |
+| repository refresh (list) | `git.remote-branches.ts` `readRemoteBranches()` -> `parseRemoteBranches()` | `git for-each-ref refs/remotes --format=%(refname)%00%(objectname)%00%(committerdate:iso-strict)%00%(subject)%00%(symref)` |
+| grouping and sorting | `git.remote-branches.ts` `groupByRemote()` (pure) | none; sorts by remote name, then branch name, and drops the `origin/HEAD` symbolic ref |
 | freshness classification | `repository.selectors.ts` | none; derived from each remote's last successful remote check or fetch timestamp compared with the current clock, never from ref committer dates |
-| `remote.createLocal` with checkout | `git.remotes.ts` `createLocalBranchFromRemote()` | One atomic command: `git switch -c <name> <remoteRef>`, or `git checkout -b <name> <remoteRef>` when `switch` is unavailable. A failed checkout leaves no branch behind. |
-| `remote.createLocal` without checkout | `git.remotes.ts` `createLocalBranchFromRemote()` | `git branch <name> <remoteRef>` |
+| `remote.createLocal` with checkout | `git.remote-branches.ts` `planCreateLocalBranchFromRemote()` | One atomic command: `git switch -c <name> <remoteRef>`. The documented Git floor is 2.30, so there is no `checkout -b` fallback and a failed checkout leaves no branch behind. |
+| `remote.createLocal` without checkout | `git.remote-branches.ts` `planCreateLocalBranchFromRemote()` | `git branch <name> <remoteRef>` |
 | `nav.activate` | none | none; the action is unavailable in v1 (see section 9) |
-| repository refresh | `git.remotes.ts` `listRemoteBranches()` via repository refresh | the list read above; `app.refresh` is a global action owned outside this feature |
+| repository refresh | `git.remote-branches.ts` `readRemoteBranches()` via repository refresh | the list read above; `app.refresh` is a global action owned outside this feature |
 
 Fetch scope interaction (owned by F-02, observed here):
 
@@ -138,7 +141,7 @@ Fetch scope interaction (owned by F-02, observed here):
 - A failed, cancelled, timed-out, or never-run `ls-remote` or fetch leaves the remote's freshness `unknown` and preserves its previous refs and timestamps. It never produces `absent`, `deleted`, or `unpushed`.
 - A successful remote-delete event from F-03 removes the matching remote-tracking ref and records the confirmed deletion, so the panel drops the row after the repository refresh without claiming that out-of-scope refs changed.
 
-Availability is target-aware and scoped. `useRemotes` calls `getAvailability(commandId, { state, signals, target: { kind: "remoteBranch", remote, branch }, region: "remotes", operation })`. `remote.createLocal` requires a selected remote branch and a valid local name; in an empty repository with no commits and no remote-tracking refs it is unavailable with the reason "no commits yet". `nav.activate` is unavailable with "Enter does nothing in v1; press Space to create a local branch". Repository-wide gates from `gateRepository` cover no remote, no commits, and operation in progress. The panel registers only `remote.createLocal`, `nav.activate`, and `list.filter`; `app.refresh` and global remote operations stay with their designated owners.
+Availability is target-aware and scoped. `useRemotes` calls `getAvailability(commandId, { state, signals, target: { kind: "remoteBranch", remote, branch }, region: "remotes", operation })`. `remote.createLocal` requires a selected remote branch and a valid local name; in an empty repository with no commits and no remote-tracking refs it is unavailable with the reason "no commits yet". `nav.activate` is a region navigation action with no registry command, so the panel keeps the exact "Enter does nothing in v1; press Space to create a local branch" reason visible instead of asking the command layer. Repository-wide gates from `gateRepository` cover no remote, no commits, and operation in progress. The panel registers only `remote.createLocal` and `list.filter` through `useRemoteActions.ts`; `app.refresh` and global remote operations stay with their designated owners.
 
 ## 8. Keyboard and focus
 
@@ -152,7 +155,7 @@ Availability is target-aware and scoped. `useRemotes` calls `getAvailability(com
 | `focus.next`, `focus.previous` | Tab traversal (owned by `useFocusModel`, not registered here) |
 | `focus.region.remotes` | Direct jump to this panel (default `2`), shell-owned |
 
-Notes: double click on a row performs the same action as `remote.createLocal`. `useRemotes` registers only `remote.createLocal`, `nav.activate`, and `list.filter`, all with `scope: "remotes"`; `app.refresh`, `focus.*`, and every `remote.*` global operation stay with their designated owner. While the filter field is focused, it declares `search` mode, so printable keys, Backspace, Delete, and Left/Right stay in the field while Up/Down move the highlighted row. The first `Esc` clears a non-empty filter; the next `Esc` leaves the field and returns focus to the `remotes` region frame. The footer and help read `getAvailability(commandId, context)` for the selected remote branch.
+Notes: double click on a row performs the same action as `remote.createLocal`, using the clicked row index so the previous cursor cannot be targeted before a render. `useRemotes` registers only `remote.createLocal` and `list.filter` through `useRemoteActions`, all with `scope: "remotes"`; `useListCursor` registers the region's `nav.*` actions; `app.refresh`, `focus.*`, and every `remote.*` global operation stay with their designated owner. While the filter field is focused, printable keys, Backspace, Delete, and Left/Right stay in the field. Declared `search` input mode is deferred with the shell input-mode work, so Up/Down currently stay in the field too and row navigation resumes after `Esc` leaves it. The first `Esc` clears a non-empty filter and keeps focus in the field; the next `Esc` leaves it and returns focus to the `remotes` region frame. The footer and help read `getAvailability(commandId, context)` for the selected remote branch and hide an unavailable `remote.createLocal`.
 
 ## 9. Loading, empty, error, and disabled states
 
@@ -160,26 +163,27 @@ Notes: double click on a row performs the same action as `remote.createLocal`. `
 - Empty, no remote branches: `EmptyState` with "No remote branches" and the hint "Fetch updates upstream refs only".
 - Empty, no remotes configured: `EmptyState` with "No remotes configured".
 - Empty repository, no commits and no remote-tracking refs: `EmptyState` with "No remote branches" and the reason "no commits yet" for `remote.createLocal`; no action claims a ref was deleted or unpushed.
-- Empty, filter matches nothing: `EmptyState` with "No remote branches match <filter>" and the hint "Esc clears the filter".
+- Empty, filter matches nothing: `EmptyState` with "No remote branches match <filter>" and the hint "Esc clears the filter". The first `Esc` clears the filter and keeps focus in the field; the second leaves it.
 - Error: `ErrorState` with "Could not read remote branches" plus the git error text and a Retry button; the previous rows stay visible.
 - Disabled, Enter: `nav.activate` is unavailable with the reason "Enter does nothing in v1; press Space to create a local branch". The footer hides it and the palette shows the reason.
 - Disabled, `remote.createLocal` with no selected row: unavailable with the reason "no remote branch selected".
-- Stale: the row shows the text marker `[stale]` and the detail text "last known state; not checked recently". The classification comes from the last successful remote check or fetch timestamp for that remote, not from the ref commit date. The indicator is not color-only.
-- Unknown: the row shows `[?]` or the unknown marker and the detail text "remote state unknown; the last check did not complete". A failed, cancelled, timed-out, or never-run check never renders as absent, deleted, or unpushed.
+- Stale: the one-line row shows the inline `[stale]` marker. The classification comes from the last successful remote check or fetch timestamp for that remote, not from the ref commit date, and the marker is never color-only.
+- Unknown: the one-line row shows the `[?]` marker. A failed, cancelled, timed-out, or never-run check never renders as absent, deleted, or unpushed.
 - Operation in progress: the panel is read-only; a second mutation is blocked with the reason from the runner.
 
 ## 10. Performance and bounds
 
-- Remote-tracking refs are rendered inside a `<scrollbox>` with `viewportCulling`; a soft cap of 5000 rendered rows applies, beyond which a notice row reports the truncation.
-- Grouping and sorting are pure and O(n log n) in `git.remotes.ts`, computed once per snapshot and memoized in the selector.
+- Remote-tracking refs are rendered inside a `<scrollbox>` with `viewportCulling`; the panel caps rendered rows at 5000 after filtering, beyond which a notice row reports the visible and hidden counts.
+- Grouping and sorting are pure and O(n log n) in `git.remote-branches.ts`, computed once per snapshot and memoized in the selector.
 - The filter runs client-side over the loaded refs and is case-insensitive against the full remote branch name (`<remote>/<branch>`).
-- Row truncation uses `@/lib/text.ts` with a budget from `useTerminalDimensions`; the commit summary and date drop before the remote branch name.
+- The row is one line. When the full `<remote>/<branch>` does not fit the sidebar budget, the branch name is truncated through `@/lib/text.ts` while room for the inline stale or unknown marker is reserved, so the marker is never the part dropped. The budget is the drawable width the panel frame provides, which already excludes the border and the column the vertical scrollbar reserves, so an overflowing filtered list never clips the separator or the marker. There is no commit summary or date line to budget, and `viewportCulling` bounds paint cost.
+- A manual `app.refresh` refreshes the repository reads only. It does not refresh remote tag knowledge; the Tags panel refreshes that on region focus and after a successful remote tag operation.
 - Refresh is coalesced by `RepositoryProvider`; the panel does not start its own git reads outside the repository refresh cycle.
 
 ## 11. Safety and confirmations
 
 - Creating a local branch from a remote ref is non-destructive and requires no confirmation beyond the modal.
-- Create with checkout is atomic. It uses `git switch -c <name> <remoteRef>` or `git checkout -b <name> <remoteRef>`, never `git branch` followed by `git checkout`, so a failed checkout cannot leave an orphan branch. Without checkout it uses `git branch <name> <remoteRef>`.
+- Create with checkout is atomic. It uses `git switch -c <name> <remoteRef>`, never `git branch` followed by `git checkout`, so a failed checkout cannot leave an orphan branch. The documented Git floor is 2.30, so no `checkout -b` fallback exists. Without checkout it uses `git branch <name> <remoteRef>`.
 - The modal validates the name inline and keeps the modal open on error (F-15).
 - Navigating the list, filtering, and focusing the region never mutate repository state.
 - The panel never initiates a fetch, prune, or delete, so it cannot lose remote state as a side effect.
@@ -192,34 +196,34 @@ Notes: double click on a row performs the same action as `remote.createLocal`. `
 | F-04 acceptance bullet | Implementing module or component |
 | --- | --- |
 | Space and double click both open the confirmation modal with an editable local name | `useRemotes.ts` maps `remote.createLocal` and double click to the modal; `CreateLocalBranchModal.tsx` |
-| Creating from a remote branch does not require a fetch first, but uses the locally known remote ref | `git.remotes.ts` `createLocalBranchFromRemote()` targets the existing remote-tracking ref with one atomic `git switch -c` / `git checkout -b` or `git branch` command |
-| A successful create with checkout never leaves an orphan branch on a failed checkout | Atomic create command in `git.remotes.ts`; `useCommandRunner.ts` reports the failure without a visible change |
+| Creating from a remote branch does not require a fetch first, but uses the locally known remote ref | `git.remote-branches.ts` `planCreateLocalBranchFromRemote()` targets the existing remote-tracking ref with one atomic `git switch -c` or `git branch` command |
+| A successful create with checkout never leaves an orphan branch on a failed checkout | Atomic create plan in `git.remote-branches.ts`; `useCommandRunner.ts` reports the failure without a visible change |
 | Invalid names keep the modal open with an inline error | `CreateLocalBranchModal.tsx` validation via `FormField` error text |
-| A remote branch that was pruned from the remote disappears after Fetch --prune when in scope | F-02 prune flow removes the ref; `git.remotes.ts` list read drops it |
+| A remote branch that was pruned from the remote disappears after Fetch --prune when in scope | F-02 prune flow removes the ref; the `git.remote-branches.ts` list read drops it |
 | Remote branches outside the fetch scope keep their last known state and are not removed by scoped Fetch --prune | Fetch scope rules in section 7; freshness classification in `repository.selectors.ts` |
 | Local branches that tracked the pruned remote branch show `[?] remote branch deleted` until recreated or changed | F-03 `repository.upstream.ts` classification; not computed here |
 | Filter field filters case-insensitively against the full remote branch name | `RemoteFilter.tsx` plus `useRemotes.ts` filter derivation |
-| Scrollbar appears when the filtered list overflows | `ScrollableList` (`<scrollbox>`) |
-| Rows show the remote branch, last known summary and date, and a stale or unknown indicator | `RemoteRow.tsx` plus `repository.selectors.ts` freshness from the last successful remote check timestamp |
+| Scrollbar appears when the filtered list overflows | the shell's sidebar scroll container (`SidebarPanelFrame`) |
+| Rows show the remote branch and a stale or unknown indicator | `RemoteRow.tsx` one-line row plus `repository.selectors.ts` freshness from the last successful remote check timestamp; the commit summary and date line is a recorded deviation |
 | Remote branches are not checked out directly; selecting offers creation of a local branch | `useRemotes.ts` action wiring; no checkout command registered |
-| Enter does nothing in v1 | `getAvailability` marks `nav.activate` unavailable in the remotes context |
+| Enter does nothing in v1 | the panel keeps the exact reason visible for `nav.activate` |
 | Empty repository gates remote-branch creation with "no commits yet" | `getAvailability` plus `gateRepository`; `useRemotes.ts` |
-| Only `remote.createLocal`, `nav.activate`, and `list.filter` are owned by this feature | `useRemotes.ts` scoped `useAction` registrations; globals stay with `AppShellHost` or the top bar |
+| Only `remote.createLocal` and `list.filter` are owned by this feature, with navigation from `useListCursor` | `useRemoteActions.ts` scoped `useAction` registrations composed by `useRemotes.ts`; globals stay with `AppShellHost` or the top bar |
 
 ## 13. Tests to add
 
-- `src/domain/git/git.remotes.test.ts`: grouping and sorting by remote then branch, `origin/HEAD` exclusion, deduplication, and argument construction for `createLocalBranchFromRemote` with and without checkout, asserting one atomic `git switch -c` / `git checkout -b` command when checkout is requested and plain `git branch` otherwise; no spawning in unit tests.
+- `src/domain/git/git.remote-branches.test.ts`: grouping and sorting by remote then branch, `origin/HEAD` exclusion, deduplication, and argument construction for `planCreateLocalBranchFromRemote` with and without checkout, asserting one atomic `git switch -c` command when checkout is requested and plain `git branch` otherwise; no spawning in unit tests.
 - `src/domain/git/git.remotes.integration.test.ts`: a failed checkout in the create-with-checkout path leaves no local branch behind; a successful remote read updates the per-remote check timestamp; a failed `ls-remote` leaves the timestamp and refs unchanged.
 - `src/domain/repository/repository.selectors.test.ts`: freshness classification from a given per-remote successful-check timestamp set, never from ref commit dates; a failed, cancelled, timed-out, or never-run check yields `unknown`; out-of-scope refs are never marked deleted, absent, or unpushed.
 - `src/domain/commands/commands.availability.test.ts` (shared): `remote.createLocal` is target-aware for the selected remote branch and returns "no commits yet" in an empty repository with no commits and no remote-tracking refs.
-- `src/features/remotes/useRemotes.test.ts`: registers only the three `remotes`-scoped handlers, rejects a duplicate `(actionId, scope)`, never registers `app.refresh`, and computes availability for the selected remote branch or the no-selection reason.
+- `src/features/remotes/useRemotes.test.tsx`: registers only the two `remotes`-scoped handlers, rejects a duplicate `(actionId, scope)`, never registers `app.refresh`, keeps `nav.activate` a no-op with its reason, computes availability for the selected remote branch or the no-selection reason, keeps create-local available in an empty repository that still has remote-tracking refs, targets the double-clicked row, covers the first-`Esc` clear, and covers the 5000-row cap.
 - `src/features/remotes/RemoteFilter.test.tsx`: typing filters the list, and the first `Esc` clears the filter while a second `Esc` leaves the field.
-- `src/features/remotes/RemoteRow.test.tsx`: rendered name, summary, date, and stale marker under a constrained width.
-- `src/features/remotes/RemotesPanel.test.tsx`: Space and double click both open the modal with the prefilled name, `nav.activate` is unavailable with the reason, and the filter empty state appears.
+- `src/features/remotes/RemoteRow.test.tsx`: the one-line `<remote>/<branch>` row, the inline stale or unknown marker, and branch-name truncation with the marker and its separator reserved at both the full and narrow sidebar content widths inside the real `SidebarPanelFrame` with enough rows to show the scrollbar.
+- `src/features/remotes/RemotesPanel.test.tsx`: Space and double click both open the modal with the prefilled name, `nav.activate` is unavailable with the reason, the filter empty state appears, the render cap names the hidden count, the read error keeps Retry, and the body renders no second title row.
 
 ## 14. Open questions
 
 - Define the exact stale age. This doc treats a ref as stale when its remote's last successful check or fetch timestamp is older than a configured bound, and as `unknown` when that remote has no successful check in the session. Confirm the bound and whether it is time-based or check-cycle-based. Ref commit dates are not used.
 - Should `Enter` show a transient status hint in addition to the disabled availability reason, or stay silent? The spec says it does nothing.
-- Confirm that the filter matches only `<remote>/<branch>` and not the commit summary.
+- Confirm that the filter matches only `<remote>/<branch>`. The row carries no commit summary, so there is nothing else to match.
 - Confirm whether a remote branch whose remote was removed from configuration should be hidden or shown as an orphan row.
