@@ -113,6 +113,24 @@ describe("ListRow", () => {
     });
   });
 
+  it("can suppress the marker while keeping the selected fill", async () => {
+    const setup = await renderRows(
+      <ListRow id="row" selected showMarker={false}>
+        <text>main</text>
+      </ListRow>,
+    );
+    const frame = setup.captureSpans();
+    const selected = findSpanContaining(frame, "main");
+    const tokens = readTokens();
+
+    expect(readFrameText(frame)).not.toContain(ICONS.selected);
+    expect(selected.bg.equals(RGBA.fromHex(tokens.surface))).toBe(true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("colors the marker with the focus token while the region is focused", async () => {
     const setup = await renderRows(
       <ListRow id="row" selected focused>

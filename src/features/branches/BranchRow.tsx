@@ -16,13 +16,18 @@ import { TruncatedText } from "@/ui/TruncatedText";
 /**
  * Renders one local branch row.
  *
- * The row shows the current marker, the worktree marker, the branch name, and the upstream state.
- * A tracked branch shows its ahead and behind counts; a branch without an upstream shows "no
- * upstream"; a configured upstream that is missing locally shows the exact "[?] upstream not found"
- * or "[?] remote branch deleted" text, and the counts are hidden because they describe a ref that is
- * not there. The selected row adds detail lines for the worktree path and for the upstream
- * explanation plus the reason Delete is disabled, so a state is never conveyed by color or a marker
- * alone.
+ * The row shows the current or worktree marker, the branch name, and the upstream state. The
+ * marker column is one cell because a branch cannot be both the current branch and checked out in
+ * another worktree. A tracked branch shows its ahead and behind counts; a branch without an upstream
+ * shows "no upstream"; a configured upstream that is missing locally shows the exact "[?] upstream
+ * not found" or "[?] remote branch deleted" text, and the counts are hidden because they describe a
+ * ref that is not there. The selected row adds detail lines for the worktree path and for the
+ * upstream explanation plus the reason Delete is disabled, so a state is never conveyed by color or
+ * a marker alone. The current-branch reason is not repeated here, because pressing Delete opens the
+ * modal that states it.
+ *
+ * The row does not use the `ListRow` selection marker: the dark selected fill already identifies the
+ * cursor row, and the current branch has its own marker.
  *
  * The name and the worktree path are truncated with `@/lib/text` through `TruncatedText`, using a
  * budget from the terminal width. The marker run and the state text are never truncated, because a
@@ -57,22 +62,19 @@ export function BranchRow(props: {
     props.branch.upstreamStatus === "tracked" || props.branch.upstreamStatus === "none"
       ? tokens.muted
       : tokens.warning;
+  const marker = readMarker(props.branch);
 
   return (
     <ListRow
       id={`branch-row-${props.branch.name}`}
       selected={props.selected}
       focused={props.focused}
+      showMarker={false}
       onMouseDown={props.onMouseDown}
     >
       <box flexDirection="row" flexShrink={1}>
         <text wrapMode="none" flexShrink={0}>
-          <span fg={props.branch.head ? tokens.accent : tokens.muted}>
-            {props.branch.head ? ICONS.currentBranch : " "}
-          </span>
-          <span fg={props.branch.worktreePath === null ? tokens.muted : tokens.accent}>
-            {props.branch.worktreePath === null ? " " : ICONS.worktree}
-          </span>
+          <span fg={marker === " " ? tokens.muted : tokens.accent}>{marker}</span>
           <span fg={tokens.muted}> </span>
         </text>
         <TruncatedText text={props.branch.name} maxWidth={nameBudget} />
@@ -92,6 +94,24 @@ export function BranchRow(props: {
       )}
     </ListRow>
   );
+}
+
+/**
+ * Reads the leading marker for one branch row.
+ *
+ * A branch cannot be the current branch and checked out in another worktree at the same time, so
+ * one column holds whichever marker applies and a plain branch gets a blank cell that keeps every
+ * name aligned.
+ *
+ * @param branch - Branch record from the repository selector.
+ * @returns The current marker, the worktree marker, or one space.
+ */
+function readMarker(branch: BranchRecord): string {
+  if (branch.head) {
+    return ICONS.currentBranch;
+  }
+
+  return branch.worktreePath === null ? " " : ICONS.worktree;
 }
 
 /**

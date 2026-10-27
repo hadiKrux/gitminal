@@ -6,18 +6,19 @@ import { DEFAULT_THEME_NAME } from "@/domain/theme/theme.catppuccin";
 import { resolveTheme } from "@/domain/theme/theme.resolve";
 import { SyncStateBadge } from "@/features/top-bar/SyncStateBadge";
 import { ShellTestProviders } from "@/test/shell.harness";
+import { ICONS } from "@/theme/icons";
 
 /** Default tokens used by the badge test. */
 const TOKENS = resolveTheme(DEFAULT_THEME_NAME).tokens;
 
 /** Expected marker and label for every sync state. */
 const EXPECTED: Readonly<Record<SyncState, string>> = {
-  "up-to-date": "v up to date",
-  ahead: "^ ahead",
-  behind: "v behind",
-  diverged: "! diverged",
-  "no-upstream": "- no upstream",
-  "upstream-gone": "[?] upstream gone",
+  "up-to-date": `${ICONS.success} up to date`,
+  ahead: `${ICONS.push} ahead`,
+  behind: `${ICONS.pull} behind`,
+  diverged: `${ICONS.warning} diverged`,
+  "no-upstream": `${ICONS.noUpstream} no upstream`,
+  "upstream-gone": `${ICONS.missingUpstream} upstream gone`,
 };
 
 /**

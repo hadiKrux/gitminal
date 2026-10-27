@@ -91,7 +91,10 @@ export interface BranchRowsHandle {
 export interface BranchActionsHandle {
   /** Availability reason for `branch.create`, or null. */
   readonly createReason: string | null;
-  /** Availability reason for deleting the selected branch, or null. */
+  /**
+   * Availability reason for deleting the selected branch, or null when delete is available or the
+   * current branch is selected. The Delete modal states the current-branch reason on demand.
+   */
   readonly selectedDeleteReason: string | null;
   /** Opens the New Branch modal. */
   readonly openCreate: () => void;

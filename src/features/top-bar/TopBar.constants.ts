@@ -7,7 +7,12 @@ export const TOP_BAR_CHROME_WIDTH = 6;
 /** Number of icon actions in the top-bar strip. */
 const TOP_BAR_ACTION_COUNT = 3;
 
-/** Width of the three icons without padding. */
+/**
+ * Width of the three icons without padding.
+ *
+ * Every icon is one cell by the section 6.1 contract, so string length equals cell width here even
+ * for the two non-ASCII arrows.
+ */
 const TOP_BAR_ICONS_WIDTH = ICONS.pull.length + ICONS.push.length + ICONS.ellipsis.length;
 
 /** Width of the three filled icon buttons, including their one-cell horizontal padding. */

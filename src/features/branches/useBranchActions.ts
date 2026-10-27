@@ -180,7 +180,7 @@ export function useBranchActions(input: {
  * cursor. Publishing both actions in one hook keeps the create and delete rules in one place.
  *
  * @param input - Repository context and the selected branch.
- * @returns Display reasons and availability for both actions.
+ * @returns Display reasons and availability for both actions, without the current-branch reason.
  */
 function useBranchAvailability(input: {
   readonly repository: BranchesRepository;
@@ -213,8 +213,26 @@ function useBranchAvailability(input: {
 
   return {
     createReason: readReason(createAvailability),
-    selectedDeleteReason: deleteAvailability === null ? null : readReason(deleteAvailability),
+    selectedDeleteReason: readSelectedDeleteReason(deleteAvailability),
   };
+}
+
+/**
+ * Reads the delete reason shown under the selected branch row.
+ *
+ * The current branch never repeats its reason in the row: the current marker already shows the
+ * branch is checked out, and pressing Delete opens the modal, which states the same reason. Every
+ * other refusal, such as a branch checked out in another worktree, stays in the row.
+ *
+ * @param availability - Delete availability for the selected branch, or null without a selection.
+ * @returns The display reason, or null when delete is available or the current branch is selected.
+ */
+function readSelectedDeleteReason(availability: CommandAvailability | null): string | null {
+  if (availability === null || availability.reason === "cannot-delete-current-branch") {
+    return null;
+  }
+
+  return readReason(availability);
 }
 
 /**

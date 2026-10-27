@@ -55,11 +55,10 @@ async function renderRow(
 }
 
 describe("BranchRow", () => {
-  it("renders the current marker, the worktree marker, the name, and the counts", async () => {
+  it("renders the current marker, the name, and the counts without a focus marker", async () => {
     const setup = await renderRow(
       buildBranch({
         head: true,
-        worktreePath: "/repo-feature",
         upstream: "origin/main",
         upstreamRemote: "origin",
         upstreamBranch: "main",
@@ -71,11 +70,26 @@ describe("BranchRow", () => {
     );
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain(ICONS.currentBranch);
-    expect(frame).toContain(ICONS.worktree);
-    expect(frame).toContain("main");
+    expect(frame).toContain(`${ICONS.currentBranch} main`);
+    expect(frame).not.toContain(ICONS.selected);
+    expect(frame).not.toContain(ICONS.worktree);
     expect(frame).toContain("ahead 2");
     expect(frame).toContain("behind 1");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("renders the worktree marker and the checked out path", async () => {
+    const setup = await renderRow(buildBranch({ name: "feature", worktreePath: "/repo-feature" }), {
+      selected: true,
+    });
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain(`${ICONS.worktree} feature`);
+    expect(frame).not.toContain(ICONS.selected);
+    expect(frame).not.toContain(ICONS.currentBranch);
     expect(frame).toContain(truncateText("checked out in /repo-feature", 24, ICONS.ellipsis));
 
     await act(async () => {
@@ -178,23 +192,19 @@ describe("BranchRow", () => {
   });
 
   it("renders the delete reason only on the selected row", async () => {
-    const branch = buildBranch({ name: "main", head: true });
-    const unselected = await renderRow(branch, {
-      deleteReason: "Cannot delete the current branch",
-    });
+    const branch = buildBranch({ name: "feature" });
+    const reason = "checked out in another worktree";
+    const unselected = await renderRow(branch, { deleteReason: reason });
 
-    expect(unselected.captureCharFrame()).not.toContain("Cannot delete the current branch");
+    expect(unselected.captureCharFrame()).not.toContain(reason);
 
     await act(async () => {
       await unselected.dispose();
     });
 
-    const selected = await renderRow(branch, {
-      selected: true,
-      deleteReason: "Cannot delete the current branch",
-    });
+    const selected = await renderRow(branch, { selected: true, deleteReason: reason });
 
-    expect(selected.captureCharFrame()).toContain("Cannot delete the current branch");
+    expect(selected.captureCharFrame()).toContain(reason);
 
     await act(async () => {
       await selected.dispose();

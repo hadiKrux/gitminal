@@ -108,7 +108,7 @@ beforeEach(() => {
 });
 
 describe("BranchesPanel", () => {
-  it("renders the ordered rows, the counts, and the current branch reason", async () => {
+  it("renders the ordered rows, the counts, and no current-branch delete reason", async () => {
     const setup = await renderPanel(createClient());
 
     await waitFor(setup, () => setup.captureCharFrame().includes("feature"));
@@ -120,7 +120,7 @@ describe("BranchesPanel", () => {
     expect(frame).toContain("ahead 2");
     expect(frame).toContain("behind 1");
     expect(frame).toContain("no upstream");
-    expect(frame).toContain("Cannot delete the current branch");
+    expect(frame).not.toContain("Cannot delete the current branch");
     expect(frame.indexOf("main")).toBeLessThan(frame.indexOf("feature"));
 
     await act(async () => {

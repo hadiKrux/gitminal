@@ -4,7 +4,7 @@ export const TEXT_INDENT_UNIT = "  ";
 /**
  * Truncates text to a maximum display width using an explicit ellipsis.
  *
- * The helper is intentionally display-width naive: Gitminal's chrome is printable ASCII, so one
+ * The helper is intentionally display-width naive: Gitminal's chrome is single-cell, so one
  * character occupies one cell. Callers that render user text in a wide-character context should
  * measure it first. The returned string never exceeds `maxWidth`.
  *

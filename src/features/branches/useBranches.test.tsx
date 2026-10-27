@@ -237,14 +237,14 @@ describe("useBranches registration", () => {
 });
 
 describe("useBranches rows and availability", () => {
-  it("orders the current branch first and reports the delete reasons from availability", async () => {
+  it("orders the current branch first and hides the current-branch delete reason", async () => {
     const { client } = createRecordingClient();
     const setup = await renderHarness(client);
 
     await waitFor(setup, () => (handle?.items.length ?? 0) === 2);
 
     expect(handle?.items.map((item) => item.id)).toEqual(["main", "feature"]);
-    expect(handle?.selectedDeleteReason).toBe("Cannot delete the current branch");
+    expect(handle?.selectedDeleteReason).toBeNull();
 
     await runAction("nav.down");
 

@@ -82,7 +82,7 @@ Forbidden imports and key access (enforced by the section 12 scripts):
 
   `src/test/**` is test-only. It has no layer import rule of its own, so this builtin allowlist does not apply there. Every module under `src/test/**` remains subject to the spawn and network checks, and `src/test/git.fixture.ts` is the documented spawn exception.
 
-- Non-ASCII or box-drawing glyph literals outside `src/theme/icons.ts`; reusable printable-ASCII markers must also come from `ICONS`.
+- Non-ASCII or box-drawing glyph literals outside `src/theme/icons.ts`, other than ordinary UI text; every reusable marker must also come from `ICONS`. The catalog holds exactly three non-ASCII values: the push and pull arrows and the success check mark.
 
 ## 4. Enforced folder structure
 
@@ -791,7 +791,7 @@ All icons, markers, and glyphs live in exactly one file: `src/theme/icons.ts`. I
 Rules:
 
 1. Single source. `src/theme/icons.ts` is the only place a reusable icon or marker value is defined. Components import `ICONS` from `@/theme/icons` and never inline a reusable marker. The glyph check in section 12 fails on non-ASCII and box-drawing characters outside this file; printable ASCII UI text is allowed, and intent is enforced by review.
-2. ASCII-safe. Every value uses printable ASCII only. No unicode arrows, box-drawing characters, emoji, or Nerd Font glyphs. This is required by the safety rules in section 10.
+2. Single cell, single line, nearly all ASCII. Every value is printable ASCII, with one documented exception: three pictographs. `push` and `pull` use the upward and downward arrows, which are in WGL4 and CP437, so mainstream terminal fonts and the Linux console font both draw them. `success` uses the check mark, which is outside WGL4 and CP437 but present in Consolas, Menlo, DejaVu Sans Mono, JetBrains Mono, and the other mainstream monospace fonts. All three are East Asian Ambiguous, and OpenTUI's `unicode` and `wcwidth` width methods both measure them as one cell. Every other value stays ASCII: no other arrows, no box-drawing characters, no emoji, and no Nerd Font glyphs. The only terminals that cannot draw a pictograph are ones with no UTF-8 path at all, such as a serial console, a non-UTF-8 locale, or a legacy Windows console on a Western codepage or a raster font; there the glyph degrades to a replacement box, which is acceptable because every use is paired with the words Pull, Push, up to date, exit 0, or ahead/behind. Review rejects any further non-ASCII value.
 3. Never the only signal. Every icon that conveys state is rendered next to, or has, a text equivalent. Color is never the only signal either. For example the missing-upstream icon `[?]` is always shown with the words "upstream not found" or "remote branch deleted". This pairing is a design and review rule, not a machine-checked test, because the text equivalent is written where the icon is used.
 4. Plain data, no hook. `ICONS` is a static module, so both UI and non-UI code can read it. It is not resolved through React. Because it lives in the theme folder, a future user-override layer can be added in `ThemeProvider` without changing consumers.
 5. User overrides are deferred. v1 centralizes icons in the file but does not read them from user configuration. Making them user-configurable would extend `theme.json` with an optional `icons` object and requires a change to this section.
@@ -807,8 +807,8 @@ Required `ICONS` groups and their default values:
 | File status | `modified`, `added`, `deleted`, `renamed`, `copied`, `conflicted`, `untracked` | `M`, `A`, `D`, `R`, `C`, `U`, `?` |
 | Diff | `diffAdd`, `diffRemove`, `diffContext`, `diffNoNewline` | `+`, `-`, ` `, `\ No newline at end of file` |
 | Tag scope | `tagLocal`, `tagRemote`, `tagUnpushed`, `tagLocalOnly` | `local`, `remote`, `unpushed`, `local only` |
-| Remote actions | `push`, `pull` | `^`, `v` |
-| Operation status | `success`, `warning`, `warningMarker`, `error`, `info`, `pending`, `running`, `done` | `v`, `!`, `[!]`, `x`, `i`, `[ ]`, `[..]`, `[v]` |
+| Remote actions | `push`, `pull` | `↑`, `↓` (non-ASCII; rule 2) |
+| Operation status | `success`, `warning`, `warningMarker`, `error`, `info`, `pending`, `running`, `done` | `✓` (non-ASCII; rule 2), `!`, `[!]`, `x`, `i`, `[ ]`, `[..]`, `[v]` |
 | Spinner | `spinnerFrames` | `["|", "/", "-", "\\"]` |
 | Toggle | `checkboxOn`, `checkboxOff` | `[x]`, `[ ]` |
 | Overflow | `badgeOverflow` | `+` |
@@ -830,7 +830,7 @@ Consumers, all of which read from `ICONS`:
 - `src/features/diff/DiffFileRow.tsx` renders file status letters.
 - `src/features/console/ConsoleOutput.tsx` and `ConsoleOutputBlock.tsx` render `omittedLines`.
 
-Tests: `src/theme/icons.test.ts` asserts that every required group and key from section 6.1 is present, that every value is printable ASCII, and that array values are non-empty and frozen.
+Tests: `src/theme/icons.test.ts` asserts that every required group and key from section 6.1 is present, that the push, pull, and success pictographs are the only non-ASCII values and are one cell wide, that every other value is printable ASCII, and that array values are non-empty and frozen.
 
 ## 7. UI primitive catalog
 
@@ -839,7 +839,7 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | Primitive | OpenTUI composition | Purpose |
 | --- | --- | --- |
 | `Panel` | `<box>` with border, optional `focusable`, stable `id`, `focusedBorderColor`, border title | Bordered region with a native focus-aware border and a title embedded in the top border (`┌─ Title ────────┐`). The border switches to the focus token and the title to the `text` token while the region owns focus, and the title stays `muted` otherwise. The title text is identical in both focus states. Region frames pass `focusable` and the region id. |
-| `ListRow` | `<box>` + `<text>` + `<span>` | Row with marker, columns, actions. Marker from `ICONS` in `@/theme/icons`. The selected row uses the dark `surface` token as its background, so the fill stays subtle and the marker carries the selection signal. Native selects and focused buttons keep the `selection` token; the list-row fill is the deliberate exception. |
+| `ListRow` | `<box>` + `<text>` + `<span>` | Row with marker, columns, actions. Marker from `ICONS` in `@/theme/icons`. The selected row uses the dark `surface` token as its background, so the fill stays subtle and the marker carries the selection signal. A caller that renders its own leading marker passes `showMarker={false}`; `BranchRow` does this so the current-branch `*` or worktree `+` is the only leading glyph and the dark fill alone marks the selected row. Native selects and focused buttons keep the `selection` token; the list-row fill is the deliberate exception. |
 | `ScrollableList` | `<scrollbox>` | Plain scroll container. |
 | `Button` | `<box>` + `<text>` | Filled text or icon-only button with a raised background, one cell of horizontal padding, a focused background and bold label, and mouse activation. Never adds a text marker. Not natively focusable: the owning feature keeps the focused control index. |
 | `ButtonRow` | `<box>` + `Button` children | Horizontal action group with a small gap; presentational only. |
@@ -1088,8 +1088,8 @@ M4 deviations, recorded here per the last rule in this document:
 - `@/domain/theme/theme.catppuccin.ts` is the only place hex colors exist. It defines the four flavors and the token table from F-20.
 - `@/domain/theme/theme.capability.ts` detects truecolor, 256-color, and monochrome, and honors `NO_COLOR`; `theme.capability.palette.ts` owns the xterm-256 nearest-color search. Token resolution returns final colors per capability, and `ThemeProvider` memoizes the truecolor resolution and the capability mapping separately.
 - UI reads colors only through `useTokens()`. No component holds a hex literal. `Swatch` is the only UI primitive that paints a caller-supplied color, and it falls back to the `ICONS.swatch` marker when the capability has no color.
-- The sidebar `ListRow` selected fill uses `surface` as a deliberate exception to the generic selected-row `selection` token; native selects and focused buttons still use `selection`. `THEME_TOKEN_TARGETS` and product F-20 record the exception.
-- `@/theme/icons.ts` is the single configuration file for every icon, marker, and glyph. No component inlines a glyph. Icons are ASCII-only and always have a text equivalent; the pairing is enforced by review, not by a module test. See section 6.1.
+- The sidebar `ListRow` selected fill uses `surface` as a deliberate exception to the generic selected-row `selection` token; native selects and focused buttons still use `selection`. `THEME_TOKEN_TARGETS` and product F-20 record the exception. `BranchRow` additionally suppresses the `ListRow` selection marker because its one-cell current or worktree marker and the dark fill already identify the row.
+- `@/theme/icons.ts` is the single configuration file for every icon, marker, and glyph. No component inlines a glyph. Icons are single-line, single-cell values, printable ASCII apart from the three documented push, pull, and success pictographs, and always have a text equivalent; the pairing is enforced by review, not by a module test. See section 6.1.
 - The theme picker previews by swapping tokens in `ThemeProvider` without writing the file; Enter persists through `config.writer.ts`. `ThemeProvider` exposes `preview(name)`, `commit(name)`, and `restore(previous)` as session-only controls read through `useThemeControls()`, and `src/app/hooks/useThemePickerAction.tsx` is the single owner of the global `app.themePicker` action that opens it as an `OverlayModalEntry`. The picker registers only overlay-scoped handlers, and a failed write keeps the theme for the session with the documented warning.
 
 ## 12. Enforcement
@@ -1131,7 +1131,7 @@ Rules:
   - files named `utils`, `helpers`, `common`, or `misc`.
   - top-level functions, class methods, and exported arrow functions without a JSDoc block, checked with the TypeScript AST. Colocated `*.test.*` files are exempt. Function body size is not machine-checked; fallow owns complexity and size findings for production files. Test files are exempt from the split guidance but are still reported by fallow as review signals.
   - `bun:test` and `node:test` imports are allowed in colocated `*.test.*` files and modules under `src/test/`; these imports are test-only and rejected from every production module. Colocated test files and `src/test/**` modules may also import the shared fixture under `src/test/**`; every other external and local import still follows the layer rule.
-- `scripts/check-glyph.ts` (`bun run check:glyph`) walks string, template, and JSX text literals in every `.ts`, `.tsx`, `.js`, and `.jsx` file under `src/` with the TypeScript AST and fails on non-ASCII codepoints outside `src/theme/icons.ts`. It deliberately allows printable ASCII punctuation and letters such as `>`, `v`, `M`, `[?]`, and `|`; those are UI text in many places and cannot be distinguished mechanically from icon values. Icon intent is enforced by review and by the rule that all reusable markers come from `ICONS`.
+- `scripts/check-glyph.ts` (`bun run check:glyph`) walks string, template, and JSX text literals in every `.ts`, `.tsx`, `.js`, and `.jsx` file under `src/` with the TypeScript AST and fails on non-ASCII codepoints outside `src/theme/icons.ts`. It deliberately allows printable ASCII punctuation and letters such as `>`, `v`, `M`, `[?]`, and `|`; those are UI text in many places and cannot be distinguished mechanically from icon values. Icon intent is enforced by review and by the rule that all reusable markers come from `ICONS`. The catalog is the only exempt file, so the three pictograph values stay legal there while any other non-ASCII literal under `src/` still fails.
 - `scripts/check-structure.ts` (`bun run check:structure`) reads `ARCHITECTURE.md`: the section 4 tree and the section 15 feature ownership map. It fails when an implemented source file under `src/` or `scripts/`, including a `.js` or `.jsx` file, is absent from the section 4 tree, or when an implemented feature folder has no section 15 ownership entry. Colocated `*.test.*` files are excluded from the unlisted-file scan. If the architecture document is missing or unreadable, or the section 4 or section 15 heading, fence, or table cannot be parsed, it reports a file diagnostic against `ARCHITECTURE.md` instead of throwing. It warns for planned paths that do not exist yet; `--strict` promotes those warnings to errors for the v1 freeze. It compresses a missing planned folder to one warning instead of one per planned file.
 - Review checklist for every change: layer direction respected, action IDs and command targets used instead of raw keys, exactly one handler per action and scope, tokens used instead of colors, icons used from `@/theme/icons` instead of inline reusable glyphs, JSDoc present on every production function and method (test files are exempt), oversized production functions split (test files are exempt from the split guidance), states covered, tests added for domain logic, region frames focusable with stable ids, and no application code writes `activeRegion` directly or calls `focus()` from a mouse handler.
 

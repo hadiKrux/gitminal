@@ -13,6 +13,7 @@ import { TOP_BAR_PROGRESS_ID } from "@/features/top-bar/TopBarStatus.constants";
 import { readTopBarStatusMode } from "@/features/top-bar/topBar.status";
 import type { TopBarStatusMode } from "@/features/top-bar/useTopBar.types";
 import { ShellTestProviders } from "@/test/shell.harness";
+import { ICONS } from "@/theme/icons";
 
 /**
  * Builds a loaded repository snapshot.
@@ -286,10 +287,10 @@ describe("TopBarStatus", () => {
 
   it("renders a marker and the message for each status kind", async () => {
     const expected: Readonly<Record<StatusKind, string>> = {
-      success: "v saved",
-      warning: "! no remote",
-      error: "x push failed",
-      info: "i creating upstream",
+      success: `${ICONS.success} saved`,
+      warning: `${ICONS.warning} no remote`,
+      error: `${ICONS.error} push failed`,
+      info: `${ICONS.info} creating upstream`,
     };
 
     for (const [statusKind, text] of Object.entries(expected) as readonly [StatusKind, string][]) {

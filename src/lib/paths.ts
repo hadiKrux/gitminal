@@ -89,7 +89,7 @@ export function toHomeRelativePath(value: string, homeDir: string = os.homedir()
  *
  * Paths are read from the tail because the last segment names the repository, so a clipped
  * repository path still tells the user where they are. The helper is display-width naive for the
- * same reason as `truncateText`: Gitminal's chrome is printable ASCII, so one character occupies one
+ * same reason as `truncateText`: Gitminal's chrome is single-cell, so one character occupies one
  * cell.
  *
  * @param value - Absolute or relative path to shorten.

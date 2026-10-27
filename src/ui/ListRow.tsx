@@ -5,17 +5,18 @@ import { TextMarker } from "@/ui/TextMarker";
 /**
  * Renders one custom-content list row with a selection marker and background.
  *
- * The leading marker comes from `TextMarker`: the cursor row shows the selection marker, and a row
- * in a focused region colors that marker with the focus token. The selected row also receives the
- * dark `surface` background token rather than the brighter `selection` token, so a selected row
- * reads as a subtle dark fill and the marker carries the selection signal. The caller composes the
- * row content, including any column split or detail line.
+ * The leading marker comes from `TextMarker` by default: the cursor row shows the selection marker,
+ * and a row in a focused region colors that marker with the focus token. A caller that renders its
+ * own leading state marker can pass `showMarker={false}`; the selected row still keeps the dark
+ * `surface` fill. The selected row also receives the dark `surface` background token rather than
+ * the brighter `selection` token, so a selected row reads as a subtle dark fill. The caller composes
+ * the row content, including any column split or detail line.
  *
  * A supplied mouse handler only selects or dispatches in the owning feature. This primitive never
  * calls `focus()` and never writes focus state, because OpenTUI native focus follows the click and
  * the region frame owns the focus ring.
  *
- * @param props - Row content, selection and focus flags, optional id, and an optional mouse handler.
+ * @param props - Row content, selection and focus flags, optional id, marker flag, and mouse handler.
  * @returns The composed list row.
  */
 export function ListRow(props: {
@@ -23,6 +24,7 @@ export function ListRow(props: {
   readonly selected?: boolean;
   readonly focused?: boolean;
   readonly id?: string;
+  readonly showMarker?: boolean;
   readonly onMouseDown?: () => void;
 }): ReactNode {
   const tokens = useTokens();
@@ -38,7 +40,9 @@ export function ListRow(props: {
       backgroundColor={selected ? tokens.surface : undefined}
       onMouseDown={props.onMouseDown}
     >
-      <TextMarker focused={selected && props.focused === true} selected={selected} />
+      {props.showMarker === false ? null : (
+        <TextMarker focused={selected && props.focused === true} selected={selected} />
+      )}
       <box flexDirection="column" flexGrow={1} flexShrink={1}>
         {props.children}
       </box>
