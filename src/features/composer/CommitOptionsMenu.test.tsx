@@ -180,9 +180,31 @@ describe("CommitOptionsMenu", () => {
     });
   });
 
-  it("focuses Cancel by default so Enter cancels without running anything", async () => {
+  it("focuses the variant list first so Enter runs the highlighted variant", async () => {
+    const setup = await renderMenu();
+    const select = readSelect(setup);
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(COMPOSER_MENU_SELECT_ID);
+    expect(ran).toEqual([]);
+
+    await act(async () => {
+      select?.selectCurrent();
+    });
+
+    expect(ran).toEqual(["commit.submit"]);
+    expect(cancelled).toBe(0);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("reaches Run and Cancel from the focused list with Left and Right", async () => {
     const setup = await renderMenu();
 
+    await act(async () => {
+      resolveActionHandler("nav.right", "overlay")?.();
+    });
     await act(async () => {
       resolveActionHandler("nav.activate", "overlay")?.();
     });

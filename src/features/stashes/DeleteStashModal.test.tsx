@@ -142,4 +142,27 @@ describe("DeleteStashModal", () => {
       await setup.dispose();
     });
   });
+
+  it("moves between the drop and cancel actions with Up and Down", async () => {
+    const setup = await renderModal();
+
+    await runOverlayAction(setup, "nav.up");
+
+    expectActionFocused(setup, "Drop stash", true);
+    expectActionFocused(setup, "Cancel", false);
+
+    await runOverlayAction(setup, "nav.down");
+
+    expectActionFocused(setup, "Drop stash", false);
+    expectActionFocused(setup, "Cancel", true);
+
+    await runOverlayAction(setup, "nav.up");
+    await runOverlayAction(setup, "nav.activate");
+
+    expect(droppedObjectName).toBe(STASH.objectName);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
 });

@@ -1,4 +1,5 @@
-import { TextareaRenderable } from "@opentui/core";
+import type { KeyEvent } from "@opentui/core";
+import { SelectRenderable, TabSelectRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { readInputMode } from "@/app/hooks/inputMode.registry";
 import type { InputMode } from "@/app/hooks/inputMode.types";
@@ -10,7 +11,7 @@ import { useKeymap } from "@/app/hooks/useKeymap";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { lookupBindingKey, readKeyEvent } from "@/domain/keymap/keymap.parse";
 import type { KeyEventLike, KeymapContext, ResolvedKeymap } from "@/domain/keymap/keymap.types";
-import type { RegionId } from "@/features/shell/focus.types";
+import type { FocusState, RegionId } from "@/features/shell/focus.types";
 import { outdentLeadingIndent, TEXT_INDENT_UNIT } from "@/lib/text";
 
 /** App actions that may fire while a text input owns keys, when their binding has a modifier. */
@@ -31,9 +32,10 @@ const NATIVE_LIST_ACTIONS: ReadonlySet<string> = new Set([
   "nav.first",
   "nav.last",
   "nav.activate",
-  "nav.left",
-  "nav.right",
 ]);
+
+/** Actions only a focused native tab select consumes; a plain select leaves them to the app. */
+const NATIVE_TAB_SELECT_ACTIONS: ReadonlySet<string> = new Set(["nav.left", "nav.right"]);
 
 /** Global actions that stay reachable while an overlay owns keys. */
 const OVERLAY_ALLOWED_ACTIONS: ReadonlySet<string> = new Set(["overlay.close", "app.quit"]);
@@ -72,6 +74,11 @@ const CLOSE_ACTION_ID = "overlay.close";
  * `app.quit`, and the same overlay's toggle resolve from the global context; inside a modal text
  * field, `overlay.close` on `Esc`, the hardcoded `Ctrl+C` quit path, and modifier-gated
  * text-input-safe actions may also resolve, and a plain unmodified global action never does.
+ *
+ * Native widget and text-input ownership are read from the renderer at key time rather than from the
+ * `FocusProvider` projection. A focus move is applied synchronously by the renderer but reaches the
+ * projection on its next render, so a key that arrives in the same input burst as the focus move
+ * would otherwise be routed by stale state and could be handled by the surface that just lost focus.
  */
 export function useHotkeys(): void {
   const keymap = useKeymap();
@@ -80,42 +87,118 @@ export function useHotkeys(): void {
   const renderer = useRenderer();
 
   useKeyboard((key) => {
-    if (state.textInputFocused && state.multilineInputFocused && isTabEvent(key)) {
-      const editor = renderer.currentFocusedEditor;
+    const focus = readLiveFocus(renderer);
 
-      if (editor instanceof TextareaRenderable) {
-        applyTextareaIndent(editor, key.shift);
-        key.preventDefault();
-      }
-
+    if (applyTextInputIndent(renderer, state.multilineInputFocused, focus.textInputFocused, key)) {
       return;
     }
 
-    const resolution = resolveHotkeyAction({
-      keymap,
-      key,
-      activeRegion: state.activeRegion,
-      textInputFocused: state.textInputFocused,
-      textInputMode: readInputMode(state.focusedRenderableId),
-      nativeListFocused: state.nativeListFocused,
-      focusInsideRegion: state.focusInsideRegion,
-      overlayOpen: overlay.isOpen,
-      overlayToggleActionId: overlay.toggleActionId ?? undefined,
-    });
-
-    if (resolution === null) {
-      return;
-    }
-
-    const handler = resolveActionHandler(resolution.actionId, resolution.scope);
-
-    if (handler === undefined) {
-      return;
-    }
-
-    key.preventDefault();
-    handler();
+    dispatchBoundAction({ keymap, key, state, overlay, focus });
   });
+}
+
+/** Focus facts read from the renderer at key time rather than from the React projection. */
+interface LiveFocus {
+  /** Renderable id that currently owns native focus, or null. */
+  readonly focusedId: string | null;
+  /** True while an editor owns focus. */
+  readonly textInputFocused: boolean;
+  /** True while a select or tab select owns focus. */
+  readonly nativeListFocused: boolean;
+  /** True while a tab select owns focus. */
+  readonly nativeTabSelectFocused: boolean;
+}
+
+/**
+ * Reads the focused widget and editor from the renderer.
+ *
+ * The renderer applies a focus move synchronously, while the `FocusProvider` projection reaches
+ * React on its next render. Reading the authority at key time keeps a key that arrives in the same
+ * input burst as the focus move on the surface that now owns it.
+ *
+ * @param renderer - Active renderer.
+ * @returns The live focus facts used for key ownership.
+ */
+function readLiveFocus(renderer: ReturnType<typeof useRenderer>): LiveFocus {
+  const focused = renderer.currentFocusedRenderable;
+
+  return {
+    focusedId: focused?.id ?? null,
+    textInputFocused: renderer.currentFocusedEditor !== null,
+    nativeListFocused:
+      focused instanceof SelectRenderable || focused instanceof TabSelectRenderable,
+    nativeTabSelectFocused: focused instanceof TabSelectRenderable,
+  };
+}
+
+/**
+ * Applies Tab indentation or outdent while a multiline editor owns focus.
+ *
+ * @param renderer - Active renderer.
+ * @param multilineInputFocused - True while the projection reports a textarea.
+ * @param textInputFocused - True while an editor owns live focus.
+ * @param key - Physical key event.
+ * @returns True when the key was an indentation key and was consumed.
+ */
+function applyTextInputIndent(
+  renderer: ReturnType<typeof useRenderer>,
+  multilineInputFocused: boolean,
+  textInputFocused: boolean,
+  key: KeyEvent,
+): boolean {
+  if (!multilineInputFocused || !textInputFocused || !isTabEvent(key)) {
+    return false;
+  }
+
+  const editor = renderer.currentFocusedEditor;
+
+  if (!(editor instanceof TextareaRenderable)) {
+    return false;
+  }
+
+  applyTextareaIndent(editor, key.shift);
+  key.preventDefault();
+
+  return true;
+}
+
+/**
+ * Resolves one key and runs the handler for the resolved action and scope.
+ *
+ * @param input - Keymap, key event, focus projection, live focus facts, and overlay state.
+ */
+function dispatchBoundAction(input: {
+  readonly keymap: ResolvedKeymap;
+  readonly key: KeyEvent;
+  readonly state: FocusState;
+  readonly overlay: ReturnType<typeof useOverlay>;
+  readonly focus: LiveFocus;
+}): void {
+  const resolution = resolveHotkeyAction({
+    keymap: input.keymap,
+    key: input.key,
+    activeRegion: input.state.activeRegion,
+    textInputFocused: input.focus.textInputFocused,
+    textInputMode: readInputMode(input.focus.focusedId),
+    nativeListFocused: input.focus.nativeListFocused,
+    nativeTabSelectFocused: input.focus.nativeTabSelectFocused,
+    focusInsideRegion: input.state.focusInsideRegion,
+    overlayOpen: input.overlay.isOpen,
+    overlayToggleActionId: input.overlay.toggleActionId ?? undefined,
+  });
+
+  if (resolution === null) {
+    return;
+  }
+
+  const handler = resolveActionHandler(resolution.actionId, resolution.scope);
+
+  if (handler === undefined) {
+    return;
+  }
+
+  input.key.preventDefault();
+  handler();
 }
 
 /**
@@ -150,11 +233,7 @@ export function resolveHotkeyAction(input: HotkeyResolutionInput): HotkeyResolut
   const activeRegion = focusInsideRegion ? input.activeRegion : null;
   const resolution = resolveRegionAction(input.keymap, activeRegion, lookupKey);
 
-  if (
-    resolution !== null &&
-    input.nativeListFocused &&
-    NATIVE_LIST_ACTIONS.has(resolution.actionId)
-  ) {
+  if (resolution !== null && isNativeOwnedAction(input, resolution.actionId)) {
     return null;
   }
 
@@ -215,7 +294,7 @@ function resolveOverlayOwnedAction(
     return { actionId, scope: "global" };
   }
 
-  if (input.nativeListFocused && NATIVE_LIST_ACTIONS.has(actionId)) {
+  if (isNativeOwnedAction(input, actionId)) {
     return null;
   }
 
@@ -224,6 +303,27 @@ function resolveOverlayOwnedAction(
   }
 
   return { actionId, scope: "overlay" };
+}
+
+/**
+ * Reports whether the focused native widget consumes an action before the app dispatcher.
+ *
+ * A plain select owns the vertical navigation and activation keys. Left and Right belong to a tab
+ * select only, so an overlay keeps its horizontal control rule while a plain select is focused.
+ *
+ * @param input - Resolution inputs carrying the focused native widget kind.
+ * @param actionId - Action bound to the pressed key.
+ * @returns True when the native widget should receive the key untouched.
+ */
+function isNativeOwnedAction(input: HotkeyResolutionInput, actionId: string): boolean {
+  if (!input.nativeListFocused) {
+    return false;
+  }
+
+  return (
+    NATIVE_LIST_ACTIONS.has(actionId) ||
+    (input.nativeTabSelectFocused === true && NATIVE_TAB_SELECT_ACTIONS.has(actionId))
+  );
 }
 
 /**

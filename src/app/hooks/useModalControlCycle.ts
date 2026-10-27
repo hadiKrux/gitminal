@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useActions } from "@/app/hooks/useAction";
 import type { ActionBatchRegistration } from "@/app/hooks/useAction.types";
 import type {
@@ -16,11 +16,16 @@ const OVERLAY_SCOPE = "overlay" as const;
  *
  * Up and Down step through the caller's visible control order and clamp at both ends, so a hidden
  * control can never take focus. Left and Right defer to the caller's horizontal rule, because the
- * three modals differ there: some always focus a footer action, while others move between a select
- * and the footer. The hook registers `nav.up`, `nav.down`, `nav.left`, and `nav.right` in the overlay
+ * callers differ there: some always focus a footer action, while others move between a select and
+ * the footer. The hook registers `nav.up`, `nav.down`, `nav.left`, and `nav.right` in the overlay
  * scope; a caller that owns the vertical keys itself sets `registerVerticalNavigation` to false so
- * the cycle registers only the horizontal pair and no duplicate registration is rejected. Activation,
- * submission, and native focus stay with the caller.
+ * the cycle registers only the horizontal pair and no duplicate registration is rejected. Activation
+ * and submission stay with the caller; native focus belongs to `onControlChange`.
+ *
+ * The current control is tracked in a ref as well as state, so two keys that arrive in one input
+ * burst step from the control the first key committed instead of from the value the last render
+ * observed. `onControlChange` runs synchronously from the key handler, which lets a caller move
+ * native focus into a select before the next key is dispatched.
  *
  * @param options - Visible order, initial control, vertical ownership, and the horizontal rule.
  * @returns The current control.
@@ -29,21 +34,31 @@ export function useModalControlCycle<TControl extends string>(
   options: ModalControlCycleOptions<TControl>,
 ): ModalControlCycle<TControl> {
   const [control, setControl] = useState<TControl>(options.initial);
+  const controlRef = useRef<TControl>(options.initial);
+
+  const applyControl = useCallback(
+    (next: TControl): void => {
+      controlRef.current = next;
+      setControl(next);
+      options.onControlChange?.(next);
+    },
+    [options],
+  );
 
   const move = useCallback(
     (delta: number): void => {
-      setControl((current) => stepControl(options.order, current, delta));
+      applyControl(stepControl(options.order, controlRef.current, delta));
     },
-    [options.order],
+    [applyControl, options.order],
   );
 
   const runHorizontal = useCallback(
     (direction: ModalControlDirection): void => {
-      const resolution = options.onHorizontal?.({ control, direction });
+      const resolution = options.onHorizontal?.({ control: controlRef.current, direction });
 
-      applyResolution(resolution, setControl, move);
+      applyResolution(resolution, applyControl, move);
     },
-    [control, move, options],
+    [applyControl, move, options],
   );
 
   const registerVertical = options.registerVerticalNavigation !== false;
@@ -54,7 +69,7 @@ export function useModalControlCycle<TControl extends string>(
 
   useActions(registrations);
 
-  return { control, move };
+  return { control, move, focusControl: applyControl };
 }
 
 /**
@@ -92,12 +107,12 @@ function buildControlRegistrations(
  * Applies one horizontal resolution to the control state.
  *
  * @param resolution - Caller rule result, or undefined when the modal has no horizontal rule.
- * @param setControl - State setter for the focused control.
+ * @param applyControl - Operation that records the control and notifies the caller.
  * @param move - Offset operation used by a `step` resolution.
  */
 function applyResolution<TControl extends string>(
   resolution: ModalControlResolution<TControl> | undefined,
-  setControl: (control: TControl) => void,
+  applyControl: (control: TControl) => void,
   move: (delta: number) => void,
 ): void {
   if (resolution === undefined || resolution.kind === "none") {
@@ -105,7 +120,7 @@ function applyResolution<TControl extends string>(
   }
 
   if (resolution.kind === "focus") {
-    setControl(resolution.control);
+    applyControl(resolution.control);
 
     return;
   }

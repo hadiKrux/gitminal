@@ -79,9 +79,10 @@ export function NewWorktreeModal(props: NewWorktreeModalProps): ReactNode {
         selectedIndex={NEW_WORKTREE_BRANCH_MODE_OPTIONS.findIndex(
           (option) => option.value === form.mode,
         )}
+        focused={form.control === "mode"}
         height={2}
         onChange={form.changeMode}
-        onSelect={form.changeMode}
+        onSelect={form.confirmMode}
       />
       {form.mode === "new" ? (
         <FormField
@@ -102,9 +103,10 @@ export function NewWorktreeModal(props: NewWorktreeModalProps): ReactNode {
             id={NEW_WORKTREE_EXISTING_SELECT_ID}
             options={form.existingBranches.map((name) => ({ label: name, value: name }))}
             selectedIndex={Math.max(0, form.existingBranches.indexOf(form.selectedExistingBranch))}
+            focused={form.control === "existing-branch"}
             height={Math.max(2, Math.min(6, form.existingBranches.length))}
             onChange={form.changeExistingBranch}
-            onSelect={form.changeExistingBranch}
+            onSelect={form.confirmExistingBranch}
           />
         </FormField>
       )}

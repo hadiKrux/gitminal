@@ -24,8 +24,10 @@ import { ModalFrame } from "@/ui/ModalFrame";
  * the reason, and the flag set is computed by the executor from the state it reads at action time:
  * no flag for a clean worktree, one `--force` for a dirty one, and `-f -f` for a locked one.
  *
- * Cancel is the default focused action. The modal always states that the branch is kept, because
- * removing a worktree never deletes its branch, and it dispatches only
+ * Cancel is the default focused action for a clean worktree. A dirty or locked worktree focuses the
+ * "Force remove" acknowledgement instead, because it is the control the user must act on and the
+ * delete action stays disabled until it is checked. The modal always states that the branch is kept,
+ * because removing a worktree never deletes its branch, and it dispatches only
  * `runCommand({ commandId: "worktree.delete", ... })` with the documented `force` form key. The
  * state and keyboard cycle live in `useDeleteWorktreeModal`.
  *

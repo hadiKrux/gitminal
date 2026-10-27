@@ -53,7 +53,9 @@ export function DeleteBranchModalBody(props: {
   readonly acknowledgementLine: string | null;
   readonly showForceControl: boolean;
   readonly behindWarning: string | null;
+  readonly scopeFocused: boolean;
   readonly onScopeChange: (value: string) => void;
+  readonly onScopeSelect: (value: string) => void;
   readonly onToggleForce: () => void;
   readonly onConfirm: () => void;
   readonly onClose: () => void;
@@ -81,9 +83,10 @@ export function DeleteBranchModalBody(props: {
         id={DELETE_BRANCH_SCOPE_ID}
         options={readScopeOptions(props.remote, props.remoteReason)}
         selectedIndex={props.scope === DELETE_BRANCH_SCOPE_LOCAL_REMOTE ? 1 : 0}
+        focused={props.scopeFocused}
         height={4}
         onChange={props.onScopeChange}
-        onSelect={props.onScopeChange}
+        onSelect={props.onScopeSelect}
       />
       <TruncatedText
         text={readRemoteLine(props.remote, props.remoteReason)}

@@ -27,6 +27,8 @@ export interface DeleteTagModalProps {
 
 /** State and handlers returned by `useDeleteTagModal`. */
 export interface DeleteTagModalHandle {
+  /** Control that currently owns the keyboard focus. */
+  readonly control: DeleteControl;
   /** Scope choices in display order. */
   readonly scopeOptions: readonly DeleteScopeOption[];
   /** Selected scope. */
@@ -43,8 +45,12 @@ export interface DeleteTagModalHandle {
   readonly actions: readonly ButtonProps[];
   /** Consequence text for the selected scope. */
   readonly consequence: string;
-  /** Records a selected scope value. */
+  /** Records a scope value reported by native navigation without moving focus. */
   selectScope(value: string): void;
-  /** Records a selected remote value. */
+  /** Records a remote value reported by native navigation without moving focus. */
   selectRemote(value: string): void;
+  /** Records a confirmed scope value and returns native focus to the modal frame. */
+  confirmScope(value: string): void;
+  /** Records a confirmed remote value and returns native focus to the modal frame. */
+  confirmRemote(value: string): void;
 }

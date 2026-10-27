@@ -15,6 +15,7 @@ import {
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
 import { ICONS } from "@/theme/icons";
+import { MODAL_FRAME_ID } from "@/ui/ModalFrame.constants";
 
 const SCOPE_ID = "branches-delete-scope";
 const FORCE_ID = "branches-delete-force";
@@ -268,7 +269,7 @@ beforeEach(() => {
 });
 
 describe("DeleteBranchModal", () => {
-  it("starts with Cancel as the default action and names both scopes", async () => {
+  it("starts with the scope select focused and names both scopes", async () => {
     const setup = await renderModal();
     const frame = setup.captureCharFrame();
 
@@ -277,11 +278,50 @@ describe("DeleteBranchModal", () => {
     expect(frame).toContain("Delete local and remote branch");
     expect(frame).toContain("Remote branch: origin/topic");
     expect(frame).not.toContain("Acknowledge to force");
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(SCOPE_ID);
 
+    await runOverlayAction("nav.activate");
+
+    expect(closed).toBe(0);
+    expect(deleted).toBeUndefined();
+
+    await runOverlayAction("nav.right");
+    await runOverlayAction("nav.left");
     await runOverlayAction("nav.activate");
 
     expect(closed).toBe(1);
     expect(deleted).toBeUndefined();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps native focus on the scope select while native navigation changes the scope", async () => {
+    const setup = await renderModal();
+    const select = setup.renderer.root.findDescendantById(SCOPE_ID) as SelectRenderable | undefined;
+
+    if (select === undefined) {
+      throw new Error("scope select is missing");
+    }
+
+    await act(async () => {
+      select.focus();
+    });
+    await act(async () => {
+      select.moveDown();
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(SCOPE_ID);
+    expect(select.getSelectedIndex()).toBe(1);
+
+    await act(async () => {
+      select.selectCurrent();
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(MODAL_FRAME_ID);
 
     await act(async () => {
       await setup.dispose();
@@ -296,6 +336,27 @@ describe("DeleteBranchModal", () => {
     expect(setup.renderer.root.findDescendantById(FORCE_ID)).toBeUndefined();
 
     await runOverlayAction("nav.right");
+    await runOverlayAction("nav.activate");
+
+    expect(deleted).toEqual({ scope: "local", force: false });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("advances from the scope to Delete and submits on the next Enter", async () => {
+    const setup = await renderModal();
+    const select = setup.renderer.root.findDescendantById(SCOPE_ID) as SelectRenderable | undefined;
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("The branch is merged"));
+
+    await act(async () => {
+      select?.focus();
+      select?.selectCurrent();
+      await setup.renderOnce();
+    });
+
     await runOverlayAction("nav.activate");
 
     expect(deleted).toEqual({ scope: "local", force: false });

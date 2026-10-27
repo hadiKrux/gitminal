@@ -5,6 +5,7 @@ import type { TagRowRecord } from "@/domain/git/git.types";
 import { CreateTagModal } from "@/features/tags/CreateTagModal";
 import { CREATE_TAG_NAME_INPUT_ID } from "@/features/tags/CreateTagModal.constants";
 import { DeleteTagModal } from "@/features/tags/DeleteTagModal";
+import { DELETE_TAG_SCOPE_SELECT_ID } from "@/features/tags/DeleteTagModal.constants";
 import { TagRow, tagRowId } from "@/features/tags/TagRow";
 import {
   CREATE_TAG_OVERLAY_ID,
@@ -57,6 +58,7 @@ export function TagsPanel(): ReactNode {
         overlay.open({
           kind: "modal",
           id: `${DELETE_TAG_OVERLAY_ID_PREFIX}${row.name}`,
+          initialFocusId: DELETE_TAG_SCOPE_SELECT_ID,
           render: ({ close }) => <DeleteTagModal row={row} onClose={close} />,
         });
       },

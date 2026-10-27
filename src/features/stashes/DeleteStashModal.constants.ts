@@ -1,3 +1,5 @@
+import type { DeleteStashControl } from "@/features/stashes/DeleteStashModal.types";
+
 /** Renderable id of the primary drop action. */
 export const DELETE_STASH_DROP_BUTTON_ID = "delete-stash-drop";
 
@@ -17,8 +19,11 @@ export const DELETE_STASH_TITLE = "Drop stash";
 export const DELETE_STASH_CONSEQUENCE =
   "This drops the stash and keeps no copy. It cannot be undone.";
 
-/** Footer index of the primary drop action. */
-export const DELETE_STASH_DROP_ACTION_INDEX = 0;
+/** Footer controls in display order; the cycle steps Up and Down through this list. */
+export const DELETE_STASH_CONTROL_ORDER: readonly DeleteStashControl[] = Object.freeze([
+  "drop",
+  "cancel",
+]);
 
-/** Footer index of the cancel action; it is focused when the modal opens. */
-export const DELETE_STASH_CANCEL_ACTION_INDEX = 1;
+/** Control focused when the modal opens, so the destructive action is never the default. */
+export const DELETE_STASH_INITIAL_CONTROL: DeleteStashControl = "cancel";

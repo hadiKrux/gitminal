@@ -43,6 +43,16 @@ export interface ModalControlCycleOptions<TControl extends string> {
   readonly onHorizontal?: (
     input: ModalHorizontalInput<TControl>,
   ) => ModalControlResolution<TControl>;
+  /**
+   * Runs synchronously whenever the focused control changes.
+   *
+   * A caller uses this to move native focus to the new control before the next key is dispatched,
+   * which is what lets a select own Up and Down immediately after the cycle steps onto it. It runs
+   * from the key handler, never during render.
+   *
+   * @param control - Control that now owns the keyboard focus.
+   */
+  readonly onControlChange?: (control: TControl) => void;
 }
 
 /** Control state exposed to a modal. */
@@ -59,4 +69,13 @@ export interface ModalControlCycle<TControl extends string> {
    * @param delta - Offset inside the control order; negative moves up.
    */
   readonly move: (delta: number) => void;
+  /**
+   * Focuses one named control synchronously.
+   *
+   * A select confirmation uses this to hand focus to the next field or to the primary action, so a
+   * second Enter press makes progress instead of refocusing the select that just confirmed.
+   *
+   * @param control - Control that should own the keyboard focus.
+   */
+  readonly focusControl: (control: TControl) => void;
 }

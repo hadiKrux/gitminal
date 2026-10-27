@@ -58,6 +58,7 @@ export function useNewWorktreeForm(props: NewWorktreeModalProps) {
   const existingBranches = useMemo(() => readExistingBranches(snapshot), [snapshot]);
   const fields = useNewWorktreeFields(basePath, existingBranches);
   const controlCycle = useNewWorktreeControl(fields.mode);
+  const { focusRenderable } = useFocusState();
   const blockedReason = readAvailabilityText(
     repository.getAvailability("worktree.create", { kind: "none" }, "worktrees"),
   );
@@ -70,10 +71,37 @@ export function useNewWorktreeForm(props: NewWorktreeModalProps) {
     snapshot,
   });
 
+  /** Confirms the branch mode and moves focus to the field that mode shows. */
+  const confirmMode = useCallback(
+    (value: string): void => {
+      fields.changeMode(value);
+
+      if (value === "existing") {
+        controlCycle.focusControl("existing-branch");
+        return;
+      }
+
+      controlCycle.focusControl("branch");
+      focusRenderable(NEW_WORKTREE_BRANCH_INPUT_ID);
+    },
+    [controlCycle, fields.changeMode, focusRenderable],
+  );
+
+  /** Confirms the selected existing branch and moves focus to the primary action. */
+  const confirmExistingBranch = useCallback(
+    (value: string): void => {
+      fields.changeExistingBranch(value);
+      controlCycle.focusControl("confirm");
+    },
+    [controlCycle, fields.changeExistingBranch],
+  );
+
   return {
     ...fields,
     ...controlCycle,
     ...submit,
+    confirmMode,
+    confirmExistingBranch,
     existingBranches,
     blockedReason,
   };
@@ -87,7 +115,6 @@ export function useNewWorktreeForm(props: NewWorktreeModalProps) {
  * @returns The field values and change handlers.
  */
 function useNewWorktreeFields(basePath: string | null, existingBranches: readonly string[]) {
-  const { focusRenderable } = useFocusState();
   const [mode, setMode] = useState<WorktreeBranchMode>("new");
   const [newBranch, setNewBranch] = useState("");
   const [existingBranch, setExistingBranch] = useState("");
@@ -137,7 +164,6 @@ function useNewWorktreeFields(basePath: string | null, existingBranches: readonl
 
       setMode(nextMode);
       setError(null);
-      focusRenderable(MODAL_FRAME_ID);
 
       if (!pathEdited) {
         setPathValue(
@@ -148,7 +174,7 @@ function useNewWorktreeFields(basePath: string | null, existingBranches: readonl
         );
       }
     },
-    [basePath, focusRenderable, newBranch, pathEdited, selectedExistingBranch],
+    [basePath, newBranch, pathEdited, selectedExistingBranch],
   );
 
   /** Records the selected existing branch and keeps an untouched path in sync with it. */
@@ -156,13 +182,12 @@ function useNewWorktreeFields(basePath: string | null, existingBranches: readonl
     (value: string): void => {
       setExistingBranch(value);
       setError(null);
-      focusRenderable(MODAL_FRAME_ID);
 
       if (!pathEdited) {
         setPathValue(deriveWorktreePath(basePath, value));
       }
     },
-    [basePath, focusRenderable, pathEdited],
+    [basePath, pathEdited],
   );
 
   return {
@@ -186,6 +211,7 @@ function useNewWorktreeFields(basePath: string | null, existingBranches: readonl
  * @returns The focused control and its order.
  */
 function useNewWorktreeControl(mode: WorktreeBranchMode) {
+  const { focusRenderable } = useFocusState();
   const controlOrder = useMemo(
     () =>
       mode === "new"
@@ -195,14 +221,29 @@ function useNewWorktreeControl(mode: WorktreeBranchMode) {
   );
   const cycle = useModalControlCycle<NewWorktreeControl>({
     order: controlOrder,
-    initial: "confirm",
+    initial: "path",
     onHorizontal: ({ direction }) => ({
       kind: "focus",
       control: direction === "left" ? "cancel" : "confirm",
     }),
+    onControlChange: (next) => {
+      if (next === "mode") {
+        focusRenderable(NEW_WORKTREE_MODE_SELECT_ID);
+
+        return;
+      }
+
+      if (next === "existing-branch") {
+        focusRenderable(NEW_WORKTREE_EXISTING_SELECT_ID);
+
+        return;
+      }
+
+      focusRenderable(MODAL_FRAME_ID);
+    },
   });
 
-  return { control: cycle.control, controlOrder };
+  return { control: cycle.control, controlOrder, focusControl: cycle.focusControl };
 }
 
 /**

@@ -12,6 +12,7 @@ import { DeleteWorktreeModal } from "@/features/worktrees/DeleteWorktreeModal";
 import { DELETE_WORKTREE_FORCE_CHECKBOX_ID } from "@/features/worktrees/DeleteWorktreeModal.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
+import { ICONS } from "@/theme/icons";
 
 const CLEAN_PATH = "/home/user/code/clean";
 const DIRTY_PATH = "/home/user/code/dirty";
@@ -149,6 +150,24 @@ async function runOverlayAction(actionId: string): Promise<void> {
 }
 
 /**
+ * Runs one registered overlay action and renders the resulting frame.
+ *
+ * @param setup - Renderer setup.
+ * @param actionId - Overlay action id.
+ */
+async function runOverlayActionWithRender(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  actionId: string,
+): Promise<void> {
+  await act(async () => {
+    resolveActionHandler(actionId, "overlay")?.();
+  });
+  await act(async () => {
+    await setup.renderOnce();
+  });
+}
+
+/**
  * Clicks one renderable by id.
  *
  * @param setup - Renderer setup.
@@ -252,6 +271,29 @@ describe("DeleteWorktreeModal", () => {
 
     expect(calls).toContain(`worktree remove --force ${DIRTY_PATH}`);
     expect(calls).not.toContain(`worktree remove -f -f ${DIRTY_PATH}`);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("focuses the force acknowledgement first and reaches delete with Down", async () => {
+    const { client, calls } = createClient();
+    const setup = await renderModal(buildWorktree({ path: DIRTY_PATH, dirty: true }), client);
+
+    expect(setup.captureCharFrame()).toContain(ICONS.checkboxOff);
+
+    await runOverlayActionWithRender(setup, "nav.activate");
+
+    expect(setup.captureCharFrame()).toContain(ICONS.checkboxOn);
+
+    await runOverlayActionWithRender(setup, "nav.down");
+    await runOverlayActionWithRender(setup, "nav.down");
+    await runOverlayActionWithRender(setup, "nav.activate");
+    await waitFor(setup, () => calls.includes(`worktree remove --force ${DIRTY_PATH}`));
+
+    expect(calls).toContain(`worktree remove --force ${DIRTY_PATH}`);
+    expect(closeCount).toBe(1);
 
     await act(async () => {
       await setup.dispose();

@@ -17,12 +17,13 @@ import { useTokens } from "@/theme/useTokens";
 import type { ButtonProps } from "@/ui/Button.types";
 import { ModalActions } from "@/ui/ModalActions";
 import { ModalFrame } from "@/ui/ModalFrame";
+import { MODAL_FRAME_ID } from "@/ui/ModalFrame.constants";
 
 /** Vertical control order: the variant list, then Run, then Cancel. */
 const MENU_CONTROLS: readonly MenuControl[] = Object.freeze(["select", "run", "cancel"]);
 
-/** Focused control when the menu opens. Cancel is the safe default for an amend-capable menu. */
-const INITIAL_CONTROL: MenuControl = "cancel";
+/** Focused control when the menu opens: the variant list owns the keyboard first. */
+const INITIAL_CONTROL: MenuControl = "select";
 
 /** Modal title shown above the four variants. */
 const MENU_TITLE = "Commit options";
@@ -45,9 +46,10 @@ const UNAVAILABLE_REASON = "not available";
  * files. Highlighting an amend row asks the composer to load the previous message once and show the
  * "Amending <short hash>" indicator; moving back to a normal row restores the pre-menu draft.
  *
- * Cancel is focused by default, and Cancel, Esc, or any other close except Run restores the pre-menu
- * draft through `onDismiss`, which the unmount cleanup calls exactly once. The native select keeps
- * Up, Down, and Enter while it owns focus; the overlay control cycle owns the keys everywhere else.
+ * The variant list owns the keyboard when the menu opens, so Up and Down move the highlight and
+ * Enter runs the highlighted variant. Cancel, Esc, or any other close except Run restores the
+ * pre-menu draft through `onDismiss`, which the unmount cleanup calls exactly once. Left focuses Run
+ * and Right focuses Cancel from any control, so the footer stays reachable from the focused list.
  *
  * @param props - Variants, highlight, run, cancel, and dismiss callbacks.
  * @returns The commit options modal.
@@ -63,6 +65,9 @@ export function CommitOptionsMenu(props: CommitOptionsMenuProps): ReactNode {
     order: MENU_CONTROLS,
     initial: INITIAL_CONTROL,
     onHorizontal: readHorizontalResolution,
+    onControlChange: (next) => {
+      focusRenderable(next === "select" ? COMPOSER_MENU_SELECT_ID : MODAL_FRAME_ID);
+    },
   });
 
   dismissRef.current = props.onDismiss;
@@ -285,13 +290,5 @@ function readFooterActions(input: {
 function readHorizontalResolution(
   input: ModalHorizontalInput<MenuControl>,
 ): ModalControlResolution<MenuControl> {
-  if (input.direction === "right" && input.control === "cancel") {
-    return { kind: "focus", control: "run" };
-  }
-
-  if (input.direction === "left" && input.control === "run") {
-    return { kind: "focus", control: "cancel" };
-  }
-
-  return { kind: "none" };
+  return { kind: "focus", control: input.direction === "left" ? "run" : "cancel" };
 }

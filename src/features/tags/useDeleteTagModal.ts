@@ -1,8 +1,13 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useAction } from "@/app/hooks/useAction";
 import { useCommandRunner } from "@/app/hooks/useCommandRunner";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useModalControlCycle } from "@/app/hooks/useModalControlCycle";
+import type {
+  ModalControlCycle,
+  ModalControlResolution,
+  ModalHorizontalInput,
+} from "@/app/hooks/useModalControlCycle.types";
 import { CONFIRM_LABELS } from "@/domain/commands/confirm.labels";
 import type { TagRowRecord } from "@/domain/git/git.types";
 import {
@@ -33,34 +38,21 @@ import { MODAL_FRAME_ID } from "@/ui/ModalFrame.constants";
  * tag, and the primary action is disabled with the same reason. The remote picker appears only when
  * more than one remote contains the tag; a single remote is named as text so the app never guesses.
  *
+ * The scope and remote selects take native focus whenever their control owns the keyboard, so Up and
+ * Down change the option in place. Native selection changes only record the value; confirming a
+ * selection with Enter advances focus to the remote picker when it is shown, otherwise to the Delete
+ * action, so a second Enter runs the delete instead of refocusing the select. The scope select owns
+ * the keyboard when the modal opens, so Up and Down work without a navigation step and the Delete
+ * action is never the default focus.
+ *
  * @param props - Merged tag row opened by the panel and the overlay close callback.
  * @returns The state, actions, and display text consumed by the modal view.
  */
 export function useDeleteTagModal(props: DeleteTagModalProps): DeleteTagModalHandle {
   const { runCommand } = useCommandRunner();
   const { focusRenderable } = useFocusState();
-  const scopeOptions = buildScopeOptions(props.row);
-  const [scope, setScope] = useState<DeleteScope>(scopeOptions[0]?.value ?? "local");
-  const [remote, setRemote] = useState(props.row.remotes[0] ?? "");
-  const requiresRemote = scope !== "local";
-  const remoteMissing = requiresRemote && props.row.remotes.length === 0;
-  const showRemotePicker = requiresRemote && props.row.remotes.length > 1;
-  const controlOrder = useMemo(
-    () => (showRemotePicker ? DELETE_TAG_FULL_CONTROL_ORDER : DELETE_TAG_COMPACT_CONTROL_ORDER),
-    [showRemotePicker],
-  );
-  const cycle = useModalControlCycle<DeleteControl>({
-    order: controlOrder,
-    initial: "cancel",
-    onHorizontal: ({ control, direction }) => {
-      if (control === "scope" || control === "remote") {
-        return { kind: "step", delta: direction === "left" ? -1 : 1 };
-      }
-
-      return { kind: "focus", control: direction === "left" ? "confirm" : "cancel" };
-    },
-  });
-  const control = cycle.control;
+  const selection = useDeleteTagSelection(props.row, focusRenderable);
+  const { scope, remote, requiresRemote, remoteMissing } = selection;
 
   /** Dispatches the delete command for the selected scope and closes the modal. */
   const submitDelete = useCallback((): void => {
@@ -76,75 +68,226 @@ export function useDeleteTagModal(props: DeleteTagModalProps): DeleteTagModalHan
     props.onClose();
   }, [props, remote, remoteMissing, requiresRemote, runCommand, scope]);
 
-  /** Records the selected scope and returns native focus to the modal frame. */
-  const selectScope = useCallback(
+  useAction("nav.activate", { scope: "overlay" }, () =>
+    runFocusedControl({
+      control: selection.control,
+      showRemotePicker: selection.showRemotePicker,
+      focusRenderable,
+      onCancel: props.onClose,
+      onConfirm: submitDelete,
+    }),
+  );
+
+  return {
+    control: selection.control,
+    scopeOptions: selection.scopeOptions,
+    scope,
+    remote,
+    remoteMissing,
+    requiresRemote,
+    showRemotePicker: selection.showRemotePicker,
+    actions: buildActions({
+      control: selection.control,
+      remoteMissing,
+      onDelete: submitDelete,
+      onCancel: props.onClose,
+    }),
+    consequence: readConsequence(props.row, scope, remote),
+    selectScope: selection.selectScope,
+    selectRemote: selection.selectRemote,
+    confirmScope: selection.confirmScope,
+    confirmRemote: selection.confirmRemote,
+  };
+}
+
+/**
+ * Owns the selected scope and remote, their native navigation, and the keyboard control cycle.
+ *
+ * @param row - Merged tag row the modal deletes.
+ * @param focusRenderable - Focus operation for the active control.
+ * @returns The selection state, derived flags, and the select handlers.
+ */
+function useDeleteTagSelection(
+  row: TagRowRecord,
+  focusRenderable: (id: string) => boolean,
+): {
+  readonly control: DeleteControl;
+  readonly scopeOptions: readonly DeleteScopeOption[];
+  readonly scope: DeleteScope;
+  readonly remote: string;
+  readonly requiresRemote: boolean;
+  readonly remoteMissing: boolean;
+  readonly showRemotePicker: boolean;
+  readonly selectScope: (value: string) => void;
+  readonly selectRemote: (value: string) => void;
+  readonly confirmScope: (value: string) => void;
+  readonly confirmRemote: (value: string) => void;
+} {
+  const scopeOptions = buildScopeOptions(row);
+  const [scope, setScope] = useState<DeleteScope>(scopeOptions[0]?.value ?? "local");
+  const [remote, setRemote] = useState(row.remotes[0] ?? "");
+  const requiresRemote = scope !== "local";
+  const remoteMissing = requiresRemote && row.remotes.length === 0;
+  const showRemotePicker = requiresRemote && row.remotes.length > 1;
+  const cycle = useDeleteTagControl({
+    order: showRemotePicker ? DELETE_TAG_FULL_CONTROL_ORDER : DELETE_TAG_COMPACT_CONTROL_ORDER,
+    showRemotePicker,
+    focusRenderable,
+  });
+
+  /** Records a scope value reported by native navigation. */
+  const selectScope = useCallback((value: string): void => {
+    if (isDeleteScope(value)) {
+      setScope(value);
+    }
+  }, []);
+
+  /** Records a confirmed scope value and moves focus to the next field or the primary action. */
+  const confirmScope = useCallback(
     (value: string): void => {
       if (isDeleteScope(value)) {
         setScope(value);
       }
 
       focusRenderable(MODAL_FRAME_ID);
+      cycle.focusControl(readConfirmedScopeControl(value, row.remotes.length));
     },
-    [focusRenderable],
+    [cycle, focusRenderable, row.remotes.length],
   );
 
-  /** Records the selected remote and returns native focus to the modal frame. */
-  const selectRemote = useCallback(
+  /** Records a remote value reported by native navigation. */
+  const selectRemote = useCallback((value: string): void => {
+    setRemote(value);
+  }, []);
+
+  /** Records a confirmed remote value and moves focus to the primary action. */
+  const confirmRemote = useCallback(
     (value: string): void => {
       setRemote(value);
       focusRenderable(MODAL_FRAME_ID);
+      cycle.focusControl("confirm");
     },
-    [focusRenderable],
+    [cycle, focusRenderable],
   );
 
-  /**
-   * Runs the focused control.
-   *
-   * A select control only receives native focus; Enter is then handled by the select itself, which
-   * opens its own value and reports the choice back. Footer controls run immediately.
-   */
-  const activateFocusedControl = useCallback((): void => {
-    switch (control) {
-      case "scope":
-        focusRenderable(DELETE_TAG_SCOPE_SELECT_ID);
-
-        return;
-      case "remote":
-        if (showRemotePicker) {
-          focusRenderable(DELETE_TAG_REMOTE_SELECT_ID);
-        }
-
-        return;
-      case "cancel":
-        props.onClose();
-
-        return;
-      case "confirm":
-        submitDelete();
-
-        return;
-    }
-  }, [control, focusRenderable, props, showRemotePicker, submitDelete]);
-
-  useAction("nav.activate", { scope: "overlay" }, activateFocusedControl);
-
   return {
+    control: cycle.control,
     scopeOptions,
     scope,
     remote,
-    remoteMissing,
     requiresRemote,
+    remoteMissing,
     showRemotePicker,
-    actions: buildActions({
-      control,
-      remoteMissing,
-      onDelete: submitDelete,
-      onCancel: props.onClose,
-    }),
-    consequence: readConsequence(props.row, scope, remote),
     selectScope,
     selectRemote,
+    confirmScope,
+    confirmRemote,
   };
+}
+
+/**
+ * Builds the keyboard control cycle for the visible controls.
+ *
+ * @param input - Control order, remote picker visibility, and the focus operation.
+ * @returns The cycle with the current control and its operations.
+ */
+function useDeleteTagControl(input: {
+  readonly order: readonly DeleteControl[];
+  readonly showRemotePicker: boolean;
+  readonly focusRenderable: (id: string) => boolean;
+}): ModalControlCycle<DeleteControl> {
+  return useModalControlCycle<DeleteControl>({
+    order: input.order,
+    initial: "scope",
+    onHorizontal: readDeleteHorizontalResolution,
+    onControlChange: (next) => {
+      input.focusRenderable(readDeleteControlFocusId(next, input.showRemotePicker));
+    },
+  });
+}
+
+/**
+ * Applies the modal's left and right rule.
+ *
+ * A select steps through the control order so the footer stays reachable, while a footer action
+ * jumps to the other footer action.
+ *
+ * @param input - Focused control and requested direction.
+ * @returns The control step or focus resolution.
+ */
+function readDeleteHorizontalResolution(
+  input: ModalHorizontalInput<DeleteControl>,
+): ModalControlResolution<DeleteControl> {
+  if (input.control === "scope" || input.control === "remote") {
+    return { kind: "step", delta: input.direction === "left" ? -1 : 1 };
+  }
+
+  return { kind: "focus", control: input.direction === "left" ? "confirm" : "cancel" };
+}
+
+/**
+ * Reads the renderable id that should own native focus for one control.
+ *
+ * @param control - Control that now owns the keyboard.
+ * @param showRemotePicker - Whether the remote picker is rendered.
+ * @returns The renderable id to focus.
+ */
+function readDeleteControlFocusId(control: DeleteControl, showRemotePicker: boolean): string {
+  if (control === "scope") {
+    return DELETE_TAG_SCOPE_SELECT_ID;
+  }
+
+  if (control === "remote" && showRemotePicker) {
+    return DELETE_TAG_REMOTE_SELECT_ID;
+  }
+
+  return MODAL_FRAME_ID;
+}
+
+/**
+ * Reads the control that should follow a confirmed scope.
+ *
+ * @param value - Raw scope value reported by the select.
+ * @param remoteCount - Number of remotes that contain the tag.
+ * @returns The remote picker when it is shown, otherwise the Delete action.
+ */
+function readConfirmedScopeControl(value: string, remoteCount: number): DeleteControl {
+  return isDeleteScope(value) && value !== "local" && remoteCount > 1 ? "remote" : "confirm";
+}
+
+/**
+ * Runs the focused control.
+ *
+ * A select control only receives native focus; Enter is then handled by the select itself, which
+ * reports the confirmed value back through the scope handlers. Footer controls run immediately.
+ *
+ * @param input - Focused control, remote picker visibility, focus operation, and footer handlers.
+ */
+function runFocusedControl(input: {
+  readonly control: DeleteControl;
+  readonly showRemotePicker: boolean;
+  readonly focusRenderable: (id: string) => boolean;
+  readonly onCancel: () => void;
+  readonly onConfirm: () => void;
+}): void {
+  switch (input.control) {
+    case "scope":
+      input.focusRenderable(DELETE_TAG_SCOPE_SELECT_ID);
+
+      return;
+    case "remote":
+      if (input.showRemotePicker) {
+        input.focusRenderable(DELETE_TAG_REMOTE_SELECT_ID);
+      }
+
+      return;
+    case "cancel":
+      input.onCancel();
+
+      return;
+    case "confirm":
+      input.onConfirm();
+  }
 }
 
 /**

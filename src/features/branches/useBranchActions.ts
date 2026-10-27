@@ -8,6 +8,7 @@ import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import type { CommandAvailability } from "@/domain/commands/commands.types";
 import type { BranchRecord, RemoteBranchRecord } from "@/domain/git/git.types";
 import type { RepositorySelection } from "@/domain/repository/repository.types";
+import { DELETE_BRANCH_SCOPE_ID } from "@/features/branches/DeleteBranchModal.constants";
 import type {
   BranchActionsHandle,
   BranchesRepository,
@@ -134,6 +135,7 @@ export function useBranchActions(input: {
     overlay.open({
       kind: "modal",
       id: DELETE_BRANCH_OVERLAY_ID,
+      initialFocusId: DELETE_BRANCH_SCOPE_ID,
       render: ({ close }) =>
         renderDeleteBranchModal({
           branch: selected,

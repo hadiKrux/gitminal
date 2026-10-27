@@ -23,6 +23,13 @@ export interface HotkeyResolutionInput {
   /** True while a native select widget owns focus. */
   readonly nativeListFocused: boolean;
   /**
+   * True while a native tab select owns focus.
+   *
+   * Left and Right are consumed only by a tab select. A plain select binds Up, Down, page, first,
+   * last, and activate, so a modal keeps its horizontal control rule while a select is focused.
+   */
+  readonly nativeTabSelectFocused?: boolean;
+  /**
    * True while the focused renderable is inside a region frame.
    *
    * When false and no overlay owns keys, resolution falls back to globals only so a hidden or

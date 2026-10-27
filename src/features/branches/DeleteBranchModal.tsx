@@ -39,9 +39,10 @@ import { MODAL_FRAME_ID } from "@/ui/ModalFrame.constants";
  * The modal always presents both scopes. The local-and-remote option describes the resolved remote
  * branch, or the reason it is unavailable, in the same order the feature documents: the configured
  * upstream first, then `origin/<branch>` when that remote-tracking ref exists. When the remote scope
- * is unavailable the body states that only the local branch can be deleted. Cancel is the default
- * focused action, the confirm label names the exact scope, and the confirm action is disabled with
- * the availability reason for the current branch or a branch checked out in another worktree.
+ * is unavailable the body states that only the local branch can be deleted. The scope select is the
+ * default focus so Up and Down change the scope immediately, the confirm label names the exact scope,
+ * and the confirm action is disabled with the availability reason for the current branch or a branch
+ * checked out in another worktree. Delete is never the default focus.
  *
  * Merge state is read lazily when the modal opens, against `<upstream-or-HEAD>`, so the snapshot
  * does not pay a merged read per branch. The at-risk list names each commit by short id and a
@@ -82,8 +83,11 @@ export function DeleteBranchModal(props: {
     : DELETE_BRANCH_MERGED_CONTROL_ORDER;
   const cycle = useModalControlCycle<DeleteControl>({
     order: controlOrder,
-    initial: "cancel",
+    initial: "scope",
     onHorizontal: readHorizontalResolution,
+    onControlChange: (next) => {
+      focusRenderable(next === "scope" ? DELETE_BRANCH_SCOPE_ID : MODAL_FRAME_ID);
+    },
   });
   const remoteBlocked = scope === DELETE_BRANCH_SCOPE_LOCAL_REMOTE && props.remote === null;
   const blockedReason = readDeleteBranchBlockingReason({
@@ -120,13 +124,19 @@ export function DeleteBranchModal(props: {
     });
   }, [confirm, cycle.control, focusRenderable, props.onClose]);
 
-  /** Applies the selected scope and returns native focus to the modal frame. */
-  const selectScope = useCallback(
+  /** Applies a scope value reported by native navigation. */
+  const selectScope = useCallback((value: string): void => {
+    setScope(readScope(value));
+  }, []);
+
+  /** Applies a confirmed scope value and moves focus to the primary action. */
+  const confirmScope = useCallback(
     (value: string): void => {
       setScope(readScope(value));
       focusRenderable(MODAL_FRAME_ID);
+      cycle.focusControl("confirm");
     },
-    [focusRenderable],
+    [cycle, focusRenderable],
   );
 
   useAction("nav.activate", { scope: "overlay" }, activate);
@@ -148,7 +158,9 @@ export function DeleteBranchModal(props: {
       acknowledgementLine={readAcknowledgementLine(risk)}
       showForceControl={forceState.requiresAcknowledgement}
       behindWarning={readBehindWarning({ scope, behind: props.branch.behind })}
+      scopeFocused={cycle.control === "scope"}
       onScopeChange={selectScope}
+      onScopeSelect={confirmScope}
       onToggleForce={() => {
         setForce((current) => !current);
       }}

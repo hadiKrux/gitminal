@@ -23,9 +23,12 @@ import { SelectField } from "@/ui/SelectField";
  * and the primary action is disabled with the same reason. The remote picker appears only when more
  * than one remote contains the tag; a single remote is named as text so the app never guesses.
  *
- * The confirmation names the tag and the selected scope, starts with Cancel focused, and dispatches
- * only `runCommand({ commandId: "tag.delete", ... })`. Deleting a tag never deletes the commit it
- * points to. `useDeleteTagModal` owns the state and keyboard cycle.
+ * The confirmation names the tag and the selected scope, starts with the scope select focused so Up
+ * and Down change the scope immediately, and dispatches only
+ * `runCommand({ commandId: "tag.delete", ... })`. Deleting a tag never deletes the commit it points
+ * to. `useDeleteTagModal` owns the state and keyboard cycle; the scope and remote selects take native
+ * focus while their control owns the keyboard, so Up and Down change the option. Enter on a select
+ * moves to the next field or to the Delete action, and the Delete action is never the default focus.
  *
  * @param props - Merged tag row opened by the panel and the overlay close callback.
  * @returns The delete-tag modal.
@@ -43,18 +46,20 @@ export function DeleteTagModal(props: DeleteTagModalProps): ReactNode {
         id={DELETE_TAG_SCOPE_SELECT_ID}
         options={modal.scopeOptions}
         selectedIndex={modal.scopeOptions.findIndex((option) => option.value === modal.scope)}
+        focused={modal.control === "scope"}
         height={modal.scopeOptions.length * 2}
         onChange={modal.selectScope}
-        onSelect={modal.selectScope}
+        onSelect={modal.confirmScope}
       />
       {modal.showRemotePicker ? (
         <SelectField
           id={DELETE_TAG_REMOTE_SELECT_ID}
           options={props.row.remotes.map((name) => ({ label: name, value: name }))}
           selectedIndex={Math.max(0, props.row.remotes.indexOf(modal.remote))}
+          focused={modal.control === "remote"}
           height={props.row.remotes.length * 2}
           onChange={modal.selectRemote}
-          onSelect={modal.selectRemote}
+          onSelect={modal.confirmRemote}
         />
       ) : null}
       {modal.requiresRemote && props.row.remotes.length === 1 ? (

@@ -13,7 +13,11 @@ import {
   describeCommitVariantReason,
   readComposerCommandState,
 } from "./composer.commands";
-import { COMMIT_OPTIONS_ACTION_ID, COMPOSER_MENU_OVERLAY_ID } from "./composer.constants";
+import {
+  COMMIT_OPTIONS_ACTION_ID,
+  COMPOSER_MENU_OVERLAY_ID,
+  COMPOSER_MENU_SELECT_ID,
+} from "./composer.constants";
 import type { ComposerMenuRenderer } from "./composer.types";
 
 /**
@@ -248,6 +252,7 @@ export function useComposerCommands(input: {
       kind: "modal",
       id: COMPOSER_MENU_OVERLAY_ID,
       toggleActionId: COMMIT_OPTIONS_ACTION_ID,
+      initialFocusId: COMPOSER_MENU_SELECT_ID,
       render: ({ close }) =>
         renderOptionsMenu({
           variants,

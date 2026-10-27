@@ -35,7 +35,7 @@ export function useDeleteWorktreeModal(props: DeleteWorktreeModalProps): DeleteW
   const controlOrder = useMemo(() => readControlOrder(forceRequired), [forceRequired]);
   const cycle = useModalControlCycle<DeleteWorktreeControl>({
     order: controlOrder,
-    initial: "cancel",
+    initial: forceRequired ? "force" : "cancel",
     onHorizontal: ({ direction }) => ({
       kind: "focus",
       control: direction === "left" ? "cancel" : "delete",

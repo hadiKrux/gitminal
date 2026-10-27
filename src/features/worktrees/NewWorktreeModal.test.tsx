@@ -384,9 +384,7 @@ describe("NewWorktreeModal", () => {
     const setup = await renderModal(client, "/home/user/code/worktree");
 
     await focusFrame(setup);
-    await runOverlayAction(setup, "nav.up");
-    await runOverlayAction(setup, "nav.up");
-    await runOverlayAction(setup, "nav.up");
+    await runOverlayAction(setup, "nav.down");
     await runOverlayAction(setup, "nav.activate");
 
     expect(setup.renderer.currentFocusedRenderable?.id).toBe(NEW_WORKTREE_MODE_SELECT_ID);
@@ -405,6 +403,37 @@ describe("NewWorktreeModal", () => {
     await runOverlayAction(setup, "nav.right");
 
     expect(closeCount).toBe(0);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps native focus on the mode select while native navigation changes the mode", async () => {
+    const { client } = createClient();
+    const setup = await renderModal(client, "/home/user/code/worktree");
+    const modeSelect = setup.renderer.root.findDescendantById(NEW_WORKTREE_MODE_SELECT_ID) as
+      | SelectRenderable
+      | undefined;
+
+    await act(async () => {
+      modeSelect?.focus();
+    });
+    await act(async () => {
+      modeSelect?.moveDown();
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(NEW_WORKTREE_MODE_SELECT_ID);
+    expect(modeSelect?.getSelectedIndex()).toBe(1);
+    expect(setup.captureCharFrame()).toContain("Existing branch");
+
+    await act(async () => {
+      modeSelect?.selectCurrent();
+      await setup.renderOnce();
+    });
+
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(NEW_WORKTREE_EXISTING_SELECT_ID);
 
     await act(async () => {
       await setup.dispose();
