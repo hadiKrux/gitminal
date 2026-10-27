@@ -60,15 +60,16 @@ export function shortenAuthor(authorName: string): string {
 }
 
 /**
- * Formats one commit timestamp as a compact local date.
+ * Formats one commit timestamp as a compact local date and twelve-hour time.
  *
- * Commits from today show `HH:mm`, commits from the current year show `D Mon`, and older commits
- * show `D Mon YYYY`. The helper uses local calendar fields, so the value follows the terminal
- * machine's timezone like `git log --date=local` would.
+ * Commits from today show `9:30 AM`, commits from the current year show `11 Aug 9:30 AM`, and older
+ * commits show `11 Aug 2025 9:30 AM`. The helper uses local calendar fields, so the value follows the
+ * terminal machine's timezone like `git log --date=local` would. Midnight reads `12:00 AM` and noon
+ * reads `12:00 PM`.
  *
  * @param timestampSeconds - Committer time in seconds since the epoch.
  * @param nowMs - Current clock value in milliseconds.
- * @returns The compact date, or an empty string for an invalid timestamp.
+ * @returns The compact date and time, or an empty string for an invalid timestamp.
  */
 export function formatCommitDate(timestampSeconds: number, nowMs: number): string {
   const date = new Date(timestampSeconds * 1000);
@@ -84,16 +85,33 @@ export function formatCommitDate(timestampSeconds: number, nowMs: number): strin
     date.getDate() === now.getDate();
 
   if (sameDay) {
-    return `${padTwo(date.getHours())}:${padTwo(date.getMinutes())}`;
+    return formatTwelveHourTime(date);
   }
 
   const dayAndMonth = `${date.getDate()} ${readMonthName(date.getMonth())}`;
 
   if (date.getFullYear() === now.getFullYear()) {
-    return dayAndMonth;
+    return `${dayAndMonth} ${formatTwelveHourTime(date)}`;
   }
 
-  return `${dayAndMonth} ${date.getFullYear()}`;
+  return `${dayAndMonth} ${date.getFullYear()} ${formatTwelveHourTime(date)}`;
+}
+
+/**
+ * Formats one local clock time as a twelve-hour time with an `AM` or `PM` marker.
+ *
+ * Midnight becomes `12:00 AM` and noon becomes `12:00 PM`, matching how people read a clock rather
+ * than the zero and twelve that a raw hour field holds. Minutes stay zero-padded.
+ *
+ * @param date - Local date and time to format.
+ * @returns The clock time, for example `9:30 PM`.
+ */
+function formatTwelveHourTime(date: Date): string {
+  const hour = date.getHours();
+  const meridiem = hour < 12 ? "AM" : "PM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+
+  return `${hour12}:${padTwo(date.getMinutes())} ${meridiem}`;
 }
 
 /**

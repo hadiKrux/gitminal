@@ -12,7 +12,9 @@ import { ListRow } from "@/ui/ListRow";
  *
  * The row shows the unstaged count on the first line and the "Commit Changes" label on the second,
  * matching the graph reference. A clean working tree shows "Working tree clean" and the row remains
- * selectable, so the composer stays reachable for staged-only changes and the first commit.
+ * selectable, so the composer stays reachable for staged-only changes and the first commit. The row
+ * suppresses the `ListRow` selection marker, so the dark selected fill and the focused region border
+ * identify the cursor row without a leading glyph.
  *
  * @param props - Unstaged count, selection and focus flags, and the mouse handler.
  * @returns The composed pending row.
@@ -34,6 +36,7 @@ export function PendingChangesRow(props: {
       id={GRAPH_PENDING_ROW_RENDERABLE_ID}
       selected={props.selected}
       focused={props.focused}
+      showMarker={false}
       onMouseDown={props.onMouseDown}
     >
       <box flexDirection="column" flexGrow={1} flexShrink={1}>

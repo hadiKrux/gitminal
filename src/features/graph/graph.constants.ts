@@ -18,6 +18,9 @@ export const GRAPH_SEARCH_DEBOUNCE_MS = 180;
 /** Rows mounted beyond each edge of the visible window. */
 export const GRAPH_OVERSCAN_ROWS = 4;
 
+/** Cells of horizontal padding inside the graph scrollbox on each side. */
+export const GRAPH_CONTENT_PADDING_X = 1;
+
 /** Rows from the bottom that trigger an older-page load. */
 export const GRAPH_NEAR_BOTTOM_ROWS = 6;
 
@@ -83,6 +86,9 @@ export const GRAPH_SEARCH_LOADING_LABEL = "Loading matching commits...";
 
 /** Rows moved by PageUp and PageDown in the flat search result list. */
 export const GRAPH_SEARCH_PAGE_STEP = 10;
+
+/** Quiet interval before a wheel-driven commit selection is dispatched. */
+export const GRAPH_SELECTION_DEBOUNCE_MS = 180;
 
 /** Rows one mouse-wheel notch moves the graph cursor. */
 export const GRAPH_SCROLL_STEP_ROWS = 3;

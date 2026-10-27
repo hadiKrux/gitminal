@@ -81,13 +81,14 @@ async function renderRow(
 }
 
 describe("CommitRow", () => {
-  it("renders lane cells, the selection marker, subject, and file count", async () => {
+  it("renders lane cells, subject, and file count without a selection marker", async () => {
     const row = graphRow({ subject: "Merge pull request #4", fileCount: 17 });
     const setup = await renderRow(view(row, ["*", "|", "\\"]));
     const frame = setup.captureCharFrame();
+    const firstLine = frame.split("\n")[0] ?? "";
 
-    expect(frame).toContain(">");
-    expect(frame).toContain("*");
+    expect(firstLine.startsWith("*")).toBe(true);
+    expect(frame).not.toContain(">");
     expect(frame).toContain("|");
     expect(frame).toContain("\\");
     expect(frame).toContain("Merge pull request #4");
@@ -190,7 +191,7 @@ describe("CommitRow", () => {
     });
   });
 
-  it("formats today as local time, the current year as day and month, and older as a year too", async () => {
+  it("shows a twelve-hour time with the compact date for each commit", async () => {
     setSystemTime(new Date(2026, 9, 25, 14, 0).getTime());
 
     const today = await renderRow(
@@ -198,7 +199,7 @@ describe("CommitRow", () => {
         graphRow({ committerTimestamp: Math.floor(new Date(2026, 9, 25, 9, 30).getTime() / 1000) }),
       ),
     );
-    expect(today.captureCharFrame()).toContain("09:30");
+    expect(today.captureCharFrame()).toContain("9:30 AM");
     await act(async () => {
       await today.dispose();
     });
@@ -208,7 +209,7 @@ describe("CommitRow", () => {
         graphRow({ committerTimestamp: Math.floor(new Date(2026, 7, 11, 8, 0).getTime() / 1000) }),
       ),
     );
-    expect(thisYear.captureCharFrame()).toContain("11 Aug");
+    expect(thisYear.captureCharFrame()).toContain("11 Aug 8:00 AM");
     await act(async () => {
       await thisYear.dispose();
     });
@@ -218,7 +219,7 @@ describe("CommitRow", () => {
         graphRow({ committerTimestamp: Math.floor(new Date(2025, 7, 11, 8, 0).getTime() / 1000) }),
       ),
     );
-    expect(older.captureCharFrame()).toContain("11 Aug 2025");
+    expect(older.captureCharFrame()).toContain("11 Aug 2025 8:00 AM");
     await act(async () => {
       await older.dispose();
     });

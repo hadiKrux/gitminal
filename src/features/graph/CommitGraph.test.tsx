@@ -21,6 +21,7 @@ import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
 import { CommitGraph } from "@/features/graph/CommitGraph";
 import { commitRowId } from "@/features/graph/CommitRow";
 import {
+  GRAPH_CONTENT_PADDING_X,
   GRAPH_LOAD_ERROR_MESSAGE,
   GRAPH_RETRY_ID,
   GRAPH_SCROLL_ID,
@@ -523,6 +524,26 @@ describe("CommitGraph", () => {
     expect(frame).toContain("row commit 0");
     expect(frame).toContain("row commit 1");
     expect(frame).toContain("Beginning of history");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("pads the row body on both sides inside the scrollbox", async () => {
+    const rows = page(2, "pad");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake);
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("pad commit 0"));
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+    const row = setup.renderer.root.findDescendantById(commitRowId(rows.oids[0] ?? ""));
+
+    expect(row?.x).toBe(scrollbox.x + GRAPH_CONTENT_PADDING_X);
+    expect(row?.width).toBe(scrollbox.viewport.width - GRAPH_CONTENT_PADDING_X * 2);
 
     await act(async () => {
       await setup.dispose();
@@ -2150,7 +2171,7 @@ describe("CommitGraph", () => {
     });
   });
 
-  it("moves the cursor by a bounded wheel step through the mounted window", async () => {
+  it("defers the wheel selection until the scroll settles", async () => {
     const rows = page(10, "wheel");
     const fake = createGraphClient(async () => fakeGitResult(rows.output));
     const setup = await renderGraph(fake, 10, { height: 30 });
@@ -2164,10 +2185,81 @@ describe("CommitGraph", () => {
       await setup.renderOnce();
     });
 
+    expect(latest?.selection).toEqual({ kind: "pending" });
+
+    await waitFor(
+      setup,
+      () =>
+        latest?.selection.kind === "commit" &&
+        latest.selection.oid === rows.oids[GRAPH_SCROLL_STEP_ROWS - 1],
+    );
+
     expect(latest?.selection).toEqual({
       kind: "commit",
       oid: rows.oids[GRAPH_SCROLL_STEP_ROWS - 1] as string,
     });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("dispatches only the settled row for a burst of wheel events", async () => {
+    const rows = page(20, "burst");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 20, { height: 30 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("burst commit 2"));
+
+    for (let scroll = 0; scroll < 2; scroll += 1) {
+      await act(async () => {
+        await setup.mockMouse.scroll(20, 8, "down");
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+
+    expect(latest?.selection).toEqual({ kind: "pending" });
+
+    await waitFor(
+      setup,
+      () =>
+        latest?.selection.kind === "commit" &&
+        latest.selection.oid === rows.oids[GRAPH_SCROLL_STEP_ROWS * 2 - 1],
+    );
+
+    expect(latest?.selection).toEqual({
+      kind: "commit",
+      oid: rows.oids[GRAPH_SCROLL_STEP_ROWS * 2 - 1] as string,
+    });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("drops the pending wheel row when another surface selects a value", async () => {
+    const rows = page(10, "external");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 10, { height: 30 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("external commit 2"));
+
+    await act(async () => {
+      await setup.mockMouse.scroll(20, 8, "down");
+    });
+    await act(async () => {
+      latest?.setSelection({ kind: "stash", objectName: "stash@{0}" });
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await setup.renderOnce();
+    });
+
+    expect(latest?.selection).toEqual({ kind: "stash", objectName: "stash@{0}" });
 
     await act(async () => {
       await setup.dispose();

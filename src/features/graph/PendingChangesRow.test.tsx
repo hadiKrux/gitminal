@@ -32,13 +32,13 @@ async function renderPending(
 }
 
 describe("PendingChangesRow", () => {
-  it("shows the label, the plural unstaged count, and the selection marker", async () => {
+  it("shows the label and the plural unstaged count without a selection marker", async () => {
     const setup = await renderPending(10);
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("Commit Changes");
     expect(frame).toContain("10 unstaged files");
-    expect(frame).toContain(">");
+    expect(frame).not.toContain(">");
 
     await act(async () => {
       await setup.dispose();
@@ -61,7 +61,7 @@ describe("PendingChangesRow", () => {
 
     expect(frame).toContain("Working tree clean");
     expect(frame).toContain("Commit Changes");
-    expect(frame).toContain(">");
+    expect(frame).not.toContain(">");
 
     await act(async () => {
       await setup.dispose();

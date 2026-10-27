@@ -8,9 +8,6 @@ import { useTokens } from "@/theme/useTokens";
 import { ListRow } from "@/ui/ListRow";
 import { TruncatedText } from "@/ui/TruncatedText";
 
-/** Cells reserved for the `ListRow` selection marker. */
-const ROW_MARKER_WIDTH = 1;
-
 /** Smallest useful metadata allowance before the date is dropped from a tagged row. */
 const MIN_TAGGED_BADGE_BUDGET = 6;
 
@@ -32,6 +29,9 @@ export function commitRowId(oid: string): string {
  * line keeps tag badges ahead of the author and date; when a tagged row is tight, the date is
  * omitted before badge priority is lost.
  *
+ * The row suppresses the `ListRow` selection marker so the lane prefix starts at the leading edge,
+ * matching the mockup; the dark selected fill and the focused region border identify the cursor row.
+ *
  * @param props - Prepared commit view, the measured row width, selection and focus flags, and the
  * mouse handler.
  * @returns The composed commit row.
@@ -44,7 +44,7 @@ export function CommitRow(props: {
   readonly onMouseDown?: () => void;
 }): ReactNode {
   const tokens = useTokens();
-  const width = Math.max(1, Math.floor(props.width) - ROW_MARKER_WIDTH);
+  const width = Math.max(1, Math.floor(props.width));
   const laneWidth = props.view.lanes.length;
   const fileCount = String(props.view.row.fileCount);
   const subjectBudget = Math.max(0, width - laneWidth - fileCount.length - 2);
@@ -55,6 +55,7 @@ export function CommitRow(props: {
       id={commitRowId(props.view.id)}
       selected={props.selected}
       focused={props.focused}
+      showMarker={false}
       onMouseDown={props.onMouseDown}
     >
       <box flexDirection="column" flexGrow={1} flexShrink={1}>

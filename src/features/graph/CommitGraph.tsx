@@ -7,6 +7,7 @@ import { CommitSearchInput } from "@/features/graph/CommitSearchInput";
 import { GraphStatusFooter, readPageErrorDetails } from "@/features/graph/GraphStatusFooter";
 import {
   GRAPH_BOUNDED_MISS_MESSAGE,
+  GRAPH_CONTENT_PADDING_X,
   GRAPH_EMPTY_HINT,
   GRAPH_EMPTY_MESSAGE,
   GRAPH_INITIAL_LOADING_LABEL,
@@ -46,9 +47,11 @@ import { Panel } from "@/ui/Panel";
  * without limit at the minimum width. Search replaces the graph body with a flat result list while
  * the Pending Changes row and lanes are hidden. The scrollbox viewport measures its own content width
  * and height, so every row budgets against the cells it actually gets, excluding the scrollbar, and
- * the row capacity follows the real viewport rather than the terminal. The terminal height is only
- * the first-frame estimate before layout publishes the viewport. A bounded wheel handler moves the
- * cursor through the mounted window and keeps native scroll from applying twice.
+ * the row capacity follows the real viewport rather than the terminal. The scrollbox carries one cell
+ * of horizontal padding on each side, so the row budget subtracts that padding and the rows never
+ * reach the panel border or the scrollbar. The terminal height is only the first-frame estimate
+ * before layout publishes the viewport. A bounded wheel handler moves the cursor through the mounted
+ * window and keeps native scroll from applying twice.
  *
  * @returns The commit graph panel.
  */
@@ -72,6 +75,7 @@ export function CommitGraph(): ReactNode {
     height > 0
       ? readViewportRowCapacity(height)
       : readTerminalRowCapacity(dimensions.height, footerLines);
+  const rowWidth = Math.max(1, width - GRAPH_CONTENT_PADDING_X * 2);
   const itemCount = searchMode ? graph.search.results.length : graph.rows.length;
   const selectedIndex = searchMode ? graph.search.selectedIndex : graph.activeIndex;
   const window = computeVisibleWindow(itemCount, selectedIndex, capacity, GRAPH_OVERSCAN_ROWS);
@@ -114,6 +118,8 @@ export function CommitGraph(): ReactNode {
           flexShrink={1}
           focusable={false}
           viewportCulling
+          paddingLeft={GRAPH_CONTENT_PADDING_X}
+          paddingRight={GRAPH_CONTENT_PADDING_X}
           onMouseScroll={(event) => {
             const scroll = event.scroll;
 
@@ -129,9 +135,9 @@ export function CommitGraph(): ReactNode {
           }}
         >
           {searchMode ? (
-            <SearchBody graph={graph} window={window} width={width} />
+            <SearchBody graph={graph} window={window} width={rowWidth} />
           ) : (
-            <GraphBody graph={graph} window={window} width={width} />
+            <GraphBody graph={graph} window={window} width={rowWidth} />
           )}
         </scrollbox>
         {searchMode ? null : (
