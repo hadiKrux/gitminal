@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { InputRenderable, TextareaRenderable } from "@opentui/core";
+import { type InputRenderable, parseKeypress, type TextareaRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useEffect } from "react";
 import { registerInputMode, resetInputModes } from "@/app/hooks/inputMode.registry";
@@ -70,6 +70,35 @@ function resolve(
 }
 
 describe("resolveHotkeyAction", () => {
+  it.each(["\x00", "\x1b[96;5u"])(
+    "routes the console terminal encoding %j with and without an editor",
+    (sequence) => {
+      const event = parseKeypress(sequence, { useKittyKeyboard: true });
+
+      expect(event).not.toBeNull();
+
+      for (const textInputFocused of [false, true]) {
+        expect(
+          resolveHotkeyAction({
+            keymap: resolveKeymap({ platform: "wsl" }),
+            key: event as KeyEventLike,
+            activeRegion: "right-pane",
+            textInputFocused,
+            nativeListFocused: false,
+            overlayOpen: false,
+          }),
+        ).toEqual({ actionId: "app.console", scope: "global" });
+      }
+    },
+  );
+
+  it("keeps plain backtick and space available for typing", () => {
+    for (const name of ["`", "space"]) {
+      expect(resolve(key(name), { textInputFocused: true })).toBeNull();
+      expect(resolve(key(name))).toBeNull();
+    }
+  });
+
   it("falls back to global actions and lets region context win", () => {
     expect(resolve(key("p"), { activeRegion: "graph" })).toEqual({
       actionId: "remote.pull",

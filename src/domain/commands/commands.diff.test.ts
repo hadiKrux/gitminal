@@ -189,6 +189,41 @@ describe("diff per-file executors", () => {
 });
 
 describe("diff bulk executors", () => {
+  it("stages combined explicit working and untracked paths without a selected section", async () => {
+    const fake = createScriptedGitClient({
+      "add -- :(literal)working.txt :(literal)new.txt": fakeGitResult(""),
+    });
+
+    const outcome = await executeDiffStageAll(
+      createContext(fake.client, {
+        target: { kind: "none" },
+        formValues: { paths: ["working.txt", "new.txt"] },
+      }),
+    );
+
+    expect(outcome.blockedReason).toBeUndefined();
+    expect(fake.calls[0]?.args).toEqual([
+      "add",
+      "--",
+      ":(literal)working.txt",
+      ":(literal)new.txt",
+    ]);
+  });
+
+  it("blocks a panel-wide stage request with no paths", async () => {
+    const fake = createScriptedGitClient({});
+
+    const outcome = await executeDiffStageAll(
+      createContext(fake.client, {
+        target: { kind: "none" },
+        formValues: { paths: [] },
+      }),
+    );
+
+    expect(outcome.blockedReason).toBe("no-files");
+    expect(fake.calls).toHaveLength(0);
+  });
+
   it("stages only the supplied section path set", async () => {
     const fake = createScriptedGitClient({
       "add -- :(literal)working.txt :(literal)other.txt": fakeGitResult(""),

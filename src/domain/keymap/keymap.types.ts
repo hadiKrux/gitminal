@@ -1,5 +1,5 @@
-/** Platform families whose modifier conventions affect keymap resolution. */
-export type KeymapPlatform = "macos" | "windows" | "linux";
+/** Platform families whose modifier conventions and terminal compatibility affect keymaps. */
+export type KeymapPlatform = "macos" | "windows" | "linux" | "wsl";
 
 /**
  * Focus contexts that can own a key binding.

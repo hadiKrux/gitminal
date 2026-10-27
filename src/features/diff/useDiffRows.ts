@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useListCursor } from "@/app/hooks/useListCursor";
 import type { DiffSection } from "@/domain/diff/diff.types";
 import type { DiffFileView, DiffSectionView } from "@/domain/repository/repository.types";
@@ -10,7 +10,9 @@ import type { DiffRow } from "./diffPanel.types";
  *
  * The cursor is the shared `diff` region cursor, so it survives a refresh that keeps the same row
  * id. Activation and double click both resolve the row at the given index, so the cursor, the
- * expansion toggles, and the keyboard handlers always target the same row.
+ * expansion toggles, and the keyboard handlers always target the same row. When a selected file
+ * disappears, its section header takes selection rather than an adjacent section, so staging and
+ * refreshing cannot silently retarget the next bulk shortcut.
  *
  * @param input - Rows' source state, expansion map, activation toggles, and the row handler.
  * @returns Rows, the cursor handle, and the selection and activation helpers.
@@ -81,6 +83,20 @@ export function useDiffRows(input: {
   });
 
   cursorIndexRef.current = cursor.index;
+
+  const previousSelectedRow = useRef<DiffRow | null>(null);
+
+  useEffect(() => {
+    const previous = previousSelectedRow.current;
+
+    previousSelectedRow.current = rows[cursor.index] ?? null;
+
+    if (readOnly || previous?.kind !== "file" || rows.some((row) => row.id === previous.id)) {
+      return;
+    }
+
+    cursor.selectId(`section::${previous.section}`);
+  }, [cursor.index, cursor.selectId, readOnly, rows]);
 
   /** Reads the row under the cursor. */
   const readSelectedRow = useCallback(

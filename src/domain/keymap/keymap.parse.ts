@@ -59,15 +59,25 @@ const LOWERCASE_LETTER_PATTERN = /^[a-z]$/;
  * Detects the keymap platform from a Node or Bun platform string.
  *
  * @param platform - The process platform, normally `process.platform`.
- * @returns The keymap platform used to expand `mod`.
+ * WSL is detected only on Linux through WSL's standard environment markers.
+ *
+ * @param environment - Process environment, injectable for platform detection tests.
+ * @returns The platform used for modifiers and terminal compatibility defaults.
  */
-export function detectKeymapPlatform(platform: string = process.platform): KeymapPlatform {
+export function detectKeymapPlatform(
+  platform: string = process.platform,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): KeymapPlatform {
   if (platform === "darwin") {
     return "macos";
   }
 
   if (platform === "win32") {
     return "windows";
+  }
+
+  if (platform === "linux" && (environment.WSL_DISTRO_NAME || environment.WSL_INTEROP)) {
+    return "wsl";
   }
 
   return "linux";

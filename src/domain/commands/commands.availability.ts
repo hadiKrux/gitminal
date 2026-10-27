@@ -710,6 +710,7 @@ function readCommitStateReason(
  * Untracked Files, and stage on Working Directory or Untracked Files. A bulk action whose section
  * path set is present and empty is unavailable because it has nothing to do; an absent path set is
  * permissive, so the footer and palette never guess at a scope the dispatching surface did not send.
+ * Panel-wide Stage All omits the section but still refuses an explicitly empty combined path set.
  *
  * @param descriptor - Command descriptor.
  * @param context - Command context.
@@ -732,7 +733,7 @@ function readDiffStateReason(
   const section = readRequestedDiffSection(context);
 
   if (section === null) {
-    return isDiffBulkCommand(descriptor.id) ? null : "invalid-target";
+    return readUnscopedDiffReason(descriptor.id, context.formValues);
   }
 
   if (!allowed.includes(section)) {
@@ -742,12 +743,33 @@ function readDiffStateReason(
   if (isDiffBulkCommand(descriptor.id)) {
     const paths = readDiffFormPaths(context.formValues);
 
-    if (paths !== undefined && paths.length === 0) {
+    if (paths?.length === 0) {
       return "no-files";
     }
   }
 
   return null;
+}
+
+/**
+ * Checks a diff request that does not identify a section.
+ *
+ * Per-file actions require a section. Bulk discovery queries may omit it, while panel-wide
+ * Stage All must still reject an explicitly empty path set.
+ *
+ * @param commandId - Diff command being evaluated.
+ * @param formValues - Optional explicit paths supplied by the dispatching surface.
+ * @returns A blocked reason, or null when the unscoped request is allowed.
+ */
+function readUnscopedDiffReason(
+  commandId: string,
+  formValues: CommandContext["formValues"],
+): CommandAvailabilityReason | null {
+  if (commandId === "diff.stageAll" && readDiffFormPaths(formValues)?.length === 0) {
+    return "no-files";
+  }
+
+  return isDiffBulkCommand(commandId) ? null : "invalid-target";
 }
 
 /**

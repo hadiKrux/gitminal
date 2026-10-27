@@ -131,6 +131,8 @@ To change a binding, create `keybindings.json` next to `config.json`, or point `
 - Unknown action IDs, invalid key strings, and collisions with another action in the same context are reported as warnings and ignored, so the built-in binding stays active. The `ctrl+c` quit chord is hardcoded and cannot be rebound.
 - Reload configuration from the command palette to apply the file without restarting. The action IDs below are the names to use in `keybindings.json`, and Help search matches them.
 
+Windows Terminal with WSL can encode Ctrl+Backtick as NUL, indistinguishable from Ctrl+Space. Both toggle the console by default only in WSL sessions detected through `WSL_DISTRO_NAME` or `WSL_INTEROP`. macOS and standalone Linux keep their original bindings. Rebinding `app.console` replaces all its defaults, including this alias. If your terminal intercepts the chord instead of sending it to Gitminal, remove that terminal binding or use Ctrl+Space or the command palette.
+
 ## Default keybindings
 
 Where a list contains both `ctrl+x` and `mod+x`, macOS gets both chords and Windows and Linux get `ctrl+x`. Actions with no default key are reachable from the command palette, and some also from their options menu.
@@ -144,7 +146,7 @@ Defaults are scoped to the focused context: global keys work everywhere (forms a
 | Quit | `app.quit` | `q`, `ctrl+c` |
 | Help | `app.help` | `?`, `f1` |
 | Command palette | `app.palette` | `ctrl+p`, `mod+p`, `f2` |
-| Toggle console | `app.console` | `` ctrl+` ``, `` mod+` `` |
+| Toggle console | `app.console` | `` ctrl+` ``, `` mod+` ``, `ctrl+space` (WSL only) |
 | Refresh repository | `app.refresh` | `r` |
 | Reload configuration | `app.reloadConfig` | none |
 | Theme picker | `app.themePicker` | `t` |
@@ -227,7 +229,7 @@ Defaults are scoped to the focused context: global keys work everywhere (forms a
 | Unstage file | `diff.unstage` | `u` |
 | Discard file changes | `diff.discard` | `d` |
 | Delete untracked file | `diff.deleteUntracked` | none |
-| Stage all | `diff.stageAll` | `S` |
+| Stage all working-directory and untracked files | `diff.stageAll` | `S` |
 | Unstage all | `diff.unstageAll` | `U` |
 | Discard all changes | `diff.discardAll` | `D` |
 | Delete all untracked files | `diff.deleteAllUntracked` | none |

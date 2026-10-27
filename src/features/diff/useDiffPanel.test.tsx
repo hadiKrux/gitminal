@@ -395,7 +395,162 @@ describe("useDiffPanel registration and sections", () => {
 });
 
 describe("useDiffPanel bulk targets", () => {
-  it("sends only the selected section's path set", async () => {
+  it("keeps the working section targeted after staging, committing, and editing again", async () => {
+    const requests: CommandRequest[] = [];
+    const { client, fake } = createDiffClient(
+      "# branch.oid abc123\0# branch.head main\0" +
+        "1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb unstaged.txt\0",
+    );
+    const cleanup = registerCommandHandler({
+      commandId: "diff.stageAll",
+      operationLabel: "Stage all",
+      handler: async (context) => {
+        requests.push(context.request);
+        fake.setStatusOutput(
+          "# branch.oid abc123\0# branch.head main\0" +
+            "1 M. N... 100644 100644 100644 aaaaaaa bbbbbbb unstaged.txt\0",
+        );
+
+        return { steps: [] };
+      },
+    });
+    const setup = await renderHarness(client);
+
+    try {
+      await waitFor(setup, () => handle?.rows.length === 4);
+      await focusDiff(setup);
+      await act(async () => {
+        handle?.selectRow("working::unstaged.txt");
+      });
+      await act(async () => {
+        setup.mockInput.pressKey("S");
+      });
+      await waitFor(setup, () => requests.length === 1 && latestStatus?.operation === null);
+      expect(handle?.selectedId).toBe("section::working");
+
+      // A successful commit removes staged paths; the next edit repopulates Working Directory.
+      fake.setStatusOutput("# branch.oid def456\0# branch.head main\0");
+      await act(async () => {
+        await latestRepository?.refreshStatus();
+      });
+      fake.setStatusOutput(
+        "# branch.oid def456\0# branch.head main\0" +
+          "1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb unstaged.txt\0",
+      );
+      await act(async () => {
+        await latestRepository?.refreshStatus();
+      });
+      await focusDiff(setup);
+      await act(async () => {
+        setup.mockInput.pressKey("S");
+      });
+      await waitFor(setup, () => requests.length === 2);
+
+      expect(requests).toHaveLength(2);
+      expect(requests[1]?.formValues).toEqual({ paths: ["unstaged.txt"] });
+    } finally {
+      cleanup();
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
+  });
+
+  it.each(["section::working", "section::staged", "section::untracked", "staged::staged.txt"])(
+    "stages all unstaged paths with S when the cursor is on %s",
+    async (selectedId) => {
+      const requests: CommandRequest[] = [];
+      const cleanup = registerCapture("diff.stageAll", requests);
+      const { client } = createDiffClient();
+      const setup = await renderHarness(client);
+
+      try {
+        await waitFor(setup, () => handle?.rows.length === 6);
+        await focusDiff(setup);
+        await act(async () => {
+          handle?.selectRow(selectedId);
+        });
+        await act(async () => {
+          setup.mockInput.pressKey("S");
+        });
+        await waitFor(setup, () => requests.length === 1);
+
+        expect(requests).toHaveLength(1);
+        expect(requests[0]?.formValues).toEqual({ paths: ["unstaged.txt", "untracked.txt"] });
+      } finally {
+        cleanup();
+        await act(async () => {
+          await setup.dispose();
+        });
+      }
+    },
+  );
+
+  it.each([
+    ["? new.txt\0", ["new.txt"]],
+    ["", []],
+  ] as const)("handles panel-wide staging with status %j", async (status, paths) => {
+    const requests: CommandRequest[] = [];
+    const cleanup = registerCapture("diff.stageAll", requests);
+    const { client } = createDiffClient(`# branch.oid abc123\0# branch.head main\0${status}`);
+    const setup = await renderHarness(client);
+
+    try {
+      await waitFor(setup, () => handle?.rows.length === 3 + paths.length);
+      await focusDiff(setup);
+      await act(async () => {
+        handle?.selectRow("section::staged");
+      });
+      await act(async () => {
+        setup.mockInput.pressKey("S");
+      });
+      await waitFor(setup, () => requests.length > 0 || latestStatus?.status?.kind === "warning");
+
+      expect(requests).toHaveLength(paths.length > 0 ? 1 : 0);
+      if (paths.length > 0) {
+        expect(requests[0]?.formValues).toEqual({ paths: [...paths] });
+      } else {
+        expect(latestStatus?.status?.kind).toBe("warning");
+      }
+    } finally {
+      cleanup();
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
+  });
+
+  it("keeps the inline Stage All button scoped to its own section", async () => {
+    const requests: CommandRequest[] = [];
+    const cleanup = registerCapture("diff.stageAll", requests);
+    const { client } = createDiffClient();
+    const setup = await renderHarness(client);
+
+    try {
+      await waitFor(setup, () => handle?.rows.length === 6);
+      const working = handle?.sections.find((view) => view.section === "working");
+      expect(working).toBeDefined();
+
+      await act(async () => {
+        if (working) {
+          handle
+            ?.sectionActions(working)
+            .find((action) => action.id === "diff.stageAll")
+            ?.onPress();
+        }
+      });
+      await waitFor(setup, () => requests.length === 1);
+
+      expect(requests[0]?.formValues).toEqual({ section: "working", paths: ["unstaged.txt"] });
+    } finally {
+      cleanup();
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
+  });
+
+  it("stages all unstaged paths while unstage keeps its staged section scope", async () => {
     const requests: CommandRequest[] = [];
     const cleanups = [
       registerCapture("diff.stageAll", requests),
@@ -410,7 +565,7 @@ describe("useDiffPanel bulk targets", () => {
     await runAction("diff.stageAll");
     await waitFor(setup, () => requests.length === 1);
 
-    expect(requests[0]?.formValues).toEqual({ section: "working", paths: ["unstaged.txt"] });
+    expect(requests[0]?.formValues).toEqual({ paths: ["unstaged.txt", "untracked.txt"] });
 
     await runAction("nav.down");
     await runAction("nav.down");
@@ -556,6 +711,42 @@ describe("useDiffPanel bulk targets", () => {
 });
 
 describe("useDiffPanel selection", () => {
+  it.each([
+    ["working", "unstaged.txt"],
+    ["staged", "staged.txt"],
+    ["untracked", "untracked.txt"],
+  ])("keeps a disappearing %s file's cursor in its section", async (section, path) => {
+    const { client, fake } = createDiffClient();
+    const setup = await renderHarness(client);
+
+    try {
+      await waitFor(setup, () => handle?.rows.length === 6);
+      await focusDiff(setup);
+      await act(async () => {
+        handle?.selectRow(`${section}::${path}`);
+      });
+      expect(handle?.selectedId).toBe(`${section}::${path}`);
+
+      fake.setStatusOutput("# branch.oid abc123\0# branch.head main\0");
+      await act(async () => {
+        await latestRepository?.refreshStatus();
+      });
+
+      expect(handle?.selectedId).toBe(`section::${section}`);
+
+      fake.setStatusOutput(STATUS_OUTPUT);
+      await act(async () => {
+        await latestRepository?.refreshStatus();
+      });
+
+      expect(handle?.selectedId).toBe(`section::${section}`);
+    } finally {
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
+  });
+
   it("restores the remembered file when its section expands again", async () => {
     const { client } = createDiffClient();
     const setup = await renderHarness(client);

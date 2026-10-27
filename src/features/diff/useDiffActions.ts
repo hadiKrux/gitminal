@@ -104,6 +104,33 @@ export function useDiffActions(input: {
     });
   }
 
+  /**
+   * Stages the deduplicated working and untracked path sets, independent of the cursor.
+   *
+   * @returns Nothing; dispatches one guarded mutation or reports its unavailable reason.
+   */
+  function runStageAll(): void {
+    const paths = [
+      ...new Set(
+        sections.filter((view) => view.section !== "staged").flatMap((view) => view.paths),
+      ),
+    ];
+    const formValues = { paths, ...readOnlyFormValues(readOnly) };
+    const availability = repository.getAvailability(
+      "diff.stageAll",
+      { kind: "none" },
+      "diff",
+      formValues,
+    );
+
+    if (!availability.available) {
+      reportAvailability(availability);
+      return;
+    }
+
+    dispatch("diff.stageAll", { kind: "none" }, formValues);
+  }
+
   /** Opens the destructive confirmation for one file. */
   function confirmFileAction(
     commandId: "diff.discard" | "diff.deleteUntracked",
@@ -155,6 +182,7 @@ export function useDiffActions(input: {
       sections,
       runFileAction,
       runBulkAction,
+      runStageAll,
       confirmFileAction,
       confirmBulkAction,
       toggleSelected,

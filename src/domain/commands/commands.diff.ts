@@ -26,7 +26,7 @@ import type {
   CommandStepResult,
 } from "./commands.types";
 
-/** Form key carrying the section-scoped literal path set of a bulk action. */
+/** Form key carrying a bulk action's literal paths; Stage All may combine working and untracked. */
 export const DIFF_FORM_PATHS = "paths";
 
 /** Form key carrying the section a bulk action is scoped to. */
@@ -224,12 +224,13 @@ export async function executeDiffDeleteUntracked(
 }
 
 /**
- * Executes `diff.stageAll` for the section path set in the form values.
+ * Executes `diff.stageAll` for the explicit path set in the form values.
  *
- * The set is exactly the section's own paths. A rename contributes both paths, which `git add`
- * accepts once the old path is gone from the working tree.
+ * An omitted section stages the combined working and untracked paths supplied by the panel-wide
+ * action. Inline section buttons still send their own section and paths. A rename contributes
+ * both paths, which `git add` accepts once the old path is gone from the working tree.
  *
- * @param context - Request, section path set, client, and signal.
+ * @param context - Request, explicit path set, optional section, client, and signal.
  * @returns The stage step, or a blocked outcome for an empty set or invalid section.
  */
 export async function executeDiffStageAll(
@@ -331,7 +332,10 @@ async function executeBulk(
 
   const section = readDiffFormSection(context.request.formValues);
 
-  if (!isSectionAllowed(commandId, section)) {
+  const isPanelStageAll =
+    commandId === "diff.stageAll" && context.request.formValues?.[DIFF_FORM_SECTION] === undefined;
+
+  if (!isPanelStageAll && !isSectionAllowed(commandId, section)) {
     return blockedOutcome("invalid-target");
   }
 

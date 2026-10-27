@@ -151,6 +151,29 @@ describe("resolveKeymap defaults", () => {
     expect(actionKeys(keymap, "form.submit")).toEqual(["ctrl+enter"]);
   });
 
+  it("binds the legacy console chord on WSL", () => {
+    const keymap = resolveKeymap({ platform: "wsl" });
+
+    expect(actionKeys(keymap, "app.console")).toEqual(["ctrl+`", "ctrl+space"]);
+    expect(actionForKey(keymap, "global", "ctrl+space")).toBe("app.console");
+  });
+
+  it.each(["linux", "macos", "windows"] as const)(
+    "does not add the WSL console alias on %s",
+    (platform) => {
+      const keymap = resolveKeymap({ platform });
+
+      expect(actionForKey(keymap, "global", "ctrl+space")).toBeUndefined();
+    },
+  );
+
+  it("lets console overrides replace the legacy alias too", () => {
+    const keymap = resolveKeymap({ platform: "wsl", keybindings: { "app.console": "f4" } });
+
+    expect(actionKeys(keymap, "app.console")).toEqual(["f4"]);
+    expect(actionForKey(keymap, "global", "ctrl+space")).toBeUndefined();
+  });
+
   it("expands mod to Command on macOS", () => {
     const keymap = resolveKeymap({ platform: "macos" });
 

@@ -15,6 +15,8 @@ import type {
 /**
  * Builds the diff-scoped action registrations.
  *
+ * Stage All is panel-wide and ignores the cursor; other bulk actions keep their selected section.
+ *
  * @param input - Latest handlers and the state they read.
  * @returns Batch registrations for `useActions`.
  */
@@ -24,6 +26,7 @@ export function buildActionRegistrations(input: {
   readonly sections: readonly DiffSectionView[];
   readonly runFileAction: (commandId: string, file: DiffSectionView["files"][number]) => void;
   readonly runBulkAction: (commandId: string, view: DiffSectionView) => void;
+  readonly runStageAll: () => void;
   readonly confirmFileAction: (
     commandId: "diff.discard" | "diff.deleteUntracked",
     file: DiffSectionView["files"][number],
@@ -156,11 +159,7 @@ export function buildActionRegistrations(input: {
           return;
         }
 
-        const section = readSection();
-
-        if (section !== null) {
-          input.runBulkAction("diff.stageAll", section);
-        }
+        input.runStageAll();
       },
     },
     {

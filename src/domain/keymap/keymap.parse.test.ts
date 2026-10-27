@@ -185,10 +185,23 @@ describe("binding formatting and matching", () => {
 });
 
 describe("detectKeymapPlatform", () => {
+  it("detects WSL only on Linux with a nonempty standard marker", () => {
+    for (const environment of [
+      { WSL_DISTRO_NAME: "Ubuntu" },
+      { WSL_INTEROP: "/run/WSL/123_interop" },
+    ]) {
+      expect(detectKeymapPlatform("linux", environment)).toBe("wsl");
+      expect(detectKeymapPlatform("darwin", environment)).toBe("macos");
+      expect(detectKeymapPlatform("win32", environment)).toBe("windows");
+    }
+
+    expect(detectKeymapPlatform("linux", { WSL_DISTRO_NAME: "", WSL_INTEROP: "" })).toBe("linux");
+  });
+
   it("maps Node platform names to keymap platforms", () => {
     expect(detectKeymapPlatform("darwin")).toBe("macos");
     expect(detectKeymapPlatform("win32")).toBe("windows");
-    expect(detectKeymapPlatform("linux")).toBe("linux");
+    expect(detectKeymapPlatform("linux", {})).toBe("linux");
     expect(detectKeymapPlatform("freebsd")).toBe("linux");
   });
 });

@@ -596,7 +596,7 @@ export const ACTION_CATALOGUE = [
     defaults: ["S"],
     label: "Stage all",
     category: "diff",
-    description: "Stage all files in the current section.",
+    description: "Stage all working-directory and untracked files, regardless of the selected row.",
   },
   {
     id: "diff.unstageAll",
@@ -668,7 +668,8 @@ export function isActionId(value: string): value is ActionId {
  * Reads the parsed built-in bindings for one action.
  *
  * This is the single place that turns catalogue defaults into parsed bindings, so conflict
- * settlement and the resolution layers reset an action to exactly the same value.
+ * settlement and the resolution layers reset an action to exactly the same value. Only WSL adds
+ * Ctrl+Space for the legacy NUL encoding of Ctrl+Backtick; other platforms keep catalogue defaults.
  *
  * @param actionId - The catalogue action.
  * @param platform - Platform used to expand `mod`.
@@ -680,5 +681,14 @@ export function readDefaultBindings(
 ): readonly ParsedBinding[] {
   const action = ACTION_BY_ID[actionId];
 
-  return action ? parseBindingValues(action.defaults, platform).bindings : [];
+  if (!action) {
+    return [];
+  }
+
+  const defaults =
+    actionId === "app.console" && platform === "wsl"
+      ? [...action.defaults, "ctrl+space"]
+      : action.defaults;
+
+  return parseBindingValues(defaults, platform).bindings;
 }
