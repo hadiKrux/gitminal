@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import {
@@ -16,6 +15,7 @@ import { shortenPath, toHomeRelativePath } from "@/lib/paths";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { Panel } from "@/ui/Panel";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the persistent four-region shell frame.

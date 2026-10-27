@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { MoreMenuLive } from "@/features/top-bar/MoreMenuLive";
 import { TopBarActions } from "@/features/top-bar/TopBarActions";
@@ -6,6 +5,7 @@ import { TopBarStatus } from "@/features/top-bar/TopBarStatus";
 import { calculateTopBarBudgets } from "@/features/top-bar/topBar.budgets";
 import { useTopBar } from "@/features/top-bar/useTopBar";
 import type { TopBarControl } from "@/features/top-bar/useTopBar.types";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the branch, upstream, sync and status strip, and the remote actions.

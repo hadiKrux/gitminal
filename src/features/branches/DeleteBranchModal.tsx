@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useCallback, useState } from "react";
 import { useAction } from "@/app/hooks/useAction";
 import { useFocusState } from "@/app/hooks/useFocusState";
@@ -32,6 +31,7 @@ import {
 } from "@/features/branches/deleteBranch.risk";
 import { useDeleteBranchRisk } from "@/features/branches/useDeleteBranchRisk";
 import { MODAL_FRAME_ID } from "@/ui/ModalFrame.constants";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the Delete Branch modal.

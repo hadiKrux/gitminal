@@ -1,7 +1,7 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { useTokens } from "@/theme/useTokens";
 import { OVERLAY_FOOTER_RESERVED_ROWS } from "@/ui/Overlay.constants";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the surface that deactivates everything behind a modal.

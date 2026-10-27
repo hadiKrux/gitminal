@@ -1,5 +1,4 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { HelpConfiguration } from "@/features/help/HelpConfiguration";
 import {
@@ -22,6 +21,7 @@ import { useTokens } from "@/theme/useTokens";
 import { KeyHint } from "@/ui/KeyHint";
 import { ModalFrame } from "@/ui/ModalFrame";
 import { SearchField } from "@/ui/SearchField";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the help modal content.

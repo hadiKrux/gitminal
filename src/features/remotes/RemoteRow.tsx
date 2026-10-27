@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import type { RemoteFreshness } from "@/domain/repository/repository.types";
 import {
@@ -14,6 +13,7 @@ import { ListRow } from "@/ui/ListRow";
 import { PANEL_BORDER_WIDTH, PANEL_SCROLLBAR_WIDTH } from "@/ui/Panel.constants";
 import { usePanelScroll } from "@/ui/PanelScrollContext";
 import { TruncatedText } from "@/ui/TruncatedText";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders one remote-tracking branch row.

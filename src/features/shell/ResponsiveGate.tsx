@@ -1,8 +1,8 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import type { ShellLayoutMode } from "@/features/shell/focus.types";
 import { resolveLayoutMode } from "@/features/shell/regions";
 import { TooSmallNotice } from "@/features/shell/TooSmallNotice";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Chooses between the shell and the terminal-too-small notice.

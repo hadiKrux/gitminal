@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import type { StashRecord } from "@/domain/git/git.types";
 import {
@@ -15,6 +14,7 @@ import { readStashMessage } from "@/features/stashes/stash.prefill";
 import { useTokens } from "@/theme/useTokens";
 import { ListRow } from "@/ui/ListRow";
 import { TruncatedText } from "@/ui/TruncatedText";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Builds the stable renderable id of one stash row.

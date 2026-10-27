@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { useScrollViewportSize } from "@/app/hooks/useScrollViewportSize";
 import { parseSearchTerms } from "@/domain/graph/graph.search";
@@ -34,6 +33,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { LoadingRow } from "@/ui/LoadingRow";
 import { Panel } from "@/ui/Panel";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the complete Commit panel: frame, header, search field, and virtualized row body.

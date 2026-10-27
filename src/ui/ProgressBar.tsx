@@ -1,5 +1,5 @@
 import { FrameBufferRenderable, RGBA } from "@opentui/core";
-import { extend, useTerminalDimensions } from "@opentui/react";
+import { extend } from "@opentui/react";
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { useTokens } from "@/theme/useTokens";
 import {
@@ -7,6 +7,7 @@ import {
   PROGRESS_BAR_MIN_WIDTH,
   PROGRESS_BAR_REDRAW_INTERVAL_MS,
 } from "@/ui/ProgressBar.constants";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 // OpenTUI 0.6.6 has no React intrinsic for its frame buffer, so the primitive registers OpenTUI's
 // own renderable once. Architecture section 6 sanctions this single registration.

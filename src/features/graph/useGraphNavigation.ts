@@ -1,11 +1,11 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useTerminalDimensions } from "@opentui/react";
 import { type RefObject, useCallback } from "react";
 import { useActions } from "@/app/hooks/useAction";
 import type { ListCursorHandle } from "@/app/hooks/useListCursor.types";
 import { GRAPH_REGION_ID } from "@/features/graph/graph.constants";
 import type { CommitSearchHandle } from "@/features/graph/graph.types";
 import { readTerminalRowCapacity, readViewportRowCapacity } from "@/features/graph/graph.window";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /** Registration options shared by every graph-scoped action. */
 const GRAPH_ACTION_OPTIONS = { scope: GRAPH_REGION_ID } as const;

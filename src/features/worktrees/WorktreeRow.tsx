@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import type { WorktreeRecord } from "@/domain/git/git.types";
 import {
@@ -12,6 +11,7 @@ import { shortenPath, toHomeRelativePath } from "@/lib/paths";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { ListRow } from "@/ui/ListRow";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Builds the stable renderable id of one worktree row.

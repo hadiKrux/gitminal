@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useRepository } from "@/app/hooks/useRepository";
@@ -17,6 +16,7 @@ import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { Panel } from "@/ui/Panel";
 import { ScrollableList } from "@/ui/ScrollableList";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the read-only right-pane summary of the selected worktree.

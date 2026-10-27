@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import type { TagRowRecord, TagScopeState } from "@/domain/git/git.types";
 import {
@@ -13,6 +12,7 @@ import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { ListRow } from "@/ui/ListRow";
 import { TruncatedText } from "@/ui/TruncatedText";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Builds the stable renderable id of one logical tag row.

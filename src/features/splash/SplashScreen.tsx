@@ -1,9 +1,9 @@
 import { TextAttributes } from "@opentui/core";
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { WORDMARK_MIN_COLUMNS, WORDMARK_MIN_ROWS } from "@/features/splash/SplashScreen.constants";
 import { SplashUpdateNotice } from "@/features/splash/SplashUpdateNotice";
 import type { UpdateCheckState } from "@/features/splash/useUpdateCheck.types";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the startup splash with the wordmark, running version, update state, and dismiss hint.

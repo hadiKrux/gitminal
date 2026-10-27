@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   getActionRegistryVersion,
@@ -27,6 +26,7 @@ import {
   SELECTION_HINT_ACTIONS,
 } from "@/features/shell/Footer.constants";
 import { HintBar } from "@/ui/HintBar";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the contextual footer hint bar.

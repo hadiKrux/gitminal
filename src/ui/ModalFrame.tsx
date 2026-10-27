@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { useTokens } from "@/theme/useTokens";
 import {
@@ -8,6 +7,7 @@ import {
   MODAL_MIN_WIDTH,
   MODAL_VERTICAL_INSET,
 } from "@/ui/ModalFrame.constants";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the reusable centered modal frame.

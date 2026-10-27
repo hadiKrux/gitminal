@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import {
   COMMIT_PARENT_ROW_ID_PREFIX,
@@ -8,6 +7,7 @@ import { truncateText } from "@/lib/text";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { ListRow } from "@/ui/ListRow";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /** Width reserved for the marker, the short hash, and the row padding. */
 const PARENT_ROW_RESERVED_WIDTH = 12;

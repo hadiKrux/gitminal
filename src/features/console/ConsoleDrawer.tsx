@@ -1,5 +1,5 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/react";
+import { useRenderer, useSelectionHandler } from "@opentui/react";
 import type { ReactNode } from "react";
 import { useConsoleLog } from "@/app/hooks/useConsoleLog";
 import { useStatus } from "@/app/hooks/useStatus";
@@ -18,6 +18,7 @@ import { useConsole } from "@/features/console/useConsole";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { Spinner } from "@/ui/Spinner";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Renders the non-modal console drawer docked above the footer.

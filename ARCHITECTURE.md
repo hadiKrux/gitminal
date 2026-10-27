@@ -557,6 +557,8 @@ gitminal/
       Swatch.constants.ts
       SectionHeader.tsx
       useClickWithoutSelection.ts
+      useTerminalDimensions.ts
+      useTerminalDimensions.types.ts
     domain/
       git/
         git.client.ts
@@ -778,8 +780,8 @@ Hooks available from `@opentui/react` 0.6.6:
 | Hook | Use for |
 | --- | --- |
 | `useKeyboard(handler, { release? })` | The single global key dispatcher, owned by `src/app/hooks/useHotkeys.ts`. `src/app/SplashGate.tsx` is the only other caller, and only while the splash is visible. The temporary splash quit path is replaced by the shell's `app.quit` path. Features never call it directly. |
-| `useOnResize(cb)` | Not used by M3. `useTerminalDimensions` drives responsive rendering; a breakpoint-memoized resize hook is deferred until a measured need. |
-| `useTerminalDimensions()` | Responsive layout mode, minimum-size checks, hint fitting. |
+| `useOnResize(cb)` | Not used directly. Terminal resizing uses the shared UI dimensions store. |
+| `useTerminalDimensions()` | Do not import from OpenTUI: it adds one renderer listener per consumer. Use `@/ui/useTerminalDimensions` for responsive layout mode, minimum-size checks, and hint fitting. |
 | `useRenderer()` | Bootstrap access, focus management, console drawer access. |
 | `useFocus(handler)` / `useBlur(handler)` | Terminal-window focus and blur only: refresh on terminal focus, pause work on blur. Never region focus. |
 | `usePaste(handler)` | Commit message and field paste handling. |
@@ -882,6 +884,8 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | `SectionHeader` | `<box>` + `<text>` + marker | Expand/collapse header using `ICONS.expanded`/`ICONS.collapsed`. |
 
 `src/ui/useClickWithoutSelection.ts` is a UI helper rather than a component. It returns the mouse-down handler that `Button`, `Checkbox`, `SectionHeader`, and `ListRow` attach to their clickable box, clears the renderer's global text selection, and then runs the owning feature's action or nothing for an inert control. Clearing happens before the next frame, so a click never paints the label selected, and a feature never repeats the clearing in its row component.
+
+`src/ui/useTerminalDimensions.ts` owns a renderer-keyed external store shared by all terminal-size consumers, including the splash and standalone primitives. It uses `useSyncExternalStore` with a stable dimensions snapshot and exactly one renderer resize listener while any consumers are mounted, removing the listener after the last consumer unmounts. A `WeakMap` isolates renderers without globally retaining them. Consumers never import OpenTUI's per-consumer `useTerminalDimensions` or add their own terminal resize listeners. This import policy is a review rule; the colocated hook tests verify listener counts, resize propagation, cleanup, remounting, and renderer isolation. No additional provider is required, so the startup splash still runs before app providers mount.
 
 A feature may compose these primitives but must not fork them. If a feature needs a variant, add a prop to the primitive instead of copying it.
 

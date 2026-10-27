@@ -1,4 +1,4 @@
-import { useTerminalDimensions } from "@opentui/react";
+import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
  * Reads the terminal size and the content budget a modal leaves for its body.
