@@ -524,6 +524,7 @@ describe("AppShellHost", () => {
       ["diff.unstageAll", "diff"],
       ["diff.discardAll", "diff"],
       ["diff.deleteAllUntracked", "diff"],
+      ["diff.stageAllUnstaged", "global"],
       ["nav.left", "right-pane"],
       ["nav.right", "right-pane"],
       ["nav.activate", "right-pane"],

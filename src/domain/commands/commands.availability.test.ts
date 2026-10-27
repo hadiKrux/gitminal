@@ -887,6 +887,27 @@ describe("diff command availability", () => {
     ).toEqual({ available: true });
   });
 
+  it("allows combined stage-all with explicit paths and no section", () => {
+    expect(
+      getAvailability(
+        "diff.stageAll",
+        createContext({
+          region: "diff",
+          formValues: { paths: ["a.txt", "new.txt"] },
+        }),
+      ),
+    ).toEqual({ available: true });
+  });
+
+  it("blocks combined stage-all with an explicitly empty path set", () => {
+    expect(
+      getAvailability(
+        "diff.stageAll",
+        createContext({ region: "diff", formValues: { paths: [] } }),
+      ),
+    ).toEqual({ available: false, reason: "no-files" });
+  });
+
   it("blocks bulk staging and unstaging during a merge", () => {
     const signals = createSignals({ mergeInProgress: true });
 

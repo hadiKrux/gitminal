@@ -13,9 +13,10 @@ export type ActionScope = "global" | "overlay" | RegionId;
  * Designated owners allowed to register global actions.
  *
  * Global actions have exactly one owner: the app composition root, the shell for focus traversal,
- * or the always-mounted top bar for remote operations.
+ * the always-mounted top bar for remote operations, or the always-mounted diff panel for its
+ * global stage-all action.
  */
-export type ActionOwner = "app" | "shell" | "top-bar";
+export type ActionOwner = "app" | "shell" | "top-bar" | "diff";
 
 /** Target kind a handler receives from the command model. */
 export type ActionTargetKind =

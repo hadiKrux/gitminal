@@ -710,7 +710,7 @@ function readCommitStateReason(
  * Untracked Files, and stage on Working Directory or Untracked Files. A bulk action whose section
  * path set is present and empty is unavailable because it has nothing to do; an absent path set is
  * permissive, so the footer and palette never guess at a scope the dispatching surface did not send.
- * Panel-wide Stage All omits the section but still refuses an explicitly empty combined path set.
+ * Combined Stage All omits the section but still refuses an explicitly empty path set.
  *
  * @param descriptor - Command descriptor.
  * @param context - Command context.
@@ -754,8 +754,8 @@ function readDiffStateReason(
 /**
  * Checks a diff request that does not identify a section.
  *
- * Per-file actions require a section. Bulk discovery queries may omit it, while panel-wide
- * Stage All must still reject an explicitly empty path set.
+ * Per-file actions require a section. Bulk discovery queries may omit it, while combined Stage All
+ * must still reject an explicitly empty path set.
  *
  * @param commandId - Diff command being evaluated.
  * @param formValues - Optional explicit paths supplied by the dispatching surface.

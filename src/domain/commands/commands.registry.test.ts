@@ -8,9 +8,11 @@ import { ACTION_BY_ID, ACTION_CATALOGUE } from "@/domain/keymap/keymap.defaults"
  *
  * Every entry is a keystroke intent owned by a focused surface, not a palette command: cursor
  * movement (`nav.*`), overlay and field traversal (`focus.next`, `focus.previous`, `overlay.close`,
- * `form.submit`), field triggers (`list.filter`, `help.search`, `commit.options`), and the inline
- * toggles (`diff.toggle`, `console.clear`). The registry-completeness test fails when a new action
- * is added without either a descriptor or an explicit entry here.
+ * `form.submit`), field triggers (`list.filter`, `help.search`, `commit.options`), the inline
+ * toggles (`diff.toggle`, `console.clear`), and the global stage-all shortcut
+ * (`diff.stageAllUnstaged`) that dispatches the bulk diff command with feature-owned paths. The
+ * registry-completeness test fails when a new action is added without either a descriptor or an
+ * explicit entry here.
  */
 const KEY_ONLY_ACTION_IDS: readonly string[] = Object.freeze([
   "nav.up",
@@ -32,6 +34,7 @@ const KEY_ONLY_ACTION_IDS: readonly string[] = Object.freeze([
   "commit.options",
   "form.submit",
   "diff.toggle",
+  "diff.stageAllUnstaged",
   "console.clear",
 ]);
 

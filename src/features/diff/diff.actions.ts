@@ -15,7 +15,8 @@ import type {
 /**
  * Builds the diff-scoped action registrations.
  *
- * Stage All is panel-wide and ignores the cursor; other bulk actions keep their selected section.
+ * `S` keeps its selected-section scope, while the global `A` stages the combined working and
+ * untracked path set panel-wide and ignores the cursor.
  *
  * @param input - Latest handlers and the state they read.
  * @returns Batch registrations for `useActions`.
@@ -154,6 +155,21 @@ export function buildActionRegistrations(input: {
     {
       actionId: "diff.stageAll",
       options: scope,
+      handler: () => {
+        if (refuseReadOnly()) {
+          return;
+        }
+
+        const section = readSection();
+
+        if (section !== null) {
+          input.runBulkAction("diff.stageAll", section);
+        }
+      },
+    },
+    {
+      actionId: "diff.stageAllUnstaged",
+      options: { scope: "global", owner: "diff" },
       handler: () => {
         if (refuseReadOnly()) {
           return;

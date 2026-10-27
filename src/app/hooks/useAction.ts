@@ -12,6 +12,7 @@ const OWNER_ACTION_PREFIXES: Readonly<Record<ActionOwner, readonly string[]>> = 
   app: ["app.", "overlay.", "commit."],
   shell: ["focus."],
   "top-bar": ["remote."],
+  diff: ["diff."],
 });
 
 /** Handler registry keyed by scope and then action id. */

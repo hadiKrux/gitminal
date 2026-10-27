@@ -596,7 +596,15 @@ export const ACTION_CATALOGUE = [
     defaults: ["S"],
     label: "Stage all",
     category: "diff",
-    description: "Stage all working-directory and untracked files, regardless of the selected row.",
+    description: "Stage all files in the selected section.",
+  },
+  {
+    id: "diff.stageAllUnstaged",
+    contexts: ["global"],
+    defaults: ["A"],
+    label: "Stage all unstaged",
+    category: "diff",
+    description: "Stage every working-directory and untracked file from any region.",
   },
   {
     id: "diff.unstageAll",

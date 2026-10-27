@@ -210,7 +210,7 @@ describe("diff bulk executors", () => {
     ]);
   });
 
-  it("blocks a panel-wide stage request with no paths", async () => {
+  it("blocks a combined stage request with no paths", async () => {
     const fake = createScriptedGitClient({});
 
     const outcome = await executeDiffStageAll(

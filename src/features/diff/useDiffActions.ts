@@ -107,6 +107,9 @@ export function useDiffActions(input: {
   /**
    * Stages the deduplicated working and untracked path sets, independent of the cursor.
    *
+   * Serves the global `diff.stageAllUnstaged` action (`A`), so the combined path set is sent with
+   * no section. The inline section buttons and the diff-scoped `S` keep their own section scope.
+   *
    * @returns Nothing; dispatches one guarded mutation or reports its unavailable reason.
    */
   function runStageAll(): void {

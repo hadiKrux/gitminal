@@ -151,6 +151,15 @@ describe("resolveKeymap defaults", () => {
     expect(actionKeys(keymap, "form.submit")).toEqual(["ctrl+enter"]);
   });
 
+  it("keeps S section-scoped and binds the global stage-all action to A", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+
+    expect(actionKeys(keymap, "diff.stageAll")).toEqual(["shift+s"]);
+    expect(actionKeys(keymap, "diff.stageAllUnstaged")).toEqual(["shift+a"]);
+    expect(actionForKey(keymap, "diff", "shift+s")).toBe("diff.stageAll");
+    expect(actionForKey(keymap, "global", "shift+a")).toBe("diff.stageAllUnstaged");
+  });
+
   it("binds the legacy console chord on WSL", () => {
     const keymap = resolveKeymap({ platform: "wsl" });
 

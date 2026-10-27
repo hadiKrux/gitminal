@@ -205,6 +205,7 @@ Defaults are scoped to the focused context: global keys work everywhere (forms a
 | Fetch | `remote.fetch` | `f` |
 | Fetch and prune | `remote.fetchPrune` | `F` |
 | More remote actions | `remote.more` | `.` |
+| Stage all unstaged | `diff.stageAllUnstaged` | `A` |
 | Focus commit composer | `commit.focus` | `c` |
 | Close or cancel | `overlay.close` | `esc` |
 
@@ -276,7 +277,7 @@ Defaults are scoped to the focused context: global keys work everywhere (forms a
 | Unstage file | `diff.unstage` | `u` |
 | Discard file changes | `diff.discard` | `d` |
 | Delete untracked file | `diff.deleteUntracked` | none |
-| Stage all working-directory and untracked files | `diff.stageAll` | `S` |
+| Stage all in the selected section | `diff.stageAll` | `S` |
 | Unstage all | `diff.unstageAll` | `U` |
 | Discard all changes | `diff.discardAll` | `D` |
 | Delete all untracked files | `diff.deleteAllUntracked` | none |
