@@ -1,4 +1,5 @@
 import type { GraphScope } from "@/domain/config/config.types";
+import type { GraphLaneCell } from "@/domain/graph/graph.types";
 
 /** Region id owned by the Commit graph. */
 export const GRAPH_REGION_ID = "graph";
@@ -20,6 +21,29 @@ export const GRAPH_OVERSCAN_ROWS = 4;
 
 /** Cells of horizontal padding inside the graph scrollbox on each side. */
 export const GRAPH_CONTENT_PADDING_X = 1;
+
+/** Cells one graph lane occupies: the glyph plus its horizontal connector. */
+export const GRAPH_LANE_CELL_WIDTH = 2;
+
+/** Cell of the Pending Changes node: a commit symbol above the newest commit. */
+export const GRAPH_PENDING_NODE_CELL: GraphLaneCell = Object.freeze({
+  up: false,
+  down: true,
+  left: false,
+  right: false,
+  kind: "commit",
+  lane: 0,
+});
+
+/** Cell that carries the Pending Changes node down into the newest commit. */
+export const GRAPH_PENDING_LINE_CELL: GraphLaneCell = Object.freeze({
+  up: true,
+  down: true,
+  left: false,
+  right: false,
+  kind: "line",
+  lane: 0,
+});
 
 /** Rows from the bottom that trigger an older-page load. */
 export const GRAPH_NEAR_BOTTOM_ROWS = 6;

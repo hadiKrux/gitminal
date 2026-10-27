@@ -1,8 +1,14 @@
 import { type ReactNode, useMemo } from "react";
 import { GraphLanes } from "@/features/graph/GraphLanes";
+import { GRAPH_LANE_CELL_WIDTH } from "@/features/graph/graph.constants";
 import { formatCommitDate, shortenAuthor } from "@/features/graph/graph.format";
 import { classifyDecorations, fitRefBadges, flattenRefBadges } from "@/features/graph/graph.refs";
-import type { CommitRowView, GraphBadgeTokens, GraphRefBadge } from "@/features/graph/graph.types";
+import type {
+  CommitRowView,
+  FittedRefBadges,
+  GraphBadgeTokens,
+  GraphRefBadge,
+} from "@/features/graph/graph.types";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { ListRow } from "@/ui/ListRow";
@@ -24,10 +30,16 @@ export function commitRowId(oid: string): string {
 /**
  * Renders one commit row with lanes, subject, ref badges, file count, author, and date.
  *
- * The lane prefix and node come from the page-level `assignGraphLanes` pass. The subject is the only
- * value that shortens on the first line, so the right-aligned file count never moves. The metadata
- * line keeps tag badges ahead of the author and date; when a tagged row is tight, the date is
- * omitted before badge priority is lost.
+ * The lane prefix and node come from the page-level `assignGraphLanes` pass. Both lines of the row
+ * draw the two-character lane cells: the commit line carries the node and its branch connectors,
+ * and the metadata line continues the lanes that are still live below the commit. The text starts
+ * immediately after the row's own lane grid, so a branch row is indented by its lane count while a
+ * linear row starts right after its single lane, which is how lazygit places the commit message.
+ * The subject and metadata of one row always start on the same column.
+ *
+ * The subject is the only value that shortens on the first line, so the right-aligned file count
+ * never moves. The metadata line keeps tag badges ahead of the author and date; when a tagged row is
+ * tight, the date is omitted before badge priority is lost.
  *
  * The row suppresses the `ListRow` selection marker so the lane prefix starts at the leading edge,
  * matching the mockup; the dark selected fill and the focused region border identify the cursor row.
@@ -45,10 +57,11 @@ export function CommitRow(props: {
 }): ReactNode {
   const tokens = useTokens();
   const width = Math.max(1, Math.floor(props.width));
-  const laneWidth = props.view.lanes.length;
+  const laneWidth = Math.max(props.view.lanes.length, props.view.below.length);
+  const graphWidth = laneWidth * GRAPH_LANE_CELL_WIDTH;
   const fileCount = String(props.view.row.fileCount);
-  const subjectBudget = Math.max(0, width - laneWidth - fileCount.length - 2);
-  const metadata = useMetadataLine(props.view, width, laneWidth + 1);
+  const subjectBudget = Math.max(0, width - graphWidth - fileCount.length - 1);
+  const metadata = useMetadataLine(props.view, width, graphWidth);
 
   return (
     <ListRow
@@ -60,20 +73,18 @@ export function CommitRow(props: {
     >
       <box flexDirection="column" flexGrow={1} flexShrink={1}>
         <box flexDirection="row" flexShrink={0}>
-          <GraphLanePrefix view={props.view} />
-          <text wrapMode="none" flexShrink={0}>
-            {" "}
-          </text>
+          <GraphLanes cells={props.view.lanes} width={laneWidth} />
           <TruncatedText text={props.view.row.subject} maxWidth={subjectBudget} />
           <box flexGrow={1} flexShrink={0} />
           <text fg={tokens.muted} wrapMode="none" flexShrink={0}>
             {fileCount}
           </text>
         </box>
-        <box flexDirection="row" flexShrink={0} paddingLeft={metadata.indent}>
+        <box flexDirection="row" flexShrink={0}>
+          <GraphLanes cells={props.view.below} width={laneWidth} />
           <BadgeText badges={metadata.badges.visible} overflow={metadata.badges.overflow} />
           <text fg={tokens.muted} wrapMode="none" flexShrink={1}>
-            {`${metadata.badges.visible.length > 0 ? " " : ""}${metadata.author}`}
+            {`${readBadgeTextGap(metadata.badges)}${metadata.author}`}
           </text>
           <box flexGrow={1} flexShrink={0} />
           {metadata.date === null ? null : (
@@ -88,13 +99,16 @@ export function CommitRow(props: {
 }
 
 /**
- * Renders the lane prefix for one prepared row.
+ * Reads the space that separates the badge group from the author name.
  *
- * @param props - Prepared row.
- * @returns The lane prefix.
+ * A visible badge already puts the space before itself, so the author needs one only after a badge
+ * or after the overflow marker when every badge was omitted.
+ *
+ * @param badges - Faded badge window.
+ * @returns One space when any badge text precedes the author, otherwise an empty string.
  */
-function GraphLanePrefix(props: { readonly view: CommitRowView }): ReactNode {
-  return <GraphLanes cells={props.view.lanes} nodeColumn={props.view.nodeColumn} />;
+function readBadgeTextGap(badges: FittedRefBadges): string {
+  return badges.visible.length > 0 || badges.overflow > 0 ? " " : "";
 }
 
 /**
@@ -156,8 +170,8 @@ function readBadgeColor(kind: GraphRefBadge["kind"], tokens: GraphBadgeTokens): 
  *
  * @param view - Prepared commit view.
  * @param width - Available row width.
- * @param indent - Lane-column indentation.
- * @returns The indentation, faded badges, author, and optional date.
+ * @param indent - Width of the row lane grid, where the metadata text starts.
+ * @returns The faded badges, author, and optional date.
  */
 function useMetadataLine(view: CommitRowView, width: number, indent: number) {
   return useMemo(() => {
@@ -170,7 +184,6 @@ function useMetadataLine(view: CommitRowView, width: number, indent: number) {
 
     if (withDate >= MIN_TAGGED_BADGE_BUDGET || groups.tags.length === 0) {
       return {
-        indent,
         author,
         date: withDate >= MIN_TAGGED_BADGE_BUDGET ? date : null,
         badges: fitRefBadges(badges, Math.max(0, withDate)),
@@ -178,7 +191,6 @@ function useMetadataLine(view: CommitRowView, width: number, indent: number) {
     }
 
     return {
-      indent,
       author,
       date: null,
       badges: fitRefBadges(badges, Math.max(0, available - 1)),

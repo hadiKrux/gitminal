@@ -27,6 +27,7 @@ export function buildCommitRows(rows: readonly GraphCommit[]): readonly CommitRo
       id: commit.oid,
       row: commit.row,
       lanes: lane.cells,
+      below: lane.below,
       nodeColumn: lane.nodeColumn,
     });
   }

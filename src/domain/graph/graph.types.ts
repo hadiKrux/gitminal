@@ -138,14 +138,49 @@ export interface GraphSearchPageOptions extends GitReadOptions {
   readonly offset?: number;
 }
 
+/**
+ * One cell of the commit graph on the commit line.
+ *
+ * A cell records which of its four edges a line touches, so the renderer can map the geometry onto
+ * box-drawing glyphs. The commit cell replaces its line glyph with the commit or merge symbol while
+ * keeping the right connection in the second character, matching lazygit's two-character cells.
+ */
+export interface GraphLaneCell {
+  /** True when the top edge connects to a line. */
+  readonly up: boolean;
+  /** True when the bottom edge connects to a line. */
+  readonly down: boolean;
+  /** True when the left edge connects to a line. */
+  readonly left: boolean;
+  /** True when the right edge connects to a line. */
+  readonly right: boolean;
+  /** Cell role: a plain line, a normal commit, or a merge commit. */
+  readonly kind: "line" | "commit" | "merge";
+  /**
+   * Lane identity used for per-branch coloring.
+   *
+   * The value is the lane the line belongs to, not the column the cell occupies, so a branch keeps
+   * its color when the pipe shifts to a free column. It is an index into the theme's lane colors.
+   */
+  readonly lane: number;
+}
+
 /** One row of graph lane output. */
 export interface GraphLaneRow {
   /** Commit OID the row belongs to. */
   readonly oid: string;
   /** Column index of the node cell. */
   readonly nodeColumn: number;
-  /** One single-character cell per lane column, from left to right. */
-  readonly cells: readonly string[];
+  /** One cell per lane column on the commit line, from left to right. */
+  readonly cells: readonly GraphLaneCell[];
+  /**
+   * One cell per lane column on the continuation line below the commit.
+   *
+   * A lane that continues into the next row is a vertical cell and a freed lane is an empty cell,
+   * so the row below the commit shows the same columns and the tree reads as continuous. The caller
+   * pads the line to the fixed graph gutter.
+   */
+  readonly below: readonly GraphLaneCell[];
 }
 
 /**

@@ -6,6 +6,7 @@ import type { GitClient } from "@/domain/git/git.types";
 import type {
   EnsureLoadedResult,
   GraphCommit,
+  GraphLaneCell,
   GraphPaginator,
   GraphRow,
 } from "@/domain/graph/graph.types";
@@ -59,7 +60,9 @@ export interface CommitRowView {
   /** Parsed commit row. */
   readonly row: GraphRow;
   /** Lane cells for this row, computed once per page. */
-  readonly lanes: readonly string[];
+  readonly lanes: readonly GraphLaneCell[];
+  /** Lane cells of the continuation line below this row, computed once per page. */
+  readonly below: readonly GraphLaneCell[];
   /** Column of the commit node inside the lane cells. */
   readonly nodeColumn: number;
 }

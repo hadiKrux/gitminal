@@ -1,10 +1,11 @@
 import { describe, expect, it, setSystemTime } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
-import type { GraphRow } from "@/domain/graph/graph.types";
+import type { GraphLaneCell, GraphRow } from "@/domain/graph/graph.types";
 import { CommitRow } from "@/features/graph/CommitRow";
 import type { CommitRowView } from "@/features/graph/graph.types";
 import { ShellTestProviders } from "@/test/shell.harness";
+import { ICONS } from "@/theme/icons";
 
 /**
  * Builds one parsed commit row.
@@ -32,14 +33,49 @@ function graphRow(overrides: Partial<GraphRow> = {}): GraphRow {
 }
 
 /**
+ * Builds one graph cell.
+ *
+ * @param overrides - Edge, kind, and lane overrides.
+ * @returns The graph cell.
+ */
+function cell(overrides: Partial<GraphLaneCell> = {}): GraphLaneCell {
+  return { up: false, down: false, left: false, right: false, kind: "line", lane: 0, ...overrides };
+}
+
+/**
+ * Builds a commit cell with a lane continuing below it.
+ *
+ * @param overrides - Edge and lane overrides.
+ * @returns The commit cell.
+ */
+function commitCell(overrides: Partial<GraphLaneCell> = {}): GraphLaneCell {
+  return cell({ down: true, kind: "commit", ...overrides });
+}
+
+/**
+ * Builds a vertical continuation cell.
+ *
+ * @param lane - Lane identity for coloring.
+ * @returns The continuation cell.
+ */
+function verticalCell(lane: number = 0): GraphLaneCell {
+  return cell({ up: true, down: true, lane });
+}
+
+/**
  * Builds one prepared row view.
  *
  * @param row - Parsed row.
  * @param lanes - Lane cells.
+ * @param below - Continuation lane cells.
  * @returns The prepared view.
  */
-function view(row: GraphRow, lanes: readonly string[] = ["*"]): CommitRowView {
-  return { kind: "commit", id: row.oid, row, lanes, nodeColumn: 0 };
+function view(
+  row: GraphRow,
+  lanes: readonly GraphLaneCell[] = [commitCell()],
+  below: readonly GraphLaneCell[] = [],
+): CommitRowView {
+  return { kind: "commit", id: row.oid, row, lanes, below, nodeColumn: 0 };
 }
 
 /**
@@ -83,19 +119,72 @@ async function renderRow(
 describe("CommitRow", () => {
   it("renders lane cells, subject, and file count without a selection marker", async () => {
     const row = graphRow({ subject: "Merge pull request #4", fileCount: 17 });
-    const setup = await renderRow(view(row, ["*", "|", "\\"]));
+    const setup = await renderRow(
+      view(
+        row,
+        [commitCell({ right: true }), cell({ down: true, left: true, lane: 1 })],
+        [verticalCell(0), verticalCell(1)],
+      ),
+    );
     const frame = setup.captureCharFrame();
     const firstLine = frame.split("\n")[0] ?? "";
 
-    expect(firstLine.startsWith("*")).toBe(true);
+    expect(
+      firstLine.startsWith(`${ICONS.graphCommit}${ICONS.graphHorizontal}${ICONS.graphDownLeft}`),
+    ).toBe(true);
     expect(frame).not.toContain(">");
-    expect(frame).toContain("|");
-    expect(frame).toContain("\\");
+    expect(frame).toContain(ICONS.graphVertical);
     expect(frame).toContain("Merge pull request #4");
     expect(frame).toContain("17");
 
     await act(async () => {
       await setup.dispose();
+    });
+  });
+
+  it("continues the live lanes on the metadata line", async () => {
+    const row = graphRow({ subject: "Merge work", authorName: "Alice Ng", decorations: [] });
+    const setup = await renderRow(view(row, [commitCell()], [verticalCell()]), { width: 60 });
+    const lines = setup.captureCharFrame().split("\n");
+
+    expect(lines[0]?.startsWith(`${ICONS.graphCommit} Merge work`)).toBe(true);
+    expect(lines[1]?.startsWith(`${ICONS.graphVertical} Alice Ng`)).toBe(true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("starts the text right after the row's own lane grid", async () => {
+    const narrow = await renderRow(
+      view(graphRow({ subject: "One lane" }), [commitCell()], [verticalCell()]),
+      { width: 60 },
+    );
+    const wide = await renderRow(
+      view(
+        graphRow({ subject: "Three lanes" }),
+        [
+          commitCell({ right: true }),
+          cell({ down: true, left: true, right: true, lane: 1 }),
+          cell({ down: true, left: true, lane: 2 }),
+        ],
+        [verticalCell(0), verticalCell(1), verticalCell(2)],
+      ),
+      { width: 60 },
+    );
+    const narrowLines = narrow.captureCharFrame().split("\n");
+    const wideLines = wide.captureCharFrame().split("\n");
+
+    // One lane is two cells, three lanes are six, so the branch row is indented four cells further.
+    expect(narrowLines[0]?.indexOf("One lane")).toBe(2);
+    expect(narrowLines[1]?.indexOf("Alice Ng")).toBe(2);
+    expect(wideLines[0]?.indexOf("Three lanes")).toBe(6);
+    expect(wideLines[1]?.indexOf("Alice Ng")).toBe(6);
+    expect(narrowLines[1]?.startsWith(ICONS.graphVertical)).toBe(true);
+
+    await act(async () => {
+      await narrow.dispose();
+      await wide.dispose();
     });
   });
 
@@ -165,6 +254,20 @@ describe("CommitRow", () => {
 
     expect(frame).toMatch(/\+\d+/);
     expect(frame).toContain("branch0");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("separates the author from an overflow-only badge group", async () => {
+    const decorations = Array.from({ length: 4 }, (_, index) => `refs/heads/branch${index}`);
+    const setup = await renderRow(view(graphRow({ decorations, authorName: "Alice Ng" })), {
+      width: 16,
+    });
+    const metadataLine = setup.captureCharFrame().split("\n")[1] ?? "";
+
+    expect(metadataLine).toContain("+4 Alice Ng");
 
     await act(async () => {
       await setup.dispose();

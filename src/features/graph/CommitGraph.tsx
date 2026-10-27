@@ -49,9 +49,10 @@ import { Panel } from "@/ui/Panel";
  * and height, so every row budgets against the cells it actually gets, excluding the scrollbar, and
  * the row capacity follows the real viewport rather than the terminal. The scrollbox carries one cell
  * of horizontal padding on each side, so the row budget subtracts that padding and the rows never
- * reach the panel border or the scrollbar. The terminal height is only the first-frame estimate
- * before layout publishes the viewport. A bounded wheel handler moves the cursor through the mounted
- * window and keeps native scroll from applying twice.
+ * reach the panel border or the scrollbar. Each row starts its text right after its own lane grid,
+ * so the tree stays connected and a branch row is indented by its lane count. The terminal height is
+ * only the first-frame estimate before layout publishes the viewport. A bounded wheel handler moves
+ * the cursor through the mounted window and keeps native scroll from applying twice.
  *
  * @returns The commit graph panel.
  */
@@ -159,6 +160,9 @@ export function CommitGraph(): ReactNode {
 /**
  * Renders the normal graph body.
  *
+ * Every row draws its own lane grid and starts its text right after it, so a branch row is indented
+ * by its lane count while a linear row starts after a single lane.
+ *
  * @param props - Graph handle, mounted row range, and measured row width.
  * @returns Pending, commit, loading, error, empty, and end-of-history rows.
  */
@@ -190,6 +194,7 @@ function GraphBody(props: {
             <PendingChangesRow
               key={row.id}
               unstagedCount={row.unstagedCount}
+              connected={graph.loadedCount > 0}
               selected={graph.selectedRowId === row.id}
               focused={graph.region.focused}
               onMouseDown={() => {

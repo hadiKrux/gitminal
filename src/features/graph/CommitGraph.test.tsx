@@ -32,6 +32,7 @@ import {
 } from "@/features/graph/graph.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
+import { ICONS } from "@/theme/icons";
 
 /** NUL field separator of the log fixture. */
 const NUL = "\x00";
@@ -530,6 +531,46 @@ describe("CommitGraph", () => {
     });
   });
 
+  it("starts each row's text right after its own lane grid", async () => {
+    const output = [
+      record({
+        oid: "aaaaaaaa01",
+        subject: "Merge top",
+        parents: ["aaaaaaaa02", "aaaaaaaa03"],
+      }),
+      record({ oid: "aaaaaaaa03", subject: "Branch work", parents: ["aaaaaaaa04"] }),
+      record({ oid: "aaaaaaaa02", subject: "Main work", parents: ["aaaaaaaa04"] }),
+      record({ oid: "aaaaaaaa04", subject: "Base work", parents: ["aaaaaaaa05"] }),
+      record({ oid: "aaaaaaaa05", subject: "Root work", parents: [] }),
+    ].join("");
+    const fake = createGraphClient(async () => fakeGitResult(output));
+    const setup = await renderGraph(fake);
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("Root work"));
+
+    const lines = setup.captureCharFrame().split("\n");
+    const mergeIndex = lines.findIndex((line) => line.includes("Merge top"));
+    const mergeLine = lines[mergeIndex] ?? "";
+    const metadataLine = lines[mergeIndex + 1] ?? "";
+    const rootLine = lines.find((line) => line.includes("Root work")) ?? "";
+    const rootMetadataLine =
+      lines[(lines.findIndex((line) => line.includes("Root work")) ?? 0) + 1] ?? "";
+    const pendingLine = lines.find((line) => line.includes("Commit Changes")) ?? "";
+    const mergeSubject = mergeLine.indexOf("Merge top");
+    const rootSubject = rootLine.indexOf("Root work");
+
+    expect(mergeSubject).toBeGreaterThan(-1);
+    expect(mergeSubject).toBe(mergeLine.indexOf(ICONS.graphMerge) + 4);
+    expect(metadataLine.indexOf("Alice Ng")).toBe(mergeSubject);
+    expect(rootSubject).toBe(rootLine.indexOf(ICONS.graphCommit) + 2);
+    expect(rootMetadataLine.indexOf("Alice Ng")).toBe(rootSubject);
+    expect(pendingLine.indexOf("Commit Changes")).toBe(rootSubject);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("pads the row body on both sides inside the scrollbox", async () => {
     const rows = page(2, "pad");
     const fake = createGraphClient(async () => fakeGitResult(rows.output));
@@ -625,11 +666,15 @@ describe("CommitGraph", () => {
       resolveActionHandler("nav.last", "graph")?.();
       await setup.renderOnce();
     });
-    await waitFor(setup, () => setup.captureCharFrame().includes("s commit 29"));
+    await waitFor(
+      setup,
+      () => setup.renderer.root.findDescendantById(commitRowId(rows.oids[29] ?? "")) !== undefined,
+    );
 
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("s commit 29");
+    expect(frame).toContain("Beginning of");
+    expect(setup.renderer.root.findDescendantById(commitRowId(rows.oids[29] ?? ""))).toBeDefined();
 
     await act(async () => {
       await setup.dispose();
