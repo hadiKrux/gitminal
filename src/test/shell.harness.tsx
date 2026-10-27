@@ -6,6 +6,7 @@ import { KeymapProvider } from "@/app/providers/KeymapProvider";
 import { OverlayProvider } from "@/app/providers/OverlayProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
+import type { GitminalConfig } from "@/domain/config/config.types";
 import type { KeymapPlatform } from "@/domain/keymap/keymap.types";
 import type { SidebarRegionId } from "@/features/shell/focus.types";
 import { SidebarPanelFrame } from "@/features/shell/SidebarPanelFrame";
@@ -17,16 +18,17 @@ import { SidebarPanelFrame } from "@/features/shell/SidebarPanelFrame";
  * provider hooks. This test-only harness imports them centrally and is itself importable from a
  * colocated `*.test.*` file under any feature folder.
  *
- * @param props - Provider content, optional theme name, and the keymap platform.
+ * @param props - Provider content, optional theme name, keymap platform, and effective config.
  * @returns The provider stack.
  */
 export function ShellTestProviders(props: {
   children?: ReactNode;
   platform?: KeymapPlatform;
   themeName?: string;
+  config?: GitminalConfig;
 }): ReactNode {
   return (
-    <ConfigProvider>
+    <ConfigProvider initialConfig={props.config}>
       <ThemeProvider capability="truecolor" themeName={props.themeName}>
         <KeymapProvider platform={props.platform ?? "linux"}>
           <FocusProvider>

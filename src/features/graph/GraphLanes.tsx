@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useConfig } from "@/app/hooks/useConfig";
 import type { GraphLaneCell } from "@/domain/graph/graph.types";
 import {
   GRAPH_EDGE_DOWN,
@@ -6,9 +7,9 @@ import {
   GRAPH_EDGE_RIGHT,
   GRAPH_EDGE_UP,
   GRAPH_EMPTY_LANE,
-  GRAPH_LINE_GLYPHS,
+  GRAPH_GLYPHS,
+  type GraphGlyphSet,
 } from "@/features/graph/GraphLanes.constants";
-import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 
 /** One rendered lane cell: the glyph pair and the color that belongs to its branch. */
@@ -30,6 +31,10 @@ interface RenderedLaneCell {
  * onto the box-drawing glyphs and colors each cell by the branch lane that owns it, so a branch
  * keeps its color when the line shifts to another column.
  *
+ * The glyph set follows `graph.style` from the effective configuration. `rounded` draws lazygit's
+ * arc corners and bullseye merge symbol; `sharp` uses sharp corners, full line ends, and an ASCII
+ * merge symbol so a font with only the WGL4 or CP437 box-drawing subset can still draw the tree.
+ *
  * Every cell is its own `<span>`, so lanes can be colored independently. Missing cells render blank,
  * which lets a caller pad a short row to a wider lane count.
  *
@@ -41,6 +46,8 @@ export function GraphLanes(props: {
   readonly width: number;
 }): ReactNode {
   const tokens = useTokens();
+  const { config } = useConfig();
+  const glyphs = GRAPH_GLYPHS[config.graph.style];
   const laneColors = tokens.graph;
   const width = Math.max(0, Math.floor(props.width));
   const cells: RenderedLaneCell[] = Array.from({ length: width }, (_, index) => {
@@ -50,7 +57,7 @@ export function GraphLanes(props: {
     return {
       key: `lane-${index}`,
       color,
-      glyphs: cell === undefined ? GRAPH_EMPTY_LANE : readCellGlyphs(cell),
+      glyphs: cell === undefined ? GRAPH_EMPTY_LANE : readCellGlyphs(cell, glyphs),
     };
   });
 
@@ -74,30 +81,32 @@ export function GraphLanes(props: {
  * its symbol and keeps the right connector.
  *
  * @param cell - One graph cell.
+ * @param glyphs - Glyph set of the configured graph style.
  * @returns The two characters of the cell.
  */
-function readCellGlyphs(cell: GraphLaneCell): string {
-  const second = cell.right ? ICONS.graphHorizontal : " ";
+function readCellGlyphs(cell: GraphLaneCell, glyphs: GraphGlyphSet): string {
+  const second = cell.right ? glyphs.connector : " ";
 
   if (cell.kind === "commit") {
-    return `${ICONS.graphCommit}${second}`;
+    return `${glyphs.commit}${second}`;
   }
 
   if (cell.kind === "merge") {
-    return `${ICONS.graphMerge}${second}`;
+    return `${glyphs.merge}${second}`;
   }
 
-  return `${readLineGlyph(cell)}${second}`;
+  return `${readLineGlyph(cell, glyphs)}${second}`;
 }
 
 /**
  * Reads the line glyph of one non-commit cell.
  *
  * @param cell - One graph cell with the line kind.
+ * @param glyphs - Glyph set of the configured graph style.
  * @returns The single-cell line glyph.
  */
-function readLineGlyph(cell: GraphLaneCell): string {
-  return GRAPH_LINE_GLYPHS[readEdgeMask(cell)] ?? " ";
+function readLineGlyph(cell: GraphLaneCell, glyphs: GraphGlyphSet): string {
+  return glyphs.lines[readEdgeMask(cell)] ?? " ";
 }
 
 /**

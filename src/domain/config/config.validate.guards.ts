@@ -62,6 +62,16 @@ export function isFetchScope(value: unknown): boolean {
 }
 
 /**
+ * Reports whether a value names an accepted commit graph glyph style.
+ *
+ * @param value - Candidate value.
+ * @returns True when the value is `rounded` or `sharp`.
+ */
+export function isGraphStyle(value: unknown): boolean {
+  return value === "rounded" || value === "sharp";
+}
+
+/**
  * Reports whether a value is a commit graph page size inside the documented range.
  *
  * @param value - Candidate value.

@@ -42,7 +42,7 @@ describe("buildEffectiveConfig field validation", () => {
       git: { path: "/usr/bin/git" },
       theme: "catppuccin-latte",
       ui: { mouse: false },
-      graph: { scope: "local", initialPageSize: 250 },
+      graph: { scope: "local", initialPageSize: 250, style: "sharp" },
       diff: { contextLines: 5, expandFirstWorkingFile: false },
       stash: { includeUntrackedByDefault: true },
       remote: { fetchScope: "current" },
@@ -55,7 +55,7 @@ describe("buildEffectiveConfig field validation", () => {
       git: { path: "/usr/bin/git" },
       theme: "catppuccin-latte",
       ui: { mouse: false },
-      graph: { scope: "local", initialPageSize: 250 },
+      graph: { scope: "local", initialPageSize: 250, style: "sharp" },
       diff: { contextLines: 5, expandFirstWorkingFile: false },
       stash: { includeUntrackedByDefault: true },
       remote: { fetchScope: "current" },
@@ -68,7 +68,7 @@ describe("buildEffectiveConfig field validation", () => {
       git: { path: "   " },
       theme: 7,
       ui: { mouse: "yes" },
-      graph: { scope: "sideways", initialPageSize: 5 },
+      graph: { scope: "sideways", initialPageSize: 5, style: "fancy" },
       diff: { contextLines: 40, expandFirstWorkingFile: "no" },
       stash: { includeUntrackedByDefault: 1 },
       remote: { fetchScope: "everything" },
@@ -90,13 +90,16 @@ describe("buildEffectiveConfig field validation", () => {
     expect(result.warnings).toContain(
       'Invalid value for "diff.contextLines" in config.json; the previous value was kept.',
     );
-    expect(result.warnings).toHaveLength(9);
+    expect(result.warnings).toContain(
+      'Invalid value for "graph.style" in config.json; the previous value was kept.',
+    );
+    expect(result.warnings).toHaveLength(10);
   });
 
   it("keeps the previous effective value from the previous configuration", () => {
     const previous: GitminalConfig = {
       ...DEFAULT_CONFIG,
-      graph: { scope: "current", initialPageSize: 800 },
+      graph: { scope: "current", initialPageSize: 800, style: "sharp" },
       theme: "catppuccin-frappe",
     };
     const result = buildEffectiveConfig({
@@ -104,7 +107,11 @@ describe("buildEffectiveConfig field validation", () => {
       previousConfig: previous,
     });
 
-    expect(result.config.graph).toEqual({ scope: "current", initialPageSize: 800 });
+    expect(result.config.graph).toEqual({
+      scope: "current",
+      initialPageSize: 800,
+      style: "sharp",
+    });
     expect(result.config.theme).toBe("catppuccin-latte");
   });
 

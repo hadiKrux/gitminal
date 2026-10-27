@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: GitminalConfig = Object.freeze({
   git: Object.freeze({ path: "git" }),
   theme: DEFAULT_THEME_NAME,
   ui: Object.freeze({ mouse: true }),
-  graph: Object.freeze({ scope: "all", initialPageSize: 500 }),
+  graph: Object.freeze({ scope: "all", initialPageSize: 500, style: "rounded" }),
   diff: Object.freeze({ contextLines: 3, expandFirstWorkingFile: true }),
   stash: Object.freeze({ includeUntrackedByDefault: false }),
   remote: Object.freeze({ fetchScope: "local" }),

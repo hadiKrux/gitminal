@@ -10,9 +10,10 @@ const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
  * Architecture 6.1 rule 2 sanctions two groups. The pictographs are the push, pull, and tag-unpushed
  * arrows and the expanded triangle, which are in WGL4 and CP437, and the collapsed triangle and
  * success check mark, which are in every mainstream monospace font. The commit graph group is the
- * pair of commit symbols plus the box-drawing block that draws its lines and corners; box drawing is
- * also in CP437 and WGL4. Every value in both groups is East Asian Ambiguous, so both OpenTUI width
- * methods measure it as one cell. Every other value stays printable ASCII. The code points are
+ * pair of commit symbols plus the box-drawing block that draws its lines and corners. The plain
+ * lines and tees are in CP437 and WGL4, while the arc corners, half-lines, and merge symbol are not.
+ * Every value in both groups is East Asian Ambiguous, so both OpenTUI width methods measure it as
+ * one cell. Every other value stays printable ASCII. The code points are
  * written numerically so no source file outside the catalog needs a non-ASCII literal.
  */
 const NON_ASCII_ICON_EXCEPTIONS: Readonly<Partial<Record<IconName, number>>> = {
@@ -35,6 +36,10 @@ const NON_ASCII_ICON_EXCEPTIONS: Readonly<Partial<Record<IconName, number>>> = {
   graphEndUp: 0x2575,
   graphEndDown: 0x2577,
   graphEndRight: 0x2576,
+  graphSharpUpLeft: 0x2518,
+  graphSharpUpRight: 0x2514,
+  graphSharpDownLeft: 0x2510,
+  graphSharpDownRight: 0x250c,
 };
 
 /** Required `ICONS` groups and names from architecture section 6.1. */
@@ -91,6 +96,11 @@ const REQUIRED_ICON_GROUPS: Readonly<Record<string, readonly IconName[]>> = {
     "graphEndUp",
     "graphEndDown",
     "graphEndRight",
+    "graphSharpUpLeft",
+    "graphSharpUpRight",
+    "graphSharpDownLeft",
+    "graphSharpDownRight",
+    "graphMergeSharp",
   ],
   "Truncation and hints": ["ellipsis", "hintSeparator"],
   Theme: ["swatch"],

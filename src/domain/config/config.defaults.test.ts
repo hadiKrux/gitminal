@@ -15,7 +15,7 @@ describe("DEFAULT_CONFIG", () => {
       git: { path: "git" },
       theme: "catppuccin-mocha",
       ui: { mouse: true },
-      graph: { scope: "all", initialPageSize: 500 },
+      graph: { scope: "all", initialPageSize: 500, style: "rounded" },
       diff: { contextLines: 3, expandFirstWorkingFile: true },
       stash: { includeUntrackedByDefault: false },
       remote: { fetchScope: "local" },

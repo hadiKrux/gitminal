@@ -6,6 +6,15 @@ export type GraphScope = "all" | "local" | "current";
 /** Fetch scope accepted by `config.json`. */
 export type RemoteFetchScope = "local" | "current";
 
+/**
+ * Commit graph glyph style accepted by `config.json`.
+ *
+ * `rounded` is the lazygit-style arc corner set. `sharp` uses the WGL4 and CP437 safe sharp corner
+ * set, a `+` merge symbol, and no half-line characters, for terminals or fonts with partial box
+ * drawing coverage.
+ */
+export type GraphStyle = "rounded" | "sharp";
+
 /** The effective application configuration. */
 export interface GitminalConfig {
   /** Configuration schema version. */
@@ -28,6 +37,8 @@ export interface GitminalConfig {
     readonly scope: GraphScope;
     /** Initial and per-page commit count. */
     readonly initialPageSize: number;
+    /** Glyph style of the commit graph lanes. */
+    readonly style: GraphStyle;
   };
   /** Diff settings. */
   readonly diff: {

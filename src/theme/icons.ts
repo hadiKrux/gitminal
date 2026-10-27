@@ -8,10 +8,12 @@
  * triangle and the check mark are outside both sets but are present in Consolas, Menlo, DejaVu Sans
  * Mono, JetBrains Mono, and the other mainstream monospace fonts. The second group is the commit
  * graph set: the `graphCommit` circle, the `graphMerge` circle, and the box-drawing lines and
- * corners between them. Box drawing is present in CP437 and WGL4 as a contiguous block, so it is at
- * least as portable as the arrows. Every value in both groups is East Asian Ambiguous, which
- * OpenTUI's `unicode` and `wcwidth` width methods both measure as one cell, so the commit graph can
- * draw one lane in two cells without changing any row budget. Every other value stays ASCII. The
+ * corners between them. The plain lines and tees are in CP437 and WGL4, but the arc corners, the
+ * half-lines, and `graphMerge` are not, so a WGL4-only or CP437-only font falls back for them.
+ * Every value in both groups is East Asian Ambiguous, which OpenTUI's `unicode` and `wcwidth` width
+ * methods both measure as one cell, so the commit graph can draw one lane in two cells without
+ * changing any row budget. A terminal that renders ambiguous characters as two cells breaks that
+ * two-cell lane grid. Every other value stays ASCII. The
  * tag scope markers are their own text equivalent: `L` and `R` abbreviate local and remote,
  * `tagUnpushed` reuses the push arrow, and the bracket pair forms one fixed-width presence matrix
  * documented in architecture section 6.1.
@@ -78,6 +80,11 @@ export const ICONS = Object.freeze({
   graphEndUp: "╵",
   graphEndDown: "╷",
   graphEndRight: "╶",
+  graphSharpUpLeft: "┘",
+  graphSharpUpRight: "└",
+  graphSharpDownLeft: "┐",
+  graphSharpDownRight: "┌",
+  graphMergeSharp: "+",
   ellipsis: "...",
   hintSeparator: "|",
   swatch: "[#]",

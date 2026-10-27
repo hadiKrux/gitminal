@@ -18,6 +18,39 @@ npm install -g @im4all/gitminal
 
 Then run `gitminal` inside any git repository.
 
+## Configuration
+
+Gitminal reads an optional `config.json`. The loader checks `$GITMINAL_CONFIG`, then `$XDG_CONFIG_HOME/gitminal/config.json`, then `~/.config/gitminal/config.json`, and finally `%APPDATA%\gitminal\config.json` on Windows. `keybindings.json` and `theme.json` sit next to it unless `$GITMINAL_KEYBINDINGS` or `$GITMINAL_THEME` overrides them.
+
+Every key is optional. An invalid field keeps the previous effective value and adds a warning; unknown fields and safety settings are reported and ignored.
+
+```json
+{
+  "version": 1,
+  "git": { "path": "git" },
+  "theme": "catppuccin-mocha",
+  "ui": { "mouse": true },
+  "graph": {
+    "scope": "all",
+    "initialPageSize": 500,
+    "style": "rounded"
+  },
+  "diff": {
+    "contextLines": 3,
+    "expandFirstWorkingFile": true
+  },
+  "stash": { "includeUntrackedByDefault": false },
+  "remote": { "fetchScope": "local" }
+}
+```
+
+### `graph.style`
+
+- `rounded` (default) draws lazygit's arc corners and the bullseye merge symbol. It needs full box-drawing coverage, which mainstream coding fonts have.
+- `sharp` uses the WGL4 and CP437 safe sharp corner set, full line ends instead of half-line characters, and an ASCII `+` merge symbol. Use it when your font or terminal lacks the arc subset, or draws it with gaps.
+
+Both styles assume the terminal renders ambiguous-width characters as one cell. If the graph looks double-width or misaligned, set your terminal's ambiguous-width option to `1` (for example iTerm2 "Treat ambiguous-width characters as double width" off, or WezTerm `treat_east_asian_ambiguous_width_as_wide = false`).
+
 ## Development
 
 To install dependencies:
