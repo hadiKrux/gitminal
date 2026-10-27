@@ -5,6 +5,7 @@ import { applyThemeCapability, detectColorCapability } from "@/domain/theme/them
 import { resolveTheme } from "@/domain/theme/theme.resolve";
 import { ThemeContext } from "@/theme/ThemeContext";
 import type { ThemeContextValue, ThemeControls } from "@/theme/ThemeContext.types";
+import { useThemeSyntaxStyle } from "@/theme/useThemeSyntaxStyle";
 
 /**
  * Resolves the active theme and provides its tokens and controls to the app.
@@ -21,6 +22,10 @@ import type { ThemeContextValue, ThemeControls } from "@/theme/ThemeContext.type
  * re-reading a file. A reload that changes the configured name resets the session name, so the file
  * stays the source of truth; a preview that a reload does not mention keeps rendering until the
  * picker commits or restores it.
+ *
+ * The provider also owns the one renderer-bound `SyntaxStyle`. It is rebuilt from the final tokens
+ * whenever the theme or capability changes and is the only syntax style the app creates, so every
+ * code and diff surface repaints together without holding a second color source.
  *
  * @param props - Optional static theme and capability overrides plus provider content.
  * @returns The theme context provider.
@@ -66,7 +71,12 @@ export function ThemeProvider(props: ThemeProviderProps): ReactNode {
     () => ({ preview, commit, restore }),
     [preview, commit, restore],
   );
-  const value = useMemo<ThemeContextValue>(() => ({ theme, controls }), [theme, controls]);
+
+  const syntaxStyle = useThemeSyntaxStyle(theme.tokens);
+  const value = useMemo<ThemeContextValue>(
+    () => ({ theme, controls, syntaxStyle }),
+    [theme, controls, syntaxStyle],
+  );
 
   return <ThemeContext.Provider value={value}>{props.children}</ThemeContext.Provider>;
 }

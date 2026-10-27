@@ -106,6 +106,25 @@ const DIFF_SEGMENT: DiffSegment = {
 };
 
 /**
+ * One expanded hunk whose added line starts with a TypeScript keyword.
+ */
+const KEYWORD_SEGMENT: DiffSegment = {
+  kind: "diff",
+  hunkIndex: 0,
+  oldStart: 1,
+  oldCount: 1,
+  newStart: 1,
+  newCount: 1,
+  text: [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,1 +1,1 @@",
+    "+const value = 1;",
+  ].join("\n"),
+};
+
+/**
  * Finds the first captured span whose text contains the needle.
  *
  * @param frame - Captured frame.
@@ -113,6 +132,23 @@ const DIFF_SEGMENT: DiffSegment = {
  * @returns The matching span.
  */
 function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
+  const span = findSpanOrNull(frame, text);
+
+  if (span === null) {
+    throw new Error(`No captured span contains ${text}`);
+  }
+
+  return span;
+}
+
+/**
+ * Finds the first captured span whose text contains the needle, or null.
+ *
+ * @param frame - Captured frame.
+ * @param text - Text to find.
+ * @returns The matching span, or null when none contains the text.
+ */
+function findSpanOrNull(frame: CapturedFrame, text: string): CapturedSpan | null {
   for (const line of frame.lines) {
     for (const span of line.spans) {
       if (span.text.includes(text)) {
@@ -121,7 +157,41 @@ function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
     }
   }
 
-  throw new Error(`No captured span contains ${text}`);
+  return null;
+}
+
+/**
+ * Polls the captured spans until one contains the text in the expected color.
+ *
+ * Syntax highlighting runs asynchronously after the first paint, so a color assertion has to wait
+ * for the highlighter to settle instead of reading the first captured frame.
+ *
+ * @param setup - Renderer setup.
+ * @param text - Text the span must contain.
+ * @param expected - Expected foreground color.
+ * @returns The matching span, or null when the deadline passes.
+ */
+async function waitForSpanColor(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  text: string,
+  expected: RGBA,
+): Promise<CapturedSpan | null> {
+  const deadline = Date.now() + 2_000;
+
+  while (Date.now() < deadline) {
+    const span = findSpanOrNull(setup.captureSpans(), text);
+
+    if (span?.fg.equals(expected) === true) {
+      return span;
+    }
+
+    await act(async () => {
+      await setup.renderOnce();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+  }
+
+  return null;
 }
 
 describe("DiffContent", () => {
@@ -194,6 +264,37 @@ describe("DiffContent", () => {
     const expected = THEME_FLAVORS["catppuccin-latte"].tokens.text;
 
     expect(code.fg.equals(RGBA.fromHex(expected))).toBe(true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("highlights a keyword when the filetype has a registered parser", async () => {
+    const setup = await renderContent(loadedState({ segments: [KEYWORD_SEGMENT] }), "src/app.ts");
+    const accent = THEME_FLAVORS["catppuccin-mocha"].tokens.accent;
+    const span = await waitForSpanColor(setup, "const", RGBA.fromHex(accent));
+
+    expect(span).not.toBeNull();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps the text color when no registered parser matches the filetype", async () => {
+    const setup = await renderContent(loadedState({ segments: [KEYWORD_SEGMENT] }), "notes.txt");
+    const text = THEME_FLAVORS["catppuccin-mocha"].tokens.text;
+
+    await act(async () => {
+      await setup.renderOnce();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await setup.renderOnce();
+    });
+
+    const span = findSpanContaining(setup.captureSpans(), "const");
+
+    expect(span.fg.equals(RGBA.fromHex(text))).toBe(true);
 
     await act(async () => {
       await setup.dispose();

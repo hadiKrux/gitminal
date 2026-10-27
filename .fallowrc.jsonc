@@ -2,7 +2,13 @@
   // This file is JSONC: fallow reads these comments; generic JSON tools may not.
   "$schema": "./node_modules/fallow/schema.json",
   "entry": ["src/index.{ts,tsx,js,jsx}", "src/main.{ts,tsx,js,jsx}"],
-  "ignoreDependencies": ["fallow"],
+  "ignoreDependencies": [
+    "fallow",
+    // Build-time grammar sources. scripts/parsers.vendor.ts copies their wasm and highlight
+    // queries into assets/parsers, so no production module imports them.
+    "tree-sitter-*",
+    "@tree-sitter-grammars/*"
+  ],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste
     // worth refactoring. Lower to 2 to report every duplicate pair.

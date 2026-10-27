@@ -8,7 +8,8 @@
     "gitminal": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "assets"
   ],
   "publishConfig": {
     "access": "public"
@@ -38,6 +39,7 @@
     "dev": "bun run --watch src/index.tsx",
     "build": "bun build --target=bun --packages=external --banner='#!/usr/bin/env bun' --outfile=dist/index.js src/index.tsx",
     "prepublishOnly": "bun run check:all && bun run build",
+    "parsers:vendor": "bun scripts/parsers.vendor.ts",
     "test": "bun test --timeout 10000 --path-ignore-patterns='**/*.integration.test.ts'",
     "test:integration": "bun test --timeout 60000 integration.test",
     "test:all": "bun test --timeout 60000",
@@ -57,10 +59,20 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
+    "@tree-sitter-grammars/tree-sitter-yaml": "0.7.1",
     "@types/bun": "1.3.14",
     "@types/react": "^19.2.0",
     "fallow": "^3.34.1",
     "husky": "^9.1.7",
+    "tree-sitter-bash": "0.25.1",
+    "tree-sitter-css": "0.25.0",
+    "tree-sitter-go": "0.25.0",
+    "tree-sitter-html": "0.23.2",
+    "tree-sitter-java": "0.23.5",
+    "tree-sitter-json": "0.24.8",
+    "tree-sitter-php": "0.24.2",
+    "tree-sitter-python": "0.25.0",
+    "tree-sitter-rust": "0.24.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {

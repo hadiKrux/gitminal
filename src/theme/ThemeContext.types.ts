@@ -1,3 +1,4 @@
+import type { SyntaxStyle } from "@opentui/core";
 import type { ResolvedTheme } from "@/domain/theme/theme.types";
 
 /**
@@ -34,4 +35,6 @@ export interface ThemeContextValue {
   readonly theme: ResolvedTheme;
   /** Session-only preview, commit, and restore controls. */
   readonly controls: ThemeControls;
+  /** Renderer-bound syntax style built from the active tokens and rebuilt on every theme change. */
+  readonly syntaxStyle: SyntaxStyle;
 }

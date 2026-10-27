@@ -1,6 +1,8 @@
+import { pathToFiletype } from "@opentui/core";
 import type { ReactNode } from "react";
 import type { DiffLoadState } from "@/domain/diff/diff.types";
 import { ICONS } from "@/theme/icons";
+import { useSyntaxStyle } from "@/theme/useSyntaxStyle";
 import { useTokens } from "@/theme/useTokens";
 import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
@@ -35,8 +37,12 @@ const BYTES_PER_MEGABYTE = BYTES_PER_KILOBYTE * 1024;
  * Renders the inline unified diff of one expanded file.
  *
  * A loaded text file becomes one `<diff>` per kept segment, with unified view, one line-number
- * gutter, and theme-mapped added and removed backgrounds and signs. A collapsed segment becomes a
- * text marker, because the renderer only ever receives complete unified patches. Binary, oversized,
+ * gutter, and theme-mapped added and removed backgrounds and signs. Each segment also receives the
+ * filetype derived from the path and the theme-owned syntax style, so the built-in TypeScript,
+ * JavaScript, JSX, Markdown, and Zig grammars plus the vendored Bash, CSS, Go, HTML, Java, JSON,
+ * PHP, Python, Rust, and YAML grammars are colored from theme tokens while any language without a
+ * registered parser keeps the plain `text` color. A collapsed segment becomes a text marker,
+ * because the renderer only ever receives complete unified patches. Binary, oversized,
  * metadata-only, empty, and truncated files each render their own notice with text. Loading and
  * failure states stay inline so the row stays expanded and Retry re-runs only this file.
  *
@@ -49,7 +55,9 @@ export function DiffContent(props: {
   readonly onRetry: () => void;
 }): ReactNode {
   const tokens = useTokens();
+  const syntaxStyle = useSyntaxStyle();
   const state = props.state;
+  const filetype = pathToFiletype(props.path);
 
   if (state === undefined || state.status === "idle" || state.status === "loading") {
     return <LoadingRow label={DIFF_LOADING_LABEL} />;
@@ -115,6 +123,8 @@ export function DiffContent(props: {
             diff={segment.text}
             view="unified"
             showLineNumbers
+            filetype={filetype}
+            syntaxStyle={syntaxStyle}
             fg={tokens.text}
             addedBg={tokens.diffAddBackground}
             removedBg={tokens.diffRemoveBackground}

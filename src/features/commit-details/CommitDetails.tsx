@@ -1,7 +1,6 @@
-import type { ScrollBoxRenderable } from "@opentui/core";
-import { SyntaxStyle, TextAttributes } from "@opentui/core";
-import { useRenderer } from "@opentui/react";
-import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import type { ScrollBoxRenderable, SyntaxStyle } from "@opentui/core";
+import { TextAttributes } from "@opentui/core";
+import { type ReactNode, useRef } from "react";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useScrollContentWidth } from "@/app/hooks/useScrollContentWidth";
 import type { CommitDetailsRecord, CommitStatsRecord } from "@/domain/git/git.types";
@@ -31,6 +30,7 @@ import {
 } from "@/features/commit-details/useCommitDetails";
 import { truncateText } from "@/lib/text";
 import { ICONS } from "@/theme/icons";
+import { useSyntaxStyle } from "@/theme/useSyntaxStyle";
 import { useTokens } from "@/theme/useTokens";
 import { Button } from "@/ui/Button";
 import { EmptyState } from "@/ui/EmptyState";
@@ -124,7 +124,7 @@ function CommitDetailsContent(props: {
   const pane = props.pane;
   const details = pane.details;
   const tokens = useTokens();
-  const syntaxStyle = useCodeSyntaxStyle();
+  const syntaxStyle = useSyntaxStyle();
 
   if (details === null) {
     return null;
@@ -425,31 +425,4 @@ function readRefColor(kind: RefBadgeView["kind"], tokens: ReturnType<typeof useT
   }
 
   return kind === "local" ? tokens.branchLocal : tokens.branchRemote;
-}
-
-/**
- * Creates and owns the syntax style used by the code blocks.
- *
- * `CodeRenderable` requires a syntax style bound to the renderer. One `default` style keeps the
- * hashes and message body in the `text` token, and the style is released when its renderer or the
- * token changes, so a theme switch cannot leak the previous style.
- *
- * @returns The syntax style bound to the active renderer and theme.
- */
-function useCodeSyntaxStyle(): SyntaxStyle {
-  const renderer = useRenderer();
-  const tokens = useTokens();
-  const style = useMemo(
-    () => SyntaxStyle.fromStyles({ default: { fg: tokens.text } }, renderer.nativeScene),
-    [renderer, tokens.text],
-  );
-
-  useEffect(
-    () => () => {
-      style.destroy();
-    },
-    [style],
-  );
-
-  return style;
 }

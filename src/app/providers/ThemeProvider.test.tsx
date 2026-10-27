@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { RGBA, type SyntaxStyle } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { useTheme } from "@/app/hooks/useTheme";
@@ -11,6 +12,7 @@ import { applyThemeCapability } from "@/domain/theme/theme.capability";
 import { resolveTheme } from "@/domain/theme/theme.resolve";
 import type { ResolvedTheme, ThemeColorCapability, ThemeTokens } from "@/domain/theme/theme.types";
 import { readGuardError, renderGuard } from "@/test/react.guard";
+import { useSyntaxStyle } from "@/theme/useSyntaxStyle";
 import { useThemeControls } from "@/theme/useThemeControls";
 import { useTokens } from "@/theme/useTokens";
 
@@ -18,6 +20,7 @@ import { useTokens } from "@/theme/useTokens";
 let latestTheme: ResolvedTheme | undefined;
 let latestTokens: ThemeTokens | undefined;
 let latestControls: ReturnType<typeof useThemeControls> | undefined;
+let latestSyntaxStyle: SyntaxStyle | undefined;
 
 /** Prefix kept outside the string so an override color is not written as a hex literal. */
 const HEX_PREFIX = "#";
@@ -31,8 +34,20 @@ function ThemeProbe(): ReactNode {
   latestTheme = useTheme();
   latestTokens = useTokens();
   latestControls = useThemeControls();
+  latestSyntaxStyle = useSyntaxStyle();
 
   return <text>{latestTheme?.name ?? "none"}</text>;
+}
+
+/**
+ * Calls `useSyntaxStyle` without a provider so the boundary can catch its guard error.
+ *
+ * @returns A marker element.
+ */
+function SyntaxGuardProbe(): ReactNode {
+  useSyntaxStyle();
+
+  return <text>syntax guard</text>;
 }
 
 /**
@@ -104,6 +119,7 @@ async function renderTheme(
   latestTheme = undefined;
   latestTokens = undefined;
   latestControls = undefined;
+  latestSyntaxStyle = undefined;
 
   return testRender(
     <ConfigProvider
@@ -264,6 +280,51 @@ describe("ThemeProvider session controls", () => {
   });
 });
 
+describe("ThemeProvider syntax style", () => {
+  it("builds the shared style from the active tokens", async () => {
+    const setup = await renderTheme();
+    const mocha = resolveTheme("catppuccin-mocha").tokens;
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(latestSyntaxStyle?.getStyle("keyword")?.fg?.equals(RGBA.fromHex(mocha.accent))).toBe(
+      true,
+    );
+    expect(latestSyntaxStyle?.getStyle("default")?.fg?.equals(RGBA.fromHex(mocha.text))).toBe(true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("rebuilds the style when the theme changes", async () => {
+    const setup = await renderTheme();
+    const latte = resolveTheme("catppuccin-latte").tokens;
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const first = latestSyntaxStyle;
+
+    await act(async () => {
+      latestControls?.preview("catppuccin-latte");
+      await setup.renderOnce();
+    });
+
+    expect(latestSyntaxStyle).not.toBe(first);
+    expect(latestSyntaxStyle?.getStyle("keyword")?.fg?.equals(RGBA.fromHex(latte.accent))).toBe(
+      true,
+    );
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+});
+
 describe("ThemeProvider guards", () => {
   it("throws when useTheme runs outside a ThemeProvider", async () => {
     const setup = await renderGuard(<ThemeGuardProbe />);
@@ -287,6 +348,20 @@ describe("ThemeProvider guards", () => {
     });
 
     expect(readGuardError()).toBe("useTokens must be used within a ThemeProvider.");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("throws when useSyntaxStyle runs outside a ThemeProvider", async () => {
+    const setup = await renderGuard(<SyntaxGuardProbe />);
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(readGuardError()).toBe("useSyntaxStyle must be used within a ThemeProvider.");
 
     await act(async () => {
       await setup.dispose();
