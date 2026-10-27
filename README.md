@@ -16,6 +16,53 @@ npm install -g @im4all/gitminal
 
 Then run `gitminal` inside any git repository.
 
+## Terminal colors
+
+If Gitminal looks monochrome, check the terminal environment. A non-empty `NO_COLOR` disables colors, while `COLORTERM=truecolor` enables full 24-bit color. Windows Terminal supports truecolor, but a WSL shell may not advertise it automatically.
+
+### WSL, Linux, and macOS
+
+Run this inside your shell (inside WSL when using Windows Terminal with WSL):
+
+```bash
+env -u NO_COLOR COLORTERM=truecolor gitminal
+```
+
+For a source checkout, use:
+
+```bash
+env -u NO_COLOR COLORTERM=truecolor bun preview
+```
+
+If that fixes the colors, add the following to `~/.bashrc` for Bash or `~/.zshrc` for Zsh, then open a new terminal:
+
+```bash
+unset NO_COLOR
+export COLORTERM=truecolor
+```
+
+This enables colors for other apps too, so only unset `NO_COLOR` permanently if you do not intentionally use it. To inspect your current settings:
+
+```bash
+printf 'TERM=%s\nCOLORTERM=%s\nNO_COLOR=%s\n' "$TERM" "$COLORTERM" "$NO_COLOR"
+```
+
+On terminals without truecolor support, use their actual capabilities instead. `TERM=xterm-256color` selects Gitminal's 256-color fallback; do not override `TERM` globally unless it correctly describes your terminal.
+
+### Native Windows PowerShell
+
+Use Windows Terminal and set the environment in PowerShell before launching Gitminal:
+
+```powershell
+Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
+$env:COLORTERM = 'truecolor'
+gitminal
+```
+
+Replace `gitminal` with `bun preview` when running a source checkout. These settings last for the current PowerShell session; add the first two lines to your PowerShell profile (`$PROFILE`) if you want them applied to future sessions. If you are running WSL from PowerShell, use the WSL instructions inside the Linux shell instead.
+
+Gitminal's theme detection reads `NO_COLOR`, `COLORTERM`, and `TERM`; setting `FORCE_COLOR` alone does not override it.
+
 ## Configuration
 
 Gitminal reads an optional `config.json`. The loader checks `$GITMINAL_CONFIG`, then `$XDG_CONFIG_HOME/gitminal/config.json`, then `~/.config/gitminal/config.json`, and finally `%APPDATA%\gitminal\config.json` on Windows. `keybindings.json` and `theme.json` sit next to it unless `$GITMINAL_KEYBINDINGS` or `$GITMINAL_THEME` overrides them.
