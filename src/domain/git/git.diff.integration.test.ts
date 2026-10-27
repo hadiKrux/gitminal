@@ -69,15 +69,15 @@ describe.skipIf(!gitAvailable)("size probe against a real working tree", () => {
     await withGitFixture({}, async (fixture) => {
       fixture.writeFile(
         "long.txt",
-        Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join("\n") + "\n",
+        `${Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join("\n")}\n`,
       );
       expect((await fixture.commit("Add long file")).ok).toBeTrue();
 
       fixture.writeFile(
         "long.txt",
-        Array.from({ length: 40 }, (_, index) =>
+        `${Array.from({ length: 40 }, (_, index) =>
           index === 30 ? "line 31 changed" : `line ${index + 1}`,
-        ).join("\n") + "\n",
+        ).join("\n")}\n`,
       );
 
       const read = await readWorkingDiff(fixture.client, {

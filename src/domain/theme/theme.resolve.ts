@@ -95,13 +95,13 @@ function readOverrideLayer(raw: unknown, warnings: string[]): ThemeOverrideLayer
     return null;
   }
 
-  if (!isSupportedVersion(raw["version"])) {
+  if (!isSupportedVersion(raw.version)) {
     warnings.push("Unsupported version in theme.json; the file was ignored.");
 
     return null;
   }
 
-  const colors = raw["colors"];
+  const colors = raw.colors;
 
   if (!isPlainObject(colors)) {
     warnings.push("theme.json has no colors object; the base theme is in use.");
@@ -111,7 +111,7 @@ function readOverrideLayer(raw: unknown, warnings: string[]): ThemeOverrideLayer
 
   return {
     tokens: readTokenOverrides(colors, warnings),
-    graph: readGraphLanes(colors["graph"], warnings),
+    graph: readGraphLanes(colors.graph, warnings),
   };
 }
 

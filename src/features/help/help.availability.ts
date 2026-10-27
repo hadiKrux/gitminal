@@ -2,7 +2,6 @@ import { readAvailabilityRegion } from "@/app/hooks/useCommandTargets";
 import type { CommandTargetHandle } from "@/app/hooks/useCommandTargets.types";
 import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import { getCommandDescriptor } from "@/domain/commands/commands.registry";
-import type { CommandDescriptor } from "@/domain/commands/commands.types";
 import { describeHelpRows } from "@/domain/keymap/keymap.describe";
 import type {
   KeymapContext,

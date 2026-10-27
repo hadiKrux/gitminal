@@ -117,7 +117,7 @@ export function mergeFieldValues(
         warnings,
       ),
     },
-    keybindings: mergeConfigKeybindings(source["keybindings"], base.keybindings, warnings),
+    keybindings: mergeConfigKeybindings(source.keybindings, base.keybindings, warnings),
   };
 }
 

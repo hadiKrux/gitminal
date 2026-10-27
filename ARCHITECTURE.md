@@ -686,12 +686,7 @@ gitminal/
       paths.ts
       time.ts
       text.ts
-      format.ts
-      result.ts
-      assert.ts
       object.ts
-      async.ts
-      invariant.ts
       list.ts
       semver.ts
       semver.types.ts

@@ -117,7 +117,7 @@ function readMainConfigFile(input: ValidateConfigInput, warnings: string[]): Mai
  * @returns The merge status, the field source when usable, and the schema version.
  */
 function readSchemaVersion(source: Record<string, unknown>, warnings: string[]): MainConfigRead {
-  const version = source["version"];
+  const version = source.version;
 
   if (version === undefined || version === DEFAULT_CONFIG_VERSION) {
     return { status: "applied", source, version: DEFAULT_CONFIG_VERSION };
