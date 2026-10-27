@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useTokens } from "@/theme/useTokens";
 import { BUTTON_HORIZONTAL_PADDING } from "@/ui/Button.constants";
 import type { ButtonProps } from "@/ui/Button.types";
+import { useClickWithoutSelection } from "@/ui/useClickWithoutSelection";
 
 /**
  * Renders a filled text button.
@@ -17,6 +18,8 @@ import type { ButtonProps } from "@/ui/Button.types";
  *
  * Mouse activation goes through the box's mouse handler; the handler never calls `focus()`, because
  * OpenTUI native focus follows the click and the owning feature decides which control it selects.
+ * The handler clears the text selection a click starts over the label, so pressing a button never
+ * leaves its label highlighted.
  *
  * @param props - Label, optional icon, focus and disabled state, reason, and press handler.
  * @returns The composed button.
@@ -26,6 +29,7 @@ export function Button(props: ButtonProps): ReactNode {
   const disabled = props.disabled === true;
   const focused = props.focused === true;
   const foreground = disabled ? tokens.dim : tokens.text;
+  const onMouseDown = useClickWithoutSelection(disabled ? undefined : props.onPress);
 
   return (
     <box
@@ -35,7 +39,7 @@ export function Button(props: ButtonProps): ReactNode {
       backgroundColor={focused ? tokens.selection : tokens.border}
       paddingLeft={BUTTON_HORIZONTAL_PADDING}
       paddingRight={BUTTON_HORIZONTAL_PADDING}
-      onMouseDown={disabled ? undefined : props.onPress}
+      onMouseDown={onMouseDown}
     >
       <text fg={foreground} wrapMode="none" attributes={focused ? TextAttributes.BOLD : undefined}>
         {formatButtonLabel(

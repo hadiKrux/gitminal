@@ -9,6 +9,12 @@ import { Checkbox } from "@/ui/Checkbox";
 
 let capturedTokens: ReturnType<typeof useTokens> | undefined;
 
+/** Cell of the checkbox label that the renderer-level click tests press. */
+const CHECKBOX_CLICK_X = 2;
+
+/** Row of the checkbox label that the renderer-level click tests press. */
+const CHECKBOX_CLICK_Y = 0;
+
 function TokenProbe(): null {
   capturedTokens = useTokens();
 
@@ -119,6 +125,30 @@ describe("Checkbox", () => {
     });
 
     expect(presses).toBe(1);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("activates on a renderer click without leaving the label text-selected", async () => {
+    let presses = 0;
+    const setup = await renderCheckbox(
+      <Checkbox
+        label="Force remove"
+        checked
+        onPress={() => {
+          presses += 1;
+        }}
+      />,
+    );
+
+    await act(async () => {
+      await setup.mockMouse.click(CHECKBOX_CLICK_X, CHECKBOX_CLICK_Y);
+    });
+
+    expect(presses).toBe(1);
+    expect(setup.renderer.hasSelection).toBe(false);
 
     await act(async () => {
       await setup.dispose();

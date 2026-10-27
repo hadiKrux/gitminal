@@ -11,6 +11,42 @@ import type { ButtonProps } from "@/ui/Button.types";
 /** Theme tokens captured from the mounted provider. */
 let capturedTokens: ReturnType<typeof useTokens> | undefined;
 
+/** Cell of the button label that the renderer-level click tests press. */
+const BUTTON_CLICK_X = 2;
+
+/** Row of the button label that the renderer-level click tests press. */
+const BUTTON_CLICK_Y = 0;
+
+/**
+ * Renders one button wide enough to receive a renderer-level mouse click.
+ *
+ * The click has to go through the renderer so that OpenTUI's own selection handling runs; calling
+ * the box handler directly would skip it.
+ *
+ * @param onPress - Press handler invoked by the click.
+ * @param overrides - Optional disabled state and reason for the rendered button.
+ * @returns The mounted test setup.
+ */
+async function renderClickableButton(
+  onPress: () => void,
+  overrides: Pick<ButtonProps, "disabled" | "reason"> = {},
+): Promise<Awaited<ReturnType<typeof testRender>>> {
+  const setup = await testRender(
+    <ShellTestProviders>
+      <box flexDirection="row" width={40} height={1}>
+        <Button label="Pull" onPress={onPress} {...overrides} />
+      </box>
+    </ShellTestProviders>,
+    { width: 40, height: 3 },
+  );
+
+  await act(async () => {
+    await setup.renderOnce();
+  });
+
+  return setup;
+}
+
 /**
  * Captures the active theme tokens for the color assertions.
  *
@@ -135,5 +171,44 @@ describe("Button", () => {
     expect(label.bg.equals(RGBA.fromHex(tokens.border))).toBe(true);
     expect(label.fg.equals(RGBA.fromHex(tokens.dim))).toBe(true);
     expect(readFrameText(frame)).toContain("Commit message required");
+  });
+
+  it("presses on click without leaving the label text-selected", async () => {
+    let presses = 0;
+    const setup = await renderClickableButton(() => {
+      presses += 1;
+    });
+
+    await act(async () => {
+      await setup.mockMouse.click(BUTTON_CLICK_X, BUTTON_CLICK_Y);
+    });
+
+    expect(presses).toBe(1);
+    expect(setup.renderer.hasSelection).toBe(false);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("ignores a click on a disabled button without leaving its label text-selected", async () => {
+    let presses = 0;
+    const setup = await renderClickableButton(
+      () => {
+        presses += 1;
+      },
+      { disabled: true, reason: "message required" },
+    );
+
+    await act(async () => {
+      await setup.mockMouse.click(BUTTON_CLICK_X, BUTTON_CLICK_Y);
+    });
+
+    expect(presses).toBe(0);
+    expect(setup.renderer.hasSelection).toBe(false);
+
+    await act(async () => {
+      await setup.dispose();
+    });
   });
 });

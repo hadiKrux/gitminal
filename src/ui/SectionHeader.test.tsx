@@ -6,6 +6,12 @@ import { ShellTestProviders } from "@/test/shell.harness";
 import { ICONS } from "@/theme/icons";
 import { SectionHeader } from "@/ui/SectionHeader";
 
+/** Cell of the section title that the renderer-level click tests press. */
+const HEADER_CLICK_X = 2;
+
+/** Row of the section title that the renderer-level click tests press. */
+const HEADER_CLICK_Y = 0;
+
 async function renderHeader(node: ReactNode): Promise<Awaited<ReturnType<typeof testRender>>> {
   const setup = await testRender(
     <ShellTestProviders>
@@ -56,6 +62,30 @@ describe("SectionHeader", () => {
     const setup = await renderHeader(<SectionHeader title="Keybindings" expanded={false} />);
 
     expect(setup.captureCharFrame()).toContain(`${ICONS.collapsed} Keybindings`);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("toggles on a renderer click without leaving the title text-selected", async () => {
+    let toggles = 0;
+    const setup = await renderHeader(
+      <SectionHeader
+        title="Keybindings"
+        expanded
+        onMouseDown={() => {
+          toggles += 1;
+        }}
+      />,
+    );
+
+    await act(async () => {
+      await setup.mockMouse.click(HEADER_CLICK_X, HEADER_CLICK_Y);
+    });
+
+    expect(toggles).toBe(1);
+    expect(setup.renderer.hasSelection).toBe(false);
 
     await act(async () => {
       await setup.dispose();

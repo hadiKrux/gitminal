@@ -148,6 +148,32 @@ describe("ListRow", () => {
     });
   });
 
+  it("runs the mouse handler without leaving the row text-selected", async () => {
+    let presses = 0;
+    const setup = await renderRows(
+      <ListRow
+        id="row"
+        selected
+        onMouseDown={() => {
+          presses += 1;
+        }}
+      >
+        <text>main</text>
+      </ListRow>,
+    );
+
+    await act(async () => {
+      await setup.mockMouse.click(1, 0);
+    });
+
+    expect(presses).toBe(1);
+    expect(setup.renderer.hasSelection).toBe(false);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("runs the mouse handler without taking native focus", async () => {
     let presses = 0;
     const setup = await renderRows(

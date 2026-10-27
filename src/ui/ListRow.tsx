@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useTokens } from "@/theme/useTokens";
 import { TextMarker } from "@/ui/TextMarker";
+import { useClickWithoutSelection } from "@/ui/useClickWithoutSelection";
 
 /**
  * Renders one custom-content list row with a selection marker and background.
@@ -14,7 +15,8 @@ import { TextMarker } from "@/ui/TextMarker";
  *
  * A supplied mouse handler only selects or dispatches in the owning feature. This primitive never
  * calls `focus()` and never writes focus state, because OpenTUI native focus follows the click and
- * the region frame owns the focus ring.
+ * the region frame owns the focus ring. The handler clears the text selection a click starts over
+ * the row, so clicking a row never leaves its content highlighted.
  *
  * @param props - Row content, selection and focus flags, optional id, marker flag, and mouse handler.
  * @returns The composed list row.
@@ -29,6 +31,7 @@ export function ListRow(props: {
 }): ReactNode {
   const tokens = useTokens();
   const selected = props.selected === true;
+  const onMouseDown = useClickWithoutSelection(props.onMouseDown);
 
   return (
     <box
@@ -38,7 +41,7 @@ export function ListRow(props: {
       flexShrink={0}
       minHeight={1}
       backgroundColor={selected ? tokens.surface : undefined}
-      onMouseDown={props.onMouseDown}
+      onMouseDown={onMouseDown}
     >
       {props.showMarker === false ? null : (
         <TextMarker focused={selected && props.focused === true} selected={selected} />

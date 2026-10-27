@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
+import { useClickWithoutSelection } from "@/ui/useClickWithoutSelection";
 
 /**
  * Renders a checkbox toggle as a marker plus a label.
@@ -9,7 +10,8 @@ import { useTokens } from "@/theme/useTokens";
  * without color. The component is not a native focusable widget and triggers nothing itself:
  * keyboard activation belongs to the owning feature, which calls `onPress` from `nav.activate`,
  * while a mouse click invokes the same `onPress`. A focused toggle colors its marker with the focus
- * token, and a disabled toggle uses the `dim` token and ignores clicks.
+ * token, and a disabled toggle uses the `dim` token and ignores clicks. A click clears the text
+ * selection it starts over the label, so the toggle never leaves its label highlighted.
  *
  * @param props - Label, checked state, press handler, and optional focus, disabled, and id values.
  * @returns The composed checkbox row.
@@ -26,14 +28,10 @@ export function Checkbox(props: {
   const disabled = props.disabled === true;
   const foreground = disabled ? tokens.dim : tokens.text;
   const markerColor = disabled || props.focused !== true ? foreground : tokens.focus;
+  const onMouseDown = useClickWithoutSelection(disabled ? undefined : props.onPress);
 
   return (
-    <box
-      id={props.id}
-      flexDirection="row"
-      flexShrink={0}
-      onMouseDown={disabled ? undefined : props.onPress}
-    >
+    <box id={props.id} flexDirection="row" flexShrink={0} onMouseDown={onMouseDown}>
       <text wrapMode="none">
         <span fg={markerColor}>{props.checked ? ICONS.checkboxOn : ICONS.checkboxOff}</span>
         <span fg={foreground}>{` ${props.label}`}</span>
