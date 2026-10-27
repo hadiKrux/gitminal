@@ -73,8 +73,8 @@ describe("BranchRow", () => {
     expect(frame).toContain(`${ICONS.currentBranch} main`);
     expect(frame).not.toContain(ICONS.selected);
     expect(frame).not.toContain(ICONS.worktree);
-    expect(frame).toContain("ahead 2");
-    expect(frame).toContain("behind 1");
+    expect(frame).toContain(`${ICONS.push}2`);
+    expect(frame).toContain(`${ICONS.pull}1`);
 
     await act(async () => {
       await setup.dispose();
@@ -112,8 +112,8 @@ describe("BranchRow", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain(`${ICONS.missingUpstream} upstream not found`);
-    expect(frame).not.toContain("ahead 2");
-    expect(frame).not.toContain("behind 1");
+    expect(frame).not.toContain(`${ICONS.push}2`);
+    expect(frame).not.toContain(`${ICONS.pull}1`);
     expect(frame).toContain("origin/main is not present locally");
 
     await act(async () => {
@@ -136,8 +136,8 @@ describe("BranchRow", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain(`${ICONS.missingUpstream} remote branch deleted`);
-    expect(frame).not.toContain("ahead 1");
-    expect(frame).not.toContain("behind 3");
+    expect(frame).not.toContain(`${ICONS.push}1`);
+    expect(frame).not.toContain(`${ICONS.pull}3`);
     expect(frame).toContain("origin/topic was deleted from the remote");
 
     await act(async () => {
@@ -170,7 +170,7 @@ describe("BranchRow", () => {
     expect(frame).toContain(`${ICONS.missingUpstream} upstream unknown`);
     expect(frame).not.toContain("remote branch deleted");
     expect(frame).toContain("the remote check for origin/feature did not complete");
-    expect(frame).toContain("ahead 1");
+    expect(frame).toContain(`${ICONS.push}1`);
 
     await act(async () => {
       await unknown.dispose();

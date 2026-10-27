@@ -18,13 +18,13 @@ import { TruncatedText } from "@/ui/TruncatedText";
  *
  * The row shows the current or worktree marker, the branch name, and the upstream state. The
  * marker column is one cell because a branch cannot be both the current branch and checked out in
- * another worktree. A tracked branch shows its ahead and behind counts; a branch without an upstream
- * shows "no upstream"; a configured upstream that is missing locally shows the exact "[?] upstream
- * not found" or "[?] remote branch deleted" text, and the counts are hidden because they describe a
- * ref that is not there. The selected row adds detail lines for the worktree path and for the
- * upstream explanation plus the reason Delete is disabled, so a state is never conveyed by color or
- * a marker alone. The current-branch reason is not repeated here, because pressing Delete opens the
- * modal that states it.
+ * another worktree. A tracked branch shows the push icon with its ahead count and the pull icon
+ * with its behind count; a branch without an upstream shows "no upstream"; a configured upstream
+ * that is missing locally shows the exact "[?] upstream not found" or "[?] remote branch deleted"
+ * text, and the counts are hidden because they describe a ref that is not there. The selected row
+ * adds detail lines for the worktree path and for the upstream explanation plus the reason Delete is
+ * disabled, so a state is never conveyed by color or a marker alone. The current-branch reason is not
+ * repeated here, because pressing Delete opens the modal that states it.
  *
  * The row does not use the `ListRow` selection marker: the dark selected fill already identifies the
  * cursor row, and the current branch has its own marker.
@@ -139,7 +139,7 @@ function readStateText(branch: BranchRecord): string {
 }
 
 /**
- * Reads the ahead and behind counts as words.
+ * Reads the ahead and behind counts with their push and pull icons.
  *
  * @param branch - Branch record from the repository selector.
  * @returns The non-zero counts joined with one space, or an empty string when level.
@@ -148,11 +148,11 @@ function readCountsText(branch: BranchRecord): string {
   const parts: string[] = [];
 
   if (branch.ahead > 0) {
-    parts.push(`ahead ${branch.ahead}`);
+    parts.push(`${ICONS.push}${branch.ahead}`);
   }
 
   if (branch.behind > 0) {
-    parts.push(`behind ${branch.behind}`);
+    parts.push(`${ICONS.pull}${branch.behind}`);
   }
 
   return parts.join(" ");

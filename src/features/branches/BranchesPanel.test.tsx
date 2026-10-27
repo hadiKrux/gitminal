@@ -117,8 +117,8 @@ describe("BranchesPanel", () => {
 
     expect(frame).not.toContain("Local branches");
     expect(frame).toContain(ICONS.currentBranch);
-    expect(frame).toContain("ahead 2");
-    expect(frame).toContain("behind 1");
+    expect(frame).toContain(`${ICONS.push}2`);
+    expect(frame).toContain(`${ICONS.pull}1`);
     expect(frame).toContain("no upstream");
     expect(frame).not.toContain("Cannot delete the current branch");
     expect(frame.indexOf("main")).toBeLessThan(frame.indexOf("feature"));
