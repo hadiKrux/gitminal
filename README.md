@@ -1,6 +1,6 @@
 # Gitminal
 
-A keyboard-first terminal git client.
+A keyboard-first terminal git client with full mouse support.
 
 ![Gitminal UI reference](screenshot.png)
 
@@ -105,6 +105,133 @@ bun run audit        # dead code, complexity, duplication, and styling on change
 `bun install` installs the [Husky](https://typicode.github.io/husky/) Git hooks. The pre-commit hook runs `fallow audit` against the merge base of the branch upstream, so commits that introduce dead code, duplication, or complex functions are blocked. Use `git commit --no-verify` only when you deliberately need to bypass it.
 
 This project was created using `bun create tui`. [create-tui](https://github.com/msmps/create-tui) is the easiest way to get started with OpenTUI.
+
+## Mouse support
+
+Every action is reachable from the keyboard, and the same actions are available with the mouse: clicking a row selects it in the graph, diff, branches, stashes, tags, remotes, worktrees, commit details, help, and theme picker; buttons, checkboxes, and section headers respond to clicks; double-clicking a list row runs its primary action; and the wheel and scrollbars scroll every list. Mouse reporting is on by default and can be turned off with `"ui": { "mouse": false }`.
+
+## Keybindings
+
+Keys are context-sensitive: the same key runs whatever the focused region binds it to. Help (`?` or `F1`) lists every action with its effective keys, and searches match action IDs as well as names.
+
+To change a binding, create `keybindings.json` next to `config.json`, or point `$GITMINAL_KEYBINDINGS` at it. The file is a flat map from action ID to one key, a list of keys, or `null`:
+
+```json
+{
+  "app.palette": ["f2", "ctrl+space"],
+  "nav.up": ["up", "k", "ctrl+k"],
+  "diff.discard": null
+}
+```
+
+- A string or list replaces the built-in binding list, `null` restores the built-in default, and `[]` unbinds the action.
+- The same map can live under `"keybindings"` in `config.json`; `keybindings.json` wins for the same action.
+- Modifiers are `ctrl` (`control`), `shift`, `alt` (`option`), and `meta` (`cmd`, `command`). `mod` is Command on macOS and Control elsewhere, modifier order does not matter, an uppercase letter means Shift, and `space` writes a literal space.
+- Named keys are `enter`, `esc`, `tab`, `space`, `backspace`, `delete`, `insert`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, and `f1` through `f12`, plus the aliases `return`, `escape`, and `backtick`.
+- Unknown action IDs, invalid key strings, and collisions with another action in the same context are reported as warnings and ignored, so the built-in binding stays active. The `ctrl+c` quit chord is hardcoded and cannot be rebound.
+- Reload configuration from the command palette to apply the file without restarting. The action IDs below are the names to use in `keybindings.json`, and Help search matches them.
+
+## Default keybindings
+
+Where a list contains both `ctrl+x` and `mod+x`, macOS gets both chords and Windows and Linux get `ctrl+x`. Actions with no default key are reachable from the command palette, and some also from their options menu.
+
+Defaults are scoped to the focused context: global keys work everywhere (forms and modals can capture typing), navigation keys work in the focused list or pane, and the branch, remote, tag, stash, worktree, commit, diff, and console keys apply while that panel or the composer has focus.
+
+### Global
+
+| Action | ID | Default keys |
+| --- | --- | --- |
+| Quit | `app.quit` | `q`, `ctrl+c` |
+| Help | `app.help` | `?`, `f1` |
+| Command palette | `app.palette` | `ctrl+p`, `mod+p`, `f2` |
+| Toggle console | `app.console` | `` ctrl+` ``, `` mod+` `` |
+| Refresh repository | `app.refresh` | `r` |
+| Reload configuration | `app.reloadConfig` | none |
+| Theme picker | `app.themePicker` | `t` |
+| Pull | `remote.pull` | `p` |
+| Push | `remote.push` | `P` |
+| Force push safely | `remote.pushForceSafe` | none |
+| Force push and overwrite | `remote.pushForceOverwrite` | none |
+| Push without hooks | `remote.pushNoVerify` | none |
+| Fetch | `remote.fetch` | `f` |
+| Fetch and prune | `remote.fetchPrune` | `F` |
+| More remote actions | `remote.more` | `.` |
+| Focus commit composer | `commit.focus` | `c` |
+| Close or cancel | `overlay.close` | `esc` |
+
+### Focus and navigation
+
+| Action | ID | Default keys |
+| --- | --- | --- |
+| Next region | `focus.next` | `tab` |
+| Previous region | `focus.previous` | `shift+tab` |
+| Focus top bar | `focus.region.topBar` | none |
+| Focus branches | `focus.region.branches` | `1` |
+| Focus remotes | `focus.region.remotes` | `2` |
+| Focus tags | `focus.region.tags` | `3` |
+| Focus stashes | `focus.region.stashes` | `4` |
+| Focus worktrees | `focus.region.worktrees` | `5` |
+| Focus commit graph | `focus.region.graph` | `6` |
+| Focus right pane | `focus.region.rightPane` | `7` |
+| Focus diffs | `focus.region.diff` | `8` |
+| Focus console | `focus.region.console` | `9` |
+| Move up | `nav.up` | `up`, `k` |
+| Move down | `nav.down` | `down`, `j` |
+| Page up | `nav.pageUp` | `pageup` |
+| Page down | `nav.pageDown` | `pagedown` |
+| Move to first | `nav.first` | `g` |
+| Move to last | `nav.last` | `G` |
+| Activate | `nav.activate` | `enter` |
+| Move left | `nav.left` | `left`, `h` |
+| Move right | `nav.right` | `right`, `l` |
+| Expand | `nav.expand` | `right`, `l` |
+| Collapse | `nav.collapse` | `left`, `h` |
+| Filter list | `list.filter` | `/` |
+| Search commits | `graph.search` | `/`, `ctrl+f`, `mod+f` |
+| Search help | `help.search` | `/` |
+
+### Branches, remotes, tags, stashes, and worktrees
+
+| Action | ID | Default keys |
+| --- | --- | --- |
+| New branch | `branch.create` | `n` |
+| Delete branch | `branch.delete` | `d` |
+| Create local branch | `remote.createLocal` | `space` |
+| New tag | `tag.create` | `n` |
+| Push tag | `tag.push` | `P` |
+| Delete tag | `tag.delete` | `d` |
+| Stash changes | `stash.create` | `s` |
+| Apply stash | `stash.apply` | `a` |
+| Pop stash | `stash.pop` | `p` |
+| Delete stash | `stash.delete` | `d` |
+| New worktree | `worktree.create` | `n` |
+| Delete worktree | `worktree.delete` | `d` |
+
+### Commit composer
+
+| Action | ID | Default keys |
+| --- | --- | --- |
+| Commit | `commit.submit` | `ctrl+s`, `mod+s` |
+| Commit without hooks | `commit.submitNoVerify` | none |
+| Amend commit | `commit.amend` | none |
+| Amend without hooks | `commit.amendNoVerify` | none |
+| Commit options | `commit.options` | `.`, `alt+.` |
+| Submit form | `form.submit` | `ctrl+enter`, `mod+enter` |
+
+### Diffs and console
+
+| Action | ID | Default keys |
+| --- | --- | --- |
+| Toggle file | `diff.toggle` | `enter` |
+| Stage file | `diff.stage` | `s` |
+| Unstage file | `diff.unstage` | `u` |
+| Discard file changes | `diff.discard` | `d` |
+| Delete untracked file | `diff.deleteUntracked` | none |
+| Stage all | `diff.stageAll` | `S` |
+| Unstage all | `diff.unstageAll` | `U` |
+| Discard all changes | `diff.discardAll` | `D` |
+| Delete all untracked files | `diff.deleteAllUntracked` | none |
+| Clear console | `console.clear` | `c` |
 
 ## License
 
