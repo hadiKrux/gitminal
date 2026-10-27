@@ -1,12 +1,13 @@
 /**
  * The single configuration file for every icon, marker, and glyph in Gitminal.
  *
- * Every value is printable ASCII except four pictographs: the `push` and `pull` arrows, the
- * `success` check mark, and `tagUnpushed`. The arrows are in WGL4 and CP437, so mainstream terminal
- * fonts and the Linux console font both draw them. The check mark is outside both sets but is
- * present in Consolas, Menlo, DejaVu Sans Mono, JetBrains Mono, and the other mainstream monospace
- * fonts. All four are East Asian Ambiguous, which OpenTUI's `unicode` and `wcwidth` width methods
- * both measure as one cell. Every other value stays ASCII. The tag scope markers are their own text
+ * Every value is printable ASCII except six pictographs: the `push`, `pull`, and `tagUnpushed`
+ * arrows, the `expanded` and `collapsed` triangles, and the `success` check mark. The arrows and the
+ * `expanded` triangle are in WGL4 and CP437, so mainstream terminal fonts and the Linux console font
+ * both draw them. The `collapsed` triangle and the check mark are outside both sets but are present
+ * in Consolas, Menlo, DejaVu Sans Mono, JetBrains Mono, and the other mainstream monospace fonts.
+ * All six are East Asian Ambiguous, which OpenTUI's `unicode` and `wcwidth` width methods both
+ * measure as one cell. Every other value stays ASCII. The tag scope markers are their own text
  * equivalent: `L` and `R` abbreviate local and remote, `tagUnpushed` reuses the push arrow, and the
  * bracket pair forms one fixed-width presence matrix documented in architecture section 6.1.
  *
@@ -16,8 +17,8 @@ export const ICONS = Object.freeze({
   focus: ">",
   selected: ">",
   unselected: " ",
-  expanded: "v",
-  collapsed: ">",
+  expanded: "▼",
+  collapsed: "▶",
   currentBranch: "*",
   worktree: "+",
   detached: "~",

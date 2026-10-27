@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { type CapturedFrame, type CapturedSpan, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import type { DiffLoadState, DiffSegment, FileDiff } from "@/domain/diff/diff.types";
+import { THEME_FLAVORS } from "@/domain/theme/theme.catppuccin";
 import { DiffContent } from "@/features/diff/DiffContent";
 import { ShellTestProviders } from "@/test/shell.harness";
 
@@ -52,14 +54,16 @@ function loadedState(overrides: Partial<DiffLoadState> = {}): DiffLoadState {
  *
  * @param state - Cache entry to render.
  * @param path - Row path.
+ * @param themeName - Optional theme override.
  * @returns The renderer setup.
  */
 async function renderContent(
   state: DiffLoadState,
   path: string = "src/app.ts",
+  themeName?: string,
 ): Promise<Awaited<ReturnType<typeof testRender>>> {
   const setup = await testRender(
-    <ShellTestProviders>
+    <ShellTestProviders themeName={themeName}>
       <box flexDirection="column" width={80} height={20}>
         <DiffContent path={path} state={state} onRetry={() => {}} />
       </box>
@@ -81,6 +85,44 @@ const COLLAPSED_SEGMENT: DiffSegment = {
   oldStart: 10,
   newStart: 10,
 };
+
+/** One expanded hunk used by the theme color test. */
+const DIFF_SEGMENT: DiffSegment = {
+  kind: "diff",
+  hunkIndex: 0,
+  oldStart: 1,
+  oldCount: 2,
+  newStart: 1,
+  newCount: 2,
+  text: [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,2 +1,2 @@",
+    " context line",
+    "-old line",
+    "+new line",
+  ].join("\n"),
+};
+
+/**
+ * Finds the first captured span whose text contains the needle.
+ *
+ * @param frame - Captured frame.
+ * @param text - Text to find.
+ * @returns The matching span.
+ */
+function findSpanContaining(frame: CapturedFrame, text: string): CapturedSpan {
+  for (const line of frame.lines) {
+    for (const span of line.spans) {
+      if (span.text.includes(text)) {
+        return span;
+      }
+    }
+  }
+
+  throw new Error(`No captured span contains ${text}`);
+}
 
 describe("DiffContent", () => {
   it("shows the loading row while the file read is in flight", async () => {
@@ -136,6 +178,22 @@ describe("DiffContent", () => {
     const setup = await renderContent(loadedState({ segments: [COLLAPSED_SEGMENT] }));
 
     expect(setup.captureCharFrame()).toContain("42 unchanged lines");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("uses the theme text token for diff code in a light theme", async () => {
+    const setup = await renderContent(
+      loadedState({ segments: [DIFF_SEGMENT] }),
+      "src/app.ts",
+      "catppuccin-latte",
+    );
+    const code = findSpanContaining(setup.captureSpans(), "context line");
+    const expected = THEME_FLAVORS["catppuccin-latte"].tokens.text;
+
+    expect(code.fg.equals(RGBA.fromHex(expected))).toBe(true);
 
     await act(async () => {
       await setup.dispose();

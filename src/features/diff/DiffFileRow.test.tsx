@@ -4,6 +4,7 @@ import { act } from "react";
 import type { DiffFileView, DiffStatusLetter } from "@/domain/repository/repository.types";
 import { DiffFileRow } from "@/features/diff/DiffFileRow";
 import { ShellTestProviders } from "@/test/shell.harness";
+import { ICONS } from "@/theme/icons";
 
 /**
  * Builds one file row model.
@@ -86,7 +87,8 @@ describe("DiffFileRow", () => {
     expect(frame).toContain("M");
     expect(frame).toContain("src/app.ts");
     expect(frame).toContain("+3 -1");
-    expect(frame).toContain("v");
+    expect(frame).toContain(ICONS.expanded);
+    expect(frame).not.toContain(ICONS.selected);
 
     await act(async () => {
       await setup.dispose();

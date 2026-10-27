@@ -8,9 +8,6 @@ import { BUTTON_HORIZONTAL_PADDING } from "@/ui/Button.constants";
 import { EmptyState } from "@/ui/EmptyState";
 import { ListRow } from "@/ui/ListRow";
 
-/** Cells reserved for the `ListRow` selection marker. */
-const ROW_MARKER_WIDTH = 1;
-
 /** Cells used by the expand indicator, its gap, and the trailing gap. */
 const HEADER_STATE_WIDTH = 3;
 
@@ -53,7 +50,7 @@ function headerFitsOnOneLine(
   title: string,
   actions: readonly DiffActionView[],
 ): boolean {
-  const available = Math.max(0, Math.floor(width) - ROW_MARKER_WIDTH - HEADER_STATE_WIDTH);
+  const available = Math.max(0, Math.floor(width) - HEADER_STATE_WIDTH);
   const actionsWidth =
     actions.reduce((total, action) => total + readActionWidth(action), 0) +
     Math.max(0, actions.length - 1);
@@ -69,7 +66,9 @@ function headerFitsOnOneLine(
  * the actions move to a wrapping second line, so each label and its disabled reason stays reachable
  * at the documented 80x24 minimum. A disabled bulk action stays visible with its reason. The empty
  * message renders inside the expanded body so a collapsed empty section stays one header row. The
- * component is presentational: the owning hook supplies the file renderer and every callback.
+ * leading selection marker is suppressed so the expand indicator is the section's only leading
+ * glyph. The component is presentational: the owning hook supplies the file renderer and every
+ * callback.
  *
  * @param props - Section model, measured width, expansion, focus, bulk actions, empty text, and the
  * file renderer.
@@ -97,6 +96,7 @@ export function DiffSection(props: {
         id={`section::${props.view.section}`}
         selected={props.selected}
         focused={props.focused}
+        showMarker={false}
         onMouseDown={props.onMouseDown}
       >
         <box flexDirection="column" flexShrink={0}>

@@ -7,17 +7,19 @@ const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
 /**
  * The only icon names allowed to hold a non-ASCII value, with the required code point.
  *
- * Architecture 6.1 rule 2 sanctions the push, pull, and tag-unpushed arrows, which are in WGL4 and
- * CP437, and the success check mark, which is in every mainstream monospace font. All four are East
- * Asian Ambiguous, so both OpenTUI width methods measure them as one cell. Every other value stays
- * printable ASCII. The code points are written numerically so no source file outside the catalog
- * needs a non-ASCII literal.
+ * Architecture 6.1 rule 2 sanctions the push, pull, and tag-unpushed arrows and the expanded
+ * triangle, which are in WGL4 and CP437, and the collapsed triangle and success check mark, which
+ * are in every mainstream monospace font. All six are East Asian Ambiguous, so both OpenTUI width
+ * methods measure them as one cell. Every other value stays printable ASCII. The code points are
+ * written numerically so no source file outside the catalog needs a non-ASCII literal.
  */
 const PICTOGRAPH_ICON_EXCEPTIONS: Readonly<Partial<Record<IconName, number>>> = {
   push: 0x2191,
   pull: 0x2193,
   success: 0x2713,
   tagUnpushed: 0x2191,
+  expanded: 0x25bc,
+  collapsed: 0x25b6,
 };
 
 /** Required `ICONS` groups and names from architecture section 6.1. */
@@ -130,8 +132,8 @@ describe("ICONS", () => {
   it("keeps the documented state marker values", () => {
     expect(ICONS.focus).toBe(">");
     expect(ICONS.selected).toBe(">");
-    expect(ICONS.expanded).toBe("v");
-    expect(ICONS.collapsed).toBe(">");
+    expect(ICONS.expanded.codePointAt(0)).toBe(PICTOGRAPH_ICON_EXCEPTIONS.expanded);
+    expect(ICONS.collapsed.codePointAt(0)).toBe(PICTOGRAPH_ICON_EXCEPTIONS.collapsed);
     expect(ICONS.currentBranch).toBe("*");
     expect(ICONS.missingUpstream).toBe("[?]");
     expect(ICONS.checkboxOn).toBe("[x]");

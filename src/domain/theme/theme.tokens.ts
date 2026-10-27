@@ -78,9 +78,9 @@ export const THEME_TOKEN_TARGETS: readonly ThemeTokenTarget[] = [
   },
   {
     token: "text",
-    target: "text and native select option text",
+    target: "text, diff code, and native select option text",
     prop: "fg",
-    purpose: "Primary text and select option labels",
+    purpose: "Primary text, diff code, and select option labels",
   },
   {
     token: "muted",

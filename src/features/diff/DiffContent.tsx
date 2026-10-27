@@ -115,6 +115,7 @@ export function DiffContent(props: {
             diff={segment.text}
             view="unified"
             showLineNumbers
+            fg={tokens.text}
             addedBg={tokens.diffAddBackground}
             removedBg={tokens.diffRemoveBackground}
             addedSignColor={tokens.diffAdd}

@@ -149,7 +149,7 @@ describe("DiffSection", () => {
   });
 
   it("moves the actions to a second line exactly when the disabled reasons stop fitting", async () => {
-    const inline = await renderSection(section([]), 66, 80, actions(true));
+    const inline = await renderSection(section([]), 65, 80, actions(true));
     const inlineTitle = inline.captureCharFrame().split("\n")[0] ?? "";
 
     expect(inlineTitle).toContain("Untracked Files (0)");
@@ -160,7 +160,7 @@ describe("DiffSection", () => {
       await inline.dispose();
     });
 
-    const wrapped = await renderSection(section([]), 65, 80, actions(true));
+    const wrapped = await renderSection(section([]), 64, 80, actions(true));
     const wrappedFrame = wrapped.captureCharFrame();
     const wrappedTitle = wrappedFrame.split("\n")[0] ?? "";
 

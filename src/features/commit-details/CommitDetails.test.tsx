@@ -305,7 +305,7 @@ describe("CommitDetails", () => {
     expect(frame).toContain("Full hash");
     expect(frame).toContain("Tree hash");
     expect(frame).toContain("Author: Alice Ng <alice@example.com>");
-    expect(frame).toContain("2026-10-25T09:30:00+05:00");
+    expect(frame).toContain("Sun, 25 Oct 2026 9:30 AM +05:00");
     expect(frame).toContain("[v1.0.0]");
     expect(frame).toContain("[main]");
     expect(frame).toContain("[origin/main]");
@@ -313,6 +313,16 @@ describe("CommitDetails", () => {
     expect(frame).toContain("3 files changed +10 -2");
     expect(frame).toContain("Explain the new pane.");
     expect(frame).toContain("read-only");
+
+    const statsIndex = frame.indexOf("3 files changed");
+    const messageIndex = frame.indexOf("feat: add details pane");
+    const authorIndex = frame.indexOf("Author:");
+    const fullHashIndex = frame.indexOf("Full hash");
+
+    expect(statsIndex).toBeGreaterThanOrEqual(0);
+    expect(statsIndex).toBeLessThan(messageIndex);
+    expect(messageIndex).toBeLessThan(authorIndex);
+    expect(authorIndex).toBeLessThan(fullHashIndex);
 
     const fullHash = setup.renderer.root.findDescendantById("commit-full-hash");
     const treeHash = setup.renderer.root.findDescendantById("commit-tree-hash");

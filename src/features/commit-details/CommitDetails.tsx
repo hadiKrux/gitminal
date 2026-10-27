@@ -140,16 +140,11 @@ function CommitDetailsContent(props: {
         </text>
         <text fg={tokens.muted}>{COMMIT_DETAILS_READ_ONLY}</text>
       </box>
-      <CommitHashBlock
-        id="commit-full-hash"
-        label="Full hash"
-        value={details.oid}
-        style={syntaxStyle}
-      />
-      <CommitHashBlock
-        id="commit-tree-hash"
-        label="Tree hash"
-        value={details.treeOid}
+      {stats === null ? null : <CommitStatsRow stats={stats} />}
+      <CommitMessageBlock
+        message={details.message}
+        expanded={pane.messageExpanded}
+        onToggle={pane.toggleMessage}
         style={syntaxStyle}
       />
       <CommitMetaRow
@@ -178,11 +173,16 @@ function CommitDetailsContent(props: {
         boundedMiss={pane.boundedMiss}
         onParentMouseDown={pane.handleParentMouseDown}
       />
-      {stats === null ? null : <CommitStatsRow stats={stats} />}
-      <CommitMessageBlock
-        message={details.message}
-        expanded={pane.messageExpanded}
-        onToggle={pane.toggleMessage}
+      <CommitHashBlock
+        id="commit-full-hash"
+        label="Full hash"
+        value={details.oid}
+        style={syntaxStyle}
+      />
+      <CommitHashBlock
+        id="commit-tree-hash"
+        label="Tree hash"
+        value={details.treeOid}
         style={syntaxStyle}
       />
     </box>

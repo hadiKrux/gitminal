@@ -45,7 +45,7 @@ describe("CommitMetaRow", () => {
 
     expect(frame).toContain("Author:");
     expect(frame).toContain("Alice Ng <alice@example.com>");
-    expect(frame).toContain("2026-10-25T09:30:00+05:00");
+    expect(frame).toContain("Sun, 25 Oct 2026 9:30 AM +05:00");
 
     await act(async () => {
       await setup.dispose();

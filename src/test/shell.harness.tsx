@@ -17,16 +17,17 @@ import { SidebarPanelFrame } from "@/features/shell/SidebarPanelFrame";
  * provider hooks. This test-only harness imports them centrally and is itself importable from a
  * colocated `*.test.*` file under any feature folder.
  *
- * @param props - Provider content and the keymap platform.
+ * @param props - Provider content, optional theme name, and the keymap platform.
  * @returns The provider stack.
  */
 export function ShellTestProviders(props: {
   children?: ReactNode;
   platform?: KeymapPlatform;
+  themeName?: string;
 }): ReactNode {
   return (
     <ConfigProvider>
-      <ThemeProvider capability="truecolor">
+      <ThemeProvider capability="truecolor" themeName={props.themeName}>
         <KeymapProvider platform={props.platform ?? "linux"}>
           <FocusProvider>
             <OverlayProvider>

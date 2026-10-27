@@ -7,9 +7,6 @@ import { Button } from "@/ui/Button";
 import { ListRow } from "@/ui/ListRow";
 import { TruncatedText } from "@/ui/TruncatedText";
 
-/** Cells reserved for the `ListRow` selection marker. */
-const ROW_MARKER_WIDTH = 1;
-
 /** Cells reserved for the expand indicator and the ` M ` status letters. */
 const ROW_STATE_WIDTH = 4;
 
@@ -35,7 +32,8 @@ const STATUS_GLYPHS = Object.freeze({
  * truncate through `@/lib/text.ts` with the measured row width, so the status letter, the expand
  * indicator, and the counts survive a narrow panel. Per-file actions render under the row; a disabled
  * action stays visible with its text reason. The row itself is never focusable: the region frame owns
- * focus and `ListRow` carries the selection marker and background.
+ * focus and `ListRow` carries the selected background. The row suppresses the leading selection
+ * marker so the expand indicator is its only leading glyph.
  *
  * @param props - Row model, measured row width, selection and focus flags, expansion, counts, and
  * inline actions.
@@ -55,7 +53,7 @@ export function DiffFileRow(props: {
   const tokens = useTokens();
   const path = readPathLabel(props.file);
   const counts = readCountsLabel(props.counts);
-  const chrome = ROW_MARKER_WIDTH + ROW_STATE_WIDTH + (counts.length === 0 ? 0 : counts.length + 1);
+  const chrome = ROW_STATE_WIDTH + (counts.length === 0 ? 0 : counts.length + 1);
   const budget = Math.max(MIN_PATH_BUDGET, Math.floor(props.width) - chrome);
 
   return (
@@ -63,6 +61,7 @@ export function DiffFileRow(props: {
       id={props.file.id}
       selected={props.selected}
       focused={props.focused}
+      showMarker={false}
       onMouseDown={props.onMouseDown}
     >
       <box flexDirection="row" flexShrink={0} overflow="hidden">

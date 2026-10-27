@@ -4,6 +4,7 @@ import {
   COMMIT_META_MIN_BUDGET,
 } from "@/features/commit-details/useCommitDetails";
 import { truncateText } from "@/lib/text";
+import { formatCommitDateTime } from "@/lib/time";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 
@@ -19,9 +20,10 @@ const ROW_LEFT_PADDING = 1;
 /**
  * Renders one labeled author or committer row.
  *
- * The row shows `name <email> date` with the strict ISO date from `%aI` or `%cI`, so the timezone is
- * always visible. The value is truncated to the measured pane width using `truncateText` and the
- * shared ellipsis marker; the label and the committer marker are never truncated.
+ * The row shows `name <email> date`, where the strict ISO date from `%aI` or `%cI` is formatted by
+ * `formatCommitDateTime` into a short timestamp that keeps the reported offset, so the timezone stays
+ * visible. The value is truncated to the measured pane width using `truncateText` and the shared
+ * ellipsis marker; the label and the committer marker are never truncated.
  *
  * A committer row that differs from the author carries the text marker `! differs from author`, so
  * the difference is explained by words rather than color alone.
@@ -44,7 +46,7 @@ export function CommitMetaRow(props: {
     ROW_LEFT_PADDING + COMMIT_META_LABEL_WIDTH + (differs ? COMMITTER_MARKER_WIDTH : 0);
   const budget = Math.max(COMMIT_META_MIN_BUDGET, Math.floor(props.width) - reserved);
   const value = truncateText(
-    `${props.name} <${props.email}> ${props.date}`,
+    `${props.name} <${props.email}> ${formatCommitDateTime(props.date)}`,
     budget,
     ICONS.ellipsis,
   );
