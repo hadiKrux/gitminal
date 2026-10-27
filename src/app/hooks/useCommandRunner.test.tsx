@@ -446,6 +446,55 @@ describe("useCommandRunner", () => {
     });
   });
 
+  it("closes a confirmation that dispatches through the runner captured before it opened", async () => {
+    const cleanup = registerOutcome("remote.fetch", { steps: [okStep()] });
+    const { setup, fake } = await renderRunner();
+
+    await waitForInitialRead(setup, fake);
+
+    let capturedRun: CommandRunnerHook["runCommand"] | undefined;
+
+    await act(async () => {
+      // Real confirmations keep the runner closure that existed before the entry opened.
+      capturedRun = latestRunner?.runCommand;
+      latestOverlay?.confirm({
+        title: "Fetch",
+        description: "Fetch from origin.",
+        confirmLabel: "Fetch",
+        destructive: false,
+        onConfirm: () => {
+          void capturedRun?.(FETCH_REQUEST);
+        },
+      });
+    });
+
+    const confirmation = latestOverlay?.entry;
+
+    expect(confirmation?.id).toBeDefined();
+
+    await act(async () => {
+      if (confirmation?.kind === "confirm") {
+        confirmation.onConfirm();
+      }
+    });
+
+    const deadline = Date.now() + 2_000;
+
+    while (latestOverlay?.entry !== null && Date.now() < deadline) {
+      await act(async () => {
+        await setup.renderOnce();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+
+    expect(latestOverlay?.entry).toBeNull();
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("leaves an unrelated overlay open when a command settles", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => {

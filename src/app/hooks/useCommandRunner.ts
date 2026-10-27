@@ -28,6 +28,7 @@ import { useFocusState } from "@/app/hooks/useFocusState";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
+import type { OverlayEntry } from "@/app/providers/OverlayProvider.types";
 import type {
   RepositoryContextValue,
   RepositoryRefreshOptions,
@@ -76,6 +77,13 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
   const { state: focusState } = useFocusState();
   const overlay = useOverlay();
   const runCommandRef = useRef<CommandRunnerHook["runCommand"] | null>(null);
+  // The entry to close after settling is read when the command starts, not from this hook's render
+  // closure. A confirmation dispatches from the `onConfirm` callback it was opened with, so the
+  // closure that calls `runCommand` predates the confirmation entry and would otherwise capture no
+  // entry and leave the confirmation open forever.
+  const overlayEntryRef = useRef<OverlayEntry | null>(null);
+
+  overlayEntryRef.current = overlay.entry;
 
   /** Routes a failure to the persistent error overlay. */
   const defaultErrorSink = useCallback(
@@ -102,30 +110,14 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
   }, [focusState.activeRegion]);
 
   const runCommand = useCallback(
-    (request: CommandRequest): Promise<CommandResult> => {
-      const operationLabel = readOperationLabel(request.commandId);
-
-      if (isCommandOrchestrationActive()) {
-        return Promise.resolve(
-          surfaceBlocked({
-            request,
-            operationLabel,
-            cwd: repository.signals.cwd,
-            reason: "operation-in-progress",
-            setStatus,
-          }),
-        );
-      }
-
-      const controller = new AbortController();
-      const originatingEntryId = overlay.entry?.id ?? null;
-      const execution = executeRequest({
+    (request: CommandRequest): Promise<CommandResult> =>
+      startCommandExecution({
         request,
         region: readRegion(),
         repository,
         fetchScope: config.remote.fetchScope,
-        operationLabel,
-        controller,
+        originatingEntry: overlayEntryRef.current,
+        closeEntry: overlay.closeEntry,
         append,
         replaceEntry,
         beginOperation,
@@ -133,27 +125,14 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
         endOperation,
         errorSink,
         setStatus,
-        closeOriginatingOverlay: () => {
-          if (originatingEntryId !== null) {
-            overlay.closeEntry(originatingEntryId);
-          }
-        },
-        retry: createRetryHandler(request, runCommandRef),
-      });
-
-      recordCommandExecution(controller, execution);
-
-      return execution.finally(() => {
-        clearCommandExecution(execution);
-      });
-    },
+        retryRef: runCommandRef,
+      }),
     [
       append,
       beginOperation,
       endOperation,
       errorSink,
       overlay.closeEntry,
-      overlay.entry?.id,
       config.remote.fetchScope,
       readRegion,
       replaceEntry,
@@ -177,6 +156,76 @@ export function useCommandRunner(options: UseCommandRunnerOptions = {}): Command
   const abort = useCallback((): Promise<void> => abortActiveCommand(), []);
 
   return useMemo(() => ({ runCommand, abort }), [runCommand, abort]);
+}
+
+/**
+ * Starts one orchestrator invocation and owns its controller slot.
+ *
+ * The originating entry is supplied by the caller from its live ref, so a confirmation that
+ * dispatches through a callback captured before it opened still closes after the command settles.
+ * The active-command check happens here so the hook's entry point stays a single call.
+ *
+ * @param input - Request, captured collaborators, and the retry ref.
+ * @returns The redacted result promise for this invocation.
+ */
+function startCommandExecution(input: {
+  readonly request: CommandRequest;
+  readonly region: CommandRegion;
+  readonly repository: RepositoryContextValue;
+  readonly fetchScope: RemoteFetchScope;
+  readonly originatingEntry: { readonly id: string } | null;
+  readonly closeEntry: (entryId: string) => void;
+  readonly append: (entry: ConsoleEntry) => void;
+  readonly replaceEntry: (entry: ConsoleEntry) => void;
+  readonly beginOperation: (label: string) => void;
+  readonly updateOperation: (progress: { phase?: string; percent?: number | null }) => void;
+  readonly endOperation: () => void;
+  readonly errorSink: CommandStatusWriters["errorSink"];
+  readonly setStatus: CommandStatusWriters["setStatus"];
+  readonly retryRef: { current: CommandRunnerHook["runCommand"] | null };
+}): Promise<CommandResult> {
+  const operationLabel = readOperationLabel(input.request.commandId);
+
+  if (isCommandOrchestrationActive()) {
+    return Promise.resolve(
+      surfaceBlocked({
+        request: input.request,
+        operationLabel,
+        cwd: input.repository.signals.cwd,
+        reason: "operation-in-progress",
+        setStatus: input.setStatus,
+      }),
+    );
+  }
+
+  const controller = new AbortController();
+  const execution = executeRequest({
+    request: input.request,
+    region: input.region,
+    repository: input.repository,
+    fetchScope: input.fetchScope,
+    operationLabel,
+    controller,
+    append: input.append,
+    replaceEntry: input.replaceEntry,
+    beginOperation: input.beginOperation,
+    updateOperation: input.updateOperation,
+    endOperation: input.endOperation,
+    errorSink: input.errorSink,
+    setStatus: input.setStatus,
+    closeOriginatingOverlay: () => {
+      if (input.originatingEntry !== null) {
+        input.closeEntry(input.originatingEntry.id);
+      }
+    },
+    retry: createRetryHandler(input.request, input.retryRef),
+  });
+
+  recordCommandExecution(controller, execution);
+
+  return execution.finally(() => {
+    clearCommandExecution(execution);
+  });
 }
 
 /**
