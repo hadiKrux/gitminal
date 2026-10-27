@@ -7,9 +7,9 @@ const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
 /**
  * The only icon names allowed to hold a non-ASCII value, with the required code point.
  *
- * Architecture 6.1 rule 2 sanctions the push and pull arrows, which are in WGL4 and CP437, and the
- * success check mark, which is in every mainstream monospace font. All three are East Asian
- * Ambiguous, so both OpenTUI width methods measure them as one cell. Every other value stays
+ * Architecture 6.1 rule 2 sanctions the push, pull, and tag-unpushed arrows, which are in WGL4 and
+ * CP437, and the success check mark, which is in every mainstream monospace font. All four are East
+ * Asian Ambiguous, so both OpenTUI width methods measure them as one cell. Every other value stays
  * printable ASCII. The code points are written numerically so no source file outside the catalog
  * needs a non-ASCII literal.
  */
@@ -17,6 +17,7 @@ const PICTOGRAPH_ICON_EXCEPTIONS: Readonly<Partial<Record<IconName, number>>> = 
   push: 0x2191,
   pull: 0x2193,
   success: 0x2713,
+  tagUnpushed: 0x2191,
 };
 
 /** Required `ICONS` groups and names from architecture section 6.1. */
@@ -35,7 +36,15 @@ const REQUIRED_ICON_GROUPS: Readonly<Record<string, readonly IconName[]>> = {
   ],
   "File status": ["modified", "added", "deleted", "renamed", "copied", "conflicted", "untracked"],
   Diff: ["diffAdd", "diffRemove", "diffContext", "diffNoNewline"],
-  "Tag scope": ["tagLocal", "tagRemote", "tagUnpushed", "tagLocalOnly"],
+  "Tag scope": [
+    "tagScopeOpen",
+    "tagScopeClose",
+    "tagScopeAbsent",
+    "tagLocal",
+    "tagRemote",
+    "tagUnpushed",
+    "tagUnknown",
+  ],
   "Remote actions": ["push", "pull"],
   "Operation status": [
     "success",
@@ -133,5 +142,6 @@ describe("ICONS", () => {
     expect(ICONS.push.codePointAt(0)).toBe(PICTOGRAPH_ICON_EXCEPTIONS.push);
     expect(ICONS.pull.codePointAt(0)).toBe(PICTOGRAPH_ICON_EXCEPTIONS.pull);
     expect(ICONS.success.codePointAt(0)).toBe(PICTOGRAPH_ICON_EXCEPTIONS.success);
+    expect(ICONS.tagUnpushed.codePointAt(0)).toBe(PICTOGRAPH_ICON_EXCEPTIONS.tagUnpushed);
   });
 });

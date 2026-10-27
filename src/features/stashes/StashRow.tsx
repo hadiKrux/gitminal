@@ -5,6 +5,7 @@ import {
   STASH_ROW_CONTENT_MAX_WIDTH,
   STASH_ROW_CONTENT_MIN_WIDTH,
   STASH_ROW_IDENTITY_SEPARATOR_WIDTH,
+  STASH_ROW_INDENT_WIDTH,
   STASH_ROW_MAX_BRANCH_WIDTH,
   STASH_ROW_MIN_BRANCH_WIDTH,
   STASH_ROW_MIN_MESSAGE_BUDGET,
@@ -31,8 +32,10 @@ export function stashRowId(objectName: string): string {
 /**
  * Renders one stash row.
  *
- * The identity line shows the display index (`stash@{n}`), the source branch when git recorded one,
- * and the relative age. The message line follows and is the only part that truncates, so a narrow
+ * The identity line shows a one-cell indent, the display index (`stash@{n}`), the source branch when
+ * git recorded one, and the relative age. The row does not use the `ListRow` selection marker: the
+ * dark selected fill already identifies the cursor row, and the indent keeps every line aligned with
+ * the sibling panels. The message line follows and is the only part that truncates, so a narrow
  * sidebar keeps the index and the age readable. The row id is derived from the immutable object name,
  * never from the display index, so an external stash operation that renumbers the list cannot move
  * the row's identity.
@@ -52,7 +55,8 @@ export function StashRow(props: {
   const width = clampWidth(terminalWidth);
   const age = formatStashAge(props.stash.committedAt);
   const branchBudget = readBranchBudget(width, props.stash, age);
-  const messageBudget = Math.min(terminalWidth, STASH_ROW_CONTENT_MAX_WIDTH) - 1;
+  const messageBudget =
+    Math.min(terminalWidth, STASH_ROW_CONTENT_MAX_WIDTH) - STASH_ROW_INDENT_WIDTH;
   const showMessage = messageBudget >= STASH_ROW_MIN_MESSAGE_BUDGET;
 
   return (
@@ -60,26 +64,29 @@ export function StashRow(props: {
       id={stashRowId(props.stash.objectName)}
       selected={props.selected}
       focused={props.focused}
+      showMarker={false}
       onMouseDown={props.onMouseDown}
     >
-      <box flexDirection="row" flexShrink={0} overflow="hidden">
-        <text fg={tokens.accent} wrapMode="none" flexShrink={0}>
-          {props.stash.index}
-        </text>
-        {branchBudget === 0 || props.stash.sourceBranch === null ? null : (
-          <TruncatedText
-            text={` ${props.stash.sourceBranch}`}
-            maxWidth={branchBudget + STASH_ROW_IDENTITY_SEPARATOR_WIDTH}
-            fg={tokens.muted}
-          />
-        )}
-        <text fg={tokens.muted} wrapMode="none" flexShrink={0}>
-          {` ${age}`}
-        </text>
+      <box flexDirection="column" paddingLeft={STASH_ROW_INDENT_WIDTH}>
+        <box flexDirection="row" flexShrink={0} overflow="hidden">
+          <text fg={tokens.accent} wrapMode="none" flexShrink={0}>
+            {props.stash.index}
+          </text>
+          {branchBudget === 0 || props.stash.sourceBranch === null ? null : (
+            <TruncatedText
+              text={` ${props.stash.sourceBranch}`}
+              maxWidth={branchBudget + STASH_ROW_IDENTITY_SEPARATOR_WIDTH}
+              fg={tokens.muted}
+            />
+          )}
+          <text fg={tokens.muted} wrapMode="none" flexShrink={0}>
+            {` ${age}`}
+          </text>
+        </box>
+        {showMessage ? (
+          <TruncatedText text={readStashMessage(props.stash)} maxWidth={messageBudget} />
+        ) : null}
       </box>
-      {showMessage ? (
-        <TruncatedText text={readStashMessage(props.stash)} maxWidth={messageBudget} />
-      ) : null}
     </ListRow>
   );
 }

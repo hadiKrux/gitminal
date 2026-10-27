@@ -22,6 +22,18 @@ import { TAG_FILTER_INPUT_ID } from "@/features/tags/TagsPanel.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
 
+/** Upward arrow the unpushed scope indicator shows; written as a code point to keep this file ASCII. */
+const UP_ARROW = String.fromCodePoint(0x2191);
+
+/** Rendered scope indicator for a tag that no remote has and every remote check confirmed. */
+const UNPUSHED_SCOPE = `[L${UP_ARROW}]`;
+
+/** Rendered scope indicator for a local tag whose remote state could not be read. */
+const UNKNOWN_SCOPE = "[L?]";
+
+/** Rendered scope indicator for a tag that is both local and on a remote. */
+const BOTH_SCOPE = "[LR]";
+
 /** Latest overlay context captured by the probe. */
 let latestOverlay: ReturnType<typeof useOverlay> | undefined;
 
@@ -295,17 +307,17 @@ describe("TagsPanel", () => {
     });
   });
 
-  it("shows remote unknown rather than unpushed before a remote check succeeds", async () => {
+  it("shows the unknown scope indicator rather than unpushed before a remote check succeeds", async () => {
     const setup = await renderPanel(
       createClient({ tags: lightweightTag("v1.0.0", "abc123", "subject") }),
     );
 
-    await waitFor(setup, () => setup.captureCharFrame().includes("remote unknown"));
+    await waitFor(setup, () => setup.captureCharFrame().includes(UNKNOWN_SCOPE));
 
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("remote unknown");
-    expect(frame).not.toContain("unpushed");
+    expect(frame).toContain(UNKNOWN_SCOPE);
+    expect(frame).not.toContain(UNPUSHED_SCOPE);
 
     await act(async () => {
       await setup.dispose();
@@ -335,7 +347,7 @@ describe("TagsPanel", () => {
 
     await waitFor(setup, () => setup.captureCharFrame().includes("v1.0.0"));
     await focusTags(setup);
-    await waitFor(setup, () => setup.captureCharFrame().includes("unpushed"));
+    await waitFor(setup, () => setup.captureCharFrame().includes(UNPUSHED_SCOPE));
     await pressKey(setup, "P");
 
     expect(latestOverlay?.entry?.kind).toBe("confirm");
@@ -362,7 +374,7 @@ describe("TagsPanel", () => {
 
     await waitFor(setup, () => setup.captureCharFrame().includes("v1.0.0"));
     await focusTags(setup);
-    await waitFor(setup, () => setup.captureCharFrame().includes("remote unknown"));
+    await waitFor(setup, () => setup.captureCharFrame().includes(UNKNOWN_SCOPE));
     await pressKey(setup, "P");
 
     expect(latestOverlay?.entry).toBeNull();
@@ -442,7 +454,7 @@ describe("TagsPanel", () => {
 
     await waitFor(setup, () => setup.captureCharFrame().includes("v1.0.0"));
     await focusTags(setup);
-    await waitFor(setup, () => setup.captureCharFrame().includes("unpushed"));
+    await waitFor(setup, () => setup.captureCharFrame().includes(UNPUSHED_SCOPE));
     await pressKey(setup, "P");
 
     expect(remotePushCalls).toBe(0);
@@ -454,7 +466,7 @@ describe("TagsPanel", () => {
     });
   });
 
-  it("clears the unpushed indicator after a successful push refreshes remote knowledge", async () => {
+  it("clears the unpushed scope indicator after a successful push refreshes remote knowledge", async () => {
     const setup = await renderPanel(
       createClient({
         tags: lightweightTag("v1.0.0", "abc123", "subject"),
@@ -466,7 +478,7 @@ describe("TagsPanel", () => {
 
     await waitFor(setup, () => setup.captureCharFrame().includes("v1.0.0"));
     await focusTags(setup);
-    await waitFor(setup, () => setup.captureCharFrame().includes("unpushed"));
+    await waitFor(setup, () => setup.captureCharFrame().includes(UNPUSHED_SCOPE));
     await pressKey(setup, "P");
 
     const entry = latestOverlay?.entry;
@@ -481,14 +493,14 @@ describe("TagsPanel", () => {
     await waitFor(
       setup,
       () =>
-        !setup.captureCharFrame().includes("unpushed") &&
-        setup.captureCharFrame().includes("local remote"),
+        !setup.captureCharFrame().includes(UNPUSHED_SCOPE) &&
+        setup.captureCharFrame().includes(BOTH_SCOPE),
     );
 
     const frame = setup.captureCharFrame();
 
-    expect(frame).not.toContain("unpushed");
-    expect(frame).toContain("local remote");
+    expect(frame).not.toContain(UNPUSHED_SCOPE);
+    expect(frame).toContain(BOTH_SCOPE);
 
     await act(async () => {
       await setup.dispose();

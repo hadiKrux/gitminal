@@ -73,12 +73,14 @@ export function WorktreesPanel(): ReactNode {
 
   return (
     <box flexDirection="column" flexGrow={1}>
-      <SearchField
-        id={WORKTREE_FILTER_INPUT_ID}
-        value={worktrees.filter}
-        placeholder={WORKTREE_FILTER_PLACEHOLDER}
-        onInput={worktrees.setFilter}
-      />
+      <box paddingLeft={1} paddingRight={1} flexShrink={0}>
+        <SearchField
+          id={WORKTREE_FILTER_INPUT_ID}
+          value={worktrees.filter}
+          placeholder={WORKTREE_FILTER_PLACEHOLDER}
+          onInput={worktrees.setFilter}
+        />
+      </box>
       {worktrees.busy ? (
         <text fg={tokens.dim} wrapMode="none">
           {WORKTREES_BUSY_MESSAGE}

@@ -4,6 +4,7 @@ import { act } from "react";
 import type { StashRecord } from "@/domain/git/git.types";
 import { StashRow } from "@/features/stashes/StashRow";
 import { ShellTestProviders } from "@/test/shell.harness";
+import { ICONS } from "@/theme/icons";
 
 /**
  * Builds one stash record for a row test.
@@ -58,11 +59,12 @@ async function renderRow(
 }
 
 describe("StashRow", () => {
-  it("renders the index, source branch, relative age, message, and selection marker", async () => {
+  it("renders the index, source branch, relative age, and message without a selection marker", async () => {
     const setup = await renderRow(stash());
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain(">");
+    expect(frame).not.toContain(ICONS.selected);
+    expect(frame).not.toContain(ICONS.focus);
     expect(frame).toContain("stash@{0}");
     expect(frame).toContain("feature");
     expect(frame).toContain("2h ago");

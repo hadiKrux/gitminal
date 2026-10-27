@@ -60,29 +60,41 @@ beforeEach(() => {
 });
 
 describe("TagRow", () => {
-  it("renders the documented scope text for every logical state", async () => {
-    const cases: readonly (readonly [TagScopeState, string, string[]])[] = [
-      ["local", ICONS.tagLocal, []],
-      ["remote", ICONS.tagRemote, []],
-      ["both", `${ICONS.tagLocal} ${ICONS.tagRemote}`, []],
-      ["unpushed", ICONS.tagUnpushed, []],
-      ["local-only", ICONS.tagLocalOnly, []],
-      ["unknown", "remote unknown", []],
+  it("renders the documented scope indicator for every logical state", async () => {
+    const upArrow = String.fromCodePoint(0x2191);
+    const cases: readonly (readonly [TagScopeState, string])[] = [
+      ["local", "[L ]"],
+      ["remote", "[ R]"],
+      ["both", "[LR]"],
+      ["unpushed", `[L${upArrow}]`],
+      ["local-only", "[L ]"],
+      ["unknown", "[L?]"],
     ];
 
-    for (const [state, expected, forbidden] of cases) {
+    for (const [state, expected] of cases) {
       const { setup, frame } = await renderRow(tagRow({ state }), 80);
 
       expect(frame, state).toContain(expected);
       expect(frame, state).toContain("v1.0.0");
 
-      for (const text of forbidden) {
-        expect(frame, state).not.toContain(text);
+      if (state === "unknown") {
+        expect(frame).not.toContain(upArrow);
       }
 
-      if (state === "unknown") {
-        expect(frame).not.toContain(ICONS.tagUnpushed);
-      }
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
+  });
+
+  it("keeps the row width constant across states", async () => {
+    const states: readonly TagScopeState[] = ["local", "remote", "both", "unpushed", "unknown"];
+
+    for (const state of states) {
+      const { setup, frame } = await renderRow(tagRow({ state, subject: "" }), 80);
+      const row = frame.split("\n").find((line) => line.includes("v1.0.0")) ?? "";
+
+      expect(row.trim(), state).toHaveLength("v1.0.0 [LR]".length);
 
       await act(async () => {
         await setup.dispose();
@@ -105,7 +117,7 @@ describe("TagRow", () => {
     const { setup, frame } = await renderRow(tagRow({ subject }), 40);
 
     expect(frame).toContain("v1.0.0");
-    expect(frame).toContain(ICONS.tagLocalOnly);
+    expect(frame).toContain("[L ]");
     expect(frame).toContain(ICONS.ellipsis);
     expect(frame).not.toContain(subject);
 
@@ -117,11 +129,11 @@ describe("TagRow", () => {
   it("drops the subject on a narrow terminal while keeping the tag identity", async () => {
     const { setup, frame } = await renderRow(
       tagRow({ name: "v1", subject: "not enough room" }),
-      20,
+      14,
     );
 
     expect(frame).toContain("v1");
-    expect(frame).toContain(ICONS.tagLocalOnly);
+    expect(frame).toContain("[L ]");
     expect(frame).not.toContain("not enough room");
 
     await act(async () => {
@@ -129,10 +141,12 @@ describe("TagRow", () => {
     });
   });
 
-  it("marks the cursor row with the selection marker", async () => {
+  it("suppresses the selection marker so the selected fill identifies the cursor row", async () => {
     const { setup, frame } = await renderRow(tagRow(), 80, true);
 
-    expect(frame).toContain(`${ICONS.selected}v1.0.0`);
+    expect(frame).not.toContain(ICONS.selected);
+    expect(frame).not.toContain(ICONS.focus);
+    expect(frame).toContain(" v1.0.0 [L ]");
 
     await act(async () => {
       await setup.dispose();

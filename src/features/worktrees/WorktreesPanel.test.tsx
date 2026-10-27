@@ -387,7 +387,8 @@ describe("WorktreesPanel rows", () => {
     frame = setup.captureCharFrame();
 
     expect(frame).toContain("locked: in use by another process");
-    expect(frame).toContain("prunable: directory is");
+    expect(frame).toContain("prunable: directory");
+    expect(frame).toContain("is gone");
 
     await act(async () => {
       await setup.dispose();

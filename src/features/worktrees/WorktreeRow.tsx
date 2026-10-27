@@ -4,7 +4,7 @@ import type { WorktreeRecord } from "@/domain/git/git.types";
 import {
   WORKTREE_ROW_CONTENT_MAX_WIDTH,
   WORKTREE_ROW_CONTENT_MIN_WIDTH,
-  WORKTREE_ROW_MARKER_WIDTH,
+  WORKTREE_ROW_INDENT_WIDTH,
   WORKTREE_ROW_MIN_PATH_BUDGET,
   WORKTREE_ROW_SHORT_OID_LENGTH,
 } from "@/features/worktrees/WorktreeRow.constants";
@@ -29,9 +29,10 @@ export function worktreeRowId(path: string): string {
 /**
  * Renders one worktree row.
  *
- * The row shows the selection marker supplied by `ListRow`, the branch name or the detached short
- * hash, the inline current, locked, prunable, and dirty markers, and the shortened path. A selected
- * row adds one detail line that spells every active state and its reason, so a marker is never the
+ * The row shows a one-cell indent, the branch name or the detached short hash, the inline current,
+ * locked, prunable, and dirty markers, and the shortened path. It does not use the `ListRow`
+ * selection marker: the dark selected fill already identifies the cursor row, and the indent keeps
+ * every line of the row aligned with the padded filter field. A selected row adds one detail line that spells every active state and its reason, so a marker is never the
  * only signal and a lock or prune reason is readable in the sidebar. The dirty marker is rendered
  * only when the snapshot already reports `dirty`; the feature never invents a dirty read.
  *
@@ -54,7 +55,7 @@ export function WorktreeRow(props: {
     WORKTREE_ROW_CONTENT_MIN_WIDTH,
     Math.min(dimensions.width, WORKTREE_ROW_CONTENT_MAX_WIDTH),
   );
-  const pathBudget = Math.max(WORKTREE_ROW_MIN_PATH_BUDGET, width - WORKTREE_ROW_MARKER_WIDTH);
+  const pathBudget = Math.max(WORKTREE_ROW_MIN_PATH_BUDGET, width - WORKTREE_ROW_INDENT_WIDTH);
   const displayPath = shortenPath(toHomeRelativePath(props.row.path), pathBudget, ICONS.ellipsis);
   const detail = props.selected ? readStateDetail(props.row) : null;
 
@@ -63,25 +64,28 @@ export function WorktreeRow(props: {
       id={worktreeRowId(props.row.path)}
       selected={props.selected}
       focused={props.focused}
+      showMarker={false}
       onMouseDown={props.onPress}
     >
-      <box flexDirection="row" flexShrink={1}>
-        <text wrapMode="none" flexShrink={0}>
-          {`${readWorktreeLabel(props.row)} `}
-          {props.row.current ? <span fg={tokens.accent}>{`${ICONS.currentBranch} `}</span> : null}
-          {props.row.locked ? <span fg={tokens.warning}>{`${ICONS.locked} `}</span> : null}
-          {props.row.prunable ? <span fg={tokens.warning}>{`${ICONS.prunable} `}</span> : null}
-          {props.row.dirty ? <span fg={tokens.warning}>{ICONS.dirty}</span> : null}
+      <box flexDirection="column" paddingLeft={1}>
+        <box flexDirection="row" flexShrink={1}>
+          <text wrapMode="none" flexShrink={0}>
+            {`${readWorktreeLabel(props.row)} `}
+            {props.row.current ? <span fg={tokens.accent}>{`${ICONS.currentBranch} `}</span> : null}
+            {props.row.locked ? <span fg={tokens.warning}>{`${ICONS.locked} `}</span> : null}
+            {props.row.prunable ? <span fg={tokens.warning}>{`${ICONS.prunable} `}</span> : null}
+            {props.row.dirty ? <span fg={tokens.warning}>{ICONS.dirty}</span> : null}
+          </text>
+        </box>
+        <text fg={tokens.muted} wrapMode="none" flexShrink={1}>
+          {displayPath}
         </text>
+        {detail === null ? null : (
+          <text fg={tokens.muted} wrapMode="word">
+            {detail}
+          </text>
+        )}
       </box>
-      <text fg={tokens.muted} wrapMode="none" flexShrink={1}>
-        {displayPath}
-      </text>
-      {detail === null ? null : (
-        <text fg={tokens.muted} wrapMode="word">
-          {detail}
-        </text>
-      )}
     </ListRow>
   );
 }

@@ -73,12 +73,14 @@ export function TagsPanel(): ReactNode {
 
   return (
     <box flexDirection="column" flexGrow={1}>
-      <SearchField
-        id={TAG_FILTER_INPUT_ID}
-        value={tags.filter}
-        placeholder={TAG_FILTER_PLACEHOLDER}
-        onInput={tags.setFilter}
-      />
+      <box paddingLeft={1} paddingRight={1} flexShrink={0}>
+        <SearchField
+          id={TAG_FILTER_INPUT_ID}
+          value={tags.filter}
+          placeholder={TAG_FILTER_PLACEHOLDER}
+          onInput={tags.setFilter}
+        />
+      </box>
       {tags.busy ? (
         <text fg={tokens.dim} wrapMode="none">
           {TAGS_BUSY_MESSAGE}

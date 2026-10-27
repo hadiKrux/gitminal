@@ -15,3 +15,6 @@ export const STASH_ROW_MIN_MESSAGE_BUDGET = 4;
 
 /** One-cell separator between the index, source branch, and relative age. */
 export const STASH_ROW_IDENTITY_SEPARATOR_WIDTH = 1;
+
+/** Cells reserved for the leading indent that aligns the row with the panel filter field. */
+export const STASH_ROW_INDENT_WIDTH = 1;
