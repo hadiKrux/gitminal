@@ -2,7 +2,7 @@
 
 A keyboard-first terminal git client.
 
-![Gitminal UI reference](gitminal.png)
+![Gitminal UI reference](screenshot.png)
 
 The screenshot above is the authoritative UI reference. The app must match it.
 
