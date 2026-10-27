@@ -25,9 +25,5 @@ export const REMOTES_ERROR_MESSAGE = "Could not read remote branches";
 /** Read-only notice shown while another mutation runs. */
 export const REMOTES_OPERATION_IN_PROGRESS = "operation in progress";
 
-/** Disabled reason for `nav.activate` in the remotes region. */
-export const REMOTES_NAV_ACTIVATE_REASON =
-  "Enter does nothing in v1; press Space to create a local branch";
-
 /** Prefix of the row-cap notice, followed by the visible, filtered, and hidden counts. */
 export const REMOTES_TRUNCATION_LABEL = "showing first";

@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import type { RemoteFreshness } from "@/domain/repository/repository.types";
 import {
   REMOTE_ROW_CONTENT_MIN_WIDTH,
+  REMOTE_ROW_INDENT_WIDTH,
   REMOTE_ROW_MARKER_SEPARATOR_WIDTH,
-  REMOTE_ROW_MARKER_WIDTH,
   REMOTE_ROW_MIN_NAME_WIDTH,
   REMOTE_ROW_STALE_INDICATOR,
 } from "@/features/remotes/RemoteRow.constants";
@@ -18,16 +18,17 @@ import { TruncatedText } from "@/ui/TruncatedText";
 /**
  * Renders one remote-tracking branch row.
  *
- * The row is a single line: the `<remote>/<branch>` name plus an inline freshness marker when the
- * remote is not fresh. The name is truncated with `TruncatedText` using the drawable width of the
- * surrounding panel, which already excludes the border and the reserved scrollbar column, and the
- * ListRow marker and freshness marker widths are reserved first, so the freshness marker and its
- * separator are never the clipped part. Outside a panel frame the budget falls back to the terminal
- * width minus the panel border and the scrollbar column. Freshness is a caller-supplied classification
- * derived from the per-remote last successful check or fetch timestamp, never from the ref committer
- * date: `stale` shows `[stale]`, `unknown` shows the missing-state marker, and `fresh` adds no
- * marker. A failed, cancelled, timed-out, or never-run check therefore never reads as absent,
- * deleted, or unpushed.
+ * The row is a single line: a one-cell indent, the `<remote>/<branch>` name, and an inline freshness
+ * marker when the remote is not fresh. The indent aligns the name with the group header. The name is
+ * truncated with `TruncatedText` using the drawable width of the surrounding panel, which already
+ * excludes the border and the reserved scrollbar column, and the indent and freshness marker widths
+ * are reserved first, so the freshness marker and its separator are never the clipped part. Outside
+ * a panel frame the budget falls back to the terminal width minus the panel border and the scrollbar
+ * column. The row does not use the `ListRow` selection marker: the dark selected fill already
+ * identifies the cursor row. Freshness is a caller-supplied classification derived from the
+ * per-remote last successful check or fetch timestamp, never from the ref committer date: `stale`
+ * shows `[stale]`, `unknown` shows the missing-state marker, and `fresh` adds no marker. A failed,
+ * cancelled, timed-out, or never-run check therefore never reads as absent, deleted, or unpushed.
  *
  * @param props - Row identity, branch data, freshness, selection flags, and the mouse handler.
  * @returns The composed remote branch row.
@@ -55,9 +56,13 @@ export function RemoteRow(props: {
       id={props.id}
       selected={props.selected}
       focused={props.focused}
+      showMarker={false}
       onMouseDown={props.onMouseDown}
     >
       <box flexDirection="row" flexShrink={1} overflow="hidden">
+        <text wrapMode="none" flexShrink={0}>
+          {" "}
+        </text>
         <TruncatedText text={`${props.remote}/${props.branch}`} maxWidth={nameBudget} />
         {indicator === null ? null : (
           <text fg={tokens.warning} wrapMode="none" flexShrink={0}>
@@ -89,9 +94,9 @@ function readFreshnessIndicator(freshness: RemoteFreshness): string | null {
 /**
  * Reads how many cells the remote branch name may occupy.
  *
- * The panel's drawable width is kept at or above a readable minimum, the leading selection marker is
- * removed, and the inline freshness marker plus its separator is reserved. The name is the only part
- * that truncates, so the separator and the marker always stay visible.
+ * The panel's drawable width is kept at or above a readable minimum, and the leading indent and
+ * inline freshness marker plus its separator are reserved. The name is the only part that truncates,
+ * so the indent, separator, and marker always stay visible.
  *
  * @param drawableWidth - Drawable width of the surrounding panel in cells.
  * @param indicator - Freshness marker text, or null when the remote is fresh.
@@ -101,5 +106,5 @@ function readNameBudget(drawableWidth: number, indicator: string | null): number
   const rowWidth = Math.max(REMOTE_ROW_CONTENT_MIN_WIDTH, Math.max(1, drawableWidth));
   const markerWidth = indicator === null ? 0 : indicator.length + REMOTE_ROW_MARKER_SEPARATOR_WIDTH;
 
-  return Math.max(REMOTE_ROW_MIN_NAME_WIDTH, rowWidth - REMOTE_ROW_MARKER_WIDTH - markerWidth);
+  return Math.max(REMOTE_ROW_MIN_NAME_WIDTH, rowWidth - REMOTE_ROW_INDENT_WIDTH - markerWidth);
 }

@@ -7,7 +7,6 @@ import { buildListRemoteBranchesArgs } from "@/domain/git/git.remote-branches";
 import type { GitClient } from "@/domain/git/git.types";
 import { REMOTES_FILTER_INPUT_ID } from "@/features/remotes/RemoteFilter.constants";
 import { RemotesPanel } from "@/features/remotes/RemotesPanel";
-import { REMOTES_NAV_ACTIVATE_REASON } from "@/features/remotes/RemotesPanel.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
 
@@ -174,18 +173,6 @@ describe("RemotesPanel", () => {
     expect(frame).toContain("Feature/Login");
     expect(frame).toContain("main");
     expect(frame).toContain("origin/main");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("keeps the nav.activate disabled reason visible", async () => {
-    const setup = await renderPanel(createPanelClient(REMOTE_BRANCHES_OUTPUT));
-
-    await waitForText(setup, REMOTES_NAV_ACTIVATE_REASON);
-
-    expect(setup.captureCharFrame()).toContain(REMOTES_NAV_ACTIVATE_REASON);
 
     await act(async () => {
       await setup.dispose();

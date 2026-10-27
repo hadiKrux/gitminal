@@ -191,7 +191,8 @@ describe("RemoteRow", () => {
   it("shows only the remote branch name for a fresh remote", async () => {
     const frame = await renderRow("fresh", 80);
 
-    expect(frame).toContain("origin/main");
+    expect(frame).toContain(" origin/main");
+    expect(frame).not.toContain(ICONS.selected);
     expect(frame).not.toContain(REMOTE_ROW_STALE_INDICATOR);
     expect(frame).not.toContain(ICONS.missingUpstream);
   });
@@ -219,20 +220,21 @@ describe("RemoteRow", () => {
     expect(frame).toContain("main");
   });
 
-  it("keeps the name, separator, and marker inside the full-width frame with a scrollbar", async () => {
+  it("keeps the name, separator, and freshness marker inside the full-width frame with a scrollbar", async () => {
     const { frame, scrollBox } = await renderFramedRow("stale", 26, LONG_BRANCH);
 
     expect(scrollBox.scrollHeight).toBeGreaterThan(scrollBox.height);
-    expect(readMarkerLine(frame)).toContain(">origin/feat... [stale]");
+    expect(readMarkerLine(frame)).toContain(" origin/feat... [stale]");
+    expect(frame).not.toContain(ICONS.selected);
     expect(frame).not.toContain("filler 28");
     expect(frame).not.toContain(LONG_BRANCH);
   });
 
-  it("keeps the name, separator, and marker inside the narrow frame with a scrollbar", async () => {
+  it("keeps the name, separator, and freshness marker inside the narrow frame with a scrollbar", async () => {
     const { frame, scrollBox } = await renderFramedRow("stale", 20, LONG_BRANCH);
 
     expect(scrollBox.scrollHeight).toBeGreaterThan(scrollBox.height);
-    expect(readMarkerLine(frame)).toContain(">origi... [stale]");
+    expect(readMarkerLine(frame)).toContain(" origi... [stale]");
     expect(frame).not.toContain("filler 28");
     expect(frame).not.toContain(LONG_BRANCH);
   });

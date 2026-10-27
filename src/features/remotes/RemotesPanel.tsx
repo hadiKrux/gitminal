@@ -7,7 +7,6 @@ import {
   REMOTES_EMPTY_REPOSITORY_HINT,
   REMOTES_ERROR_MESSAGE,
   REMOTES_LOADING_LABEL,
-  REMOTES_NAV_ACTIVATE_REASON,
   REMOTES_NO_MATCH_HINT,
   REMOTES_NO_MATCH_PREFIX,
   REMOTES_NO_REMOTES_MESSAGE,
@@ -26,10 +25,9 @@ import { LoadingRow } from "@/ui/LoadingRow";
  * Renders the remotes panel body.
  *
  * The shell owns the focusable frame, the border title with the remote-branch count, and the scroll
- * container, so this component returns only the filter field, the grouped branch rows, the state
- * rows, and the persistent disabled reason for `nav.activate`. It renders no second title row. It
- * never renders a second frame or scrollbox and never registers an action; `useRemotes` owns the
- * scoped registrations and the create-local-branch modal.
+ * container, so this component returns only the filter field, the grouped branch rows, and the state
+ * rows. It renders no second title row. It never renders a second frame or scrollbox and never
+ * registers an action; `useRemotes` owns the scoped registrations and the create-local-branch modal.
  *
  * @returns The remotes panel body.
  */
@@ -53,11 +51,6 @@ export function RemotesPanel(): ReactNode {
           {`${ICONS.running} ${REMOTES_OPERATION_IN_PROGRESS}`}
         </text>
       ) : null}
-      <box paddingLeft={1} paddingRight={1} flexShrink={0}>
-        <text fg={tokens.dim} wrapMode="word">
-          {REMOTES_NAV_ACTIVATE_REASON}
-        </text>
-      </box>
     </box>
   );
 }

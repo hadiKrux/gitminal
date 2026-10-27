@@ -22,9 +22,8 @@ import type { RemoteBranchTarget, VisibleRemoteGroup } from "@/features/remotes/
  *
  * The hook registers exactly `remote.createLocal` and `list.filter` in the `remotes` scope through
  * `useRemoteActions`. `useListCursor` owns `nav.up`, `nav.down`, `nav.first`, `nav.last`, and
- * `nav.activate`, plus double click detection. `nav.activate` is a deliberate no-op in v1 and the
- * panel keeps its disabled reason visible. Entering the region refreshes refs through
- * `repository.refreshStatus()`.
+ * `nav.activate`, plus double click detection. `nav.activate` is a deliberate no-op in v1. Entering
+ * the region refreshes refs through `repository.refreshStatus()`.
  *
  * @returns Rows, filter state, cursor, freshness, actions, and the read state for the panel body.
  */
