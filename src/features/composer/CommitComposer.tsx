@@ -1,32 +1,33 @@
 import type { BoxRenderable, TextareaRenderable } from "@opentui/core";
 import { usePaste } from "@opentui/react";
 import { type ReactNode, useEffect, useRef } from "react";
-import { useBoxRows } from "@/app/hooks/useBoxRows";
+import { useBoxSize } from "@/app/hooks/useBoxSize";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { CommitOptionsMenu } from "@/features/composer/CommitOptionsMenu";
-import { ComposerIdentity } from "@/features/composer/ComposerIdentity";
-import { readComposerRowCap, readComposerVisibleRows } from "@/features/composer/composer.commands";
-import { COMPOSER_COMMITTING_LABEL } from "@/features/composer/composer.constants";
+import { ComposerActions } from "@/features/composer/ComposerActions";
+import { ComposerMessageField } from "@/features/composer/ComposerMessageField";
+import { ComposerMessages } from "@/features/composer/ComposerMessages";
+import { ComposerMetaRow } from "@/features/composer/ComposerMetaRow";
+import { readComposerFieldRows } from "@/features/composer/composer.commands";
+import { COMPOSER_BODY_PADDING } from "@/features/composer/composer.constants";
 import { readComposerView } from "@/features/composer/composer.view";
 import { useComposer } from "@/features/composer/useComposer";
-import { ICONS } from "@/theme/icons";
-import { useTokens } from "@/theme/useTokens";
-import { Button } from "@/ui/Button";
-import { FormField } from "@/ui/FormField";
 import { Panel } from "@/ui/Panel";
-import { Spinner } from "@/ui/Spinner";
 
 /**
  * Renders the commit composer as the right-pane surface.
  *
- * The component owns the `right-pane` region frame and its own Panel titled "Commit". It renders the
- * staged count, the amend indicator, the read-only identity line, the multiline message field with
- * the "Commit message..." placeholder, the icon-only More button, the Commit button, and the
- * committing spinner. The textarea grows to the rows the right-pane slot actually leaves and then
- * scrolls inside a bounded `<scrollbox>`. The panel fills the wrapper `MainArea` gives it instead of
- * enforcing its own minimum, so a short terminal shrinks the message field, down to one row in the
- * slot the console drawer leaves at 80x24, rather than pushing the More and Commit controls out of
- * the panel or over the diff.
+ * The component owns the `right-pane` region frame and its own Panel titled "Commit". It composes the
+ * unlabeled message field, the identity and staged meta row, the button row, and the inline reason
+ * rows. The message field is the first row of the body; the identity line sits on the left and the
+ * staged count on the right of the row directly below it. The inline message error appears only after
+ * the user triggers a commit with an empty draft, and editing the draft clears it again. The body
+ * pads its content by one cell on each side. The message field takes every row the meta row, the
+ * button row, and an inline reason line leave, so the panel has no dead space above or below them,
+ * and a longer draft scrolls inside a bounded `<scrollbox>`. The panel fills the wrapper `MainArea`
+ * gives it instead of enforcing its own minimum, so a short terminal shrinks the message field, down
+ * to one row in the slot the console drawer leaves at 80x24, rather than pushing the More and Commit
+ * controls out of the panel or over the diff.
  *
  * All state and command dispatch live in `useComposer`; this component only renders it. The message
  * field is the single writer of the draft through `DraftProvider`. Enter inserts a newline because
@@ -39,14 +40,10 @@ export function CommitComposer(): ReactNode {
   const composer = useComposer({
     renderOptionsMenu: (input) => <CommitOptionsMenu {...input} />,
   });
-  const tokens = useTokens();
   const { state } = useFocusState();
   const fieldRef = useRef<TextareaRenderable | null>(null);
   const contentRef = useRef<BoxRenderable | null>(null);
-  const { rows: contentRows, onSizeChange: onContentResize } = useBoxRows(contentRef);
-  const rowCap = readComposerRowCap(contentRows);
-  const visibleRows = readComposerVisibleRows(composer.draft, rowCap);
-  const scrolls = composer.draft.split("\n").length > visibleRows;
+  const { rows, columns, onSizeChange } = useBoxSize(contentRef);
   const view = readComposerView({
     committing: composer.committing,
     stagedCount: composer.stagedCount,
@@ -54,6 +51,11 @@ export function CommitComposer(): ReactNode {
     primaryReason: composer.primaryReason,
     blockedReason: composer.blockedReason,
   });
+  const fieldRows = readComposerFieldRows({
+    bodyRows: rows,
+    showsReason: composer.messageError !== null || view.showStateText,
+  });
+  const scrolls = composer.draft.split("\n").length > fieldRows;
 
   useEffect(() => {
     const field = fieldRef.current;
@@ -84,25 +86,6 @@ export function CommitComposer(): ReactNode {
     event.preventDefault();
   });
 
-  const messageField = (
-    <textarea
-      id={composer.textareaId}
-      ref={fieldRef}
-      height={visibleRows}
-      initialValue={composer.draft}
-      placeholder="Commit message..."
-      backgroundColor={tokens.surface}
-      focusedBackgroundColor={tokens.surface}
-      textColor={view.textareaDisabled ? tokens.dim : tokens.text}
-      focusedTextColor={tokens.text}
-      placeholderColor={tokens.dim}
-      wrapMode="word"
-      onContentChange={() => {
-        composer.setDraft(fieldRef.current?.plainText ?? "");
-      }}
-    />
-  );
-
   return (
     <Panel
       {...composer.regionProps}
@@ -112,66 +95,48 @@ export function CommitComposer(): ReactNode {
       flexBasis={0}
       overflow="hidden"
     >
-      <box ref={contentRef} onSizeChange={onContentResize} flexDirection="column" flexGrow={1}>
-        <box flexDirection="row" flexShrink={0} gap={2}>
-          <text fg={tokens.muted} wrapMode="none">
-            {`${composer.stagedCount} staged`}
-          </text>
-          {composer.amendShortHash === null ? null : (
-            <text fg={tokens.accent} wrapMode="none">
-              {`Amending ${composer.amendShortHash}`}
-            </text>
-          )}
-        </box>
-        <ComposerIdentity identity={composer.identity} />
-        <FormField label="Message" error={composer.messageError ?? undefined}>
-          {scrolls ? (
-            <scrollbox
-              id={composer.scrollId}
-              height={visibleRows}
-              focusable={false}
-              scrollbarOptions={{ trackOptions: { foregroundColor: tokens.scrollbar } }}
-            >
-              {messageField}
-            </scrollbox>
-          ) : (
-            messageField
-          )}
-        </FormField>
-        <box flexDirection="row" flexShrink={0} gap={1} alignItems="center">
-          <Button
-            id={composer.moreButtonId}
-            label="More"
-            icon={ICONS.ellipsis}
-            iconOnly
-            focused={composer.focusedControl === "more"}
-            disabled={composer.committing}
-            onPress={composer.openOptions}
-          />
-          <Button
-            id={composer.commitButtonId}
-            label={composer.commitLabel}
-            focused={composer.focusedControl === "commit"}
-            disabled={view.commitDisabled}
-            reason={view.commitReason}
-            onPress={() => {
-              composer.runVariant("commit.submit");
-            }}
-          />
-          {composer.committing ? (
-            <box flexDirection="row" flexShrink={0} gap={1}>
-              <Spinner />
-              <text fg={tokens.accent} wrapMode="none">
-                {COMPOSER_COMMITTING_LABEL}
-              </text>
-            </box>
-          ) : null}
-        </box>
-        {view.showStateText ? (
-          <text fg={tokens.warning} wrapMode="none">
-            {`${ICONS.warning} ${composer.blockedReason}`}
-          </text>
-        ) : null}
+      <box
+        ref={contentRef}
+        onSizeChange={onSizeChange}
+        paddingLeft={COMPOSER_BODY_PADDING}
+        paddingRight={COMPOSER_BODY_PADDING}
+        flexDirection="column"
+        flexGrow={1}
+      >
+        <ComposerMessageField
+          textareaId={composer.textareaId}
+          scrollId={composer.scrollId}
+          fieldRef={fieldRef}
+          draft={composer.draft}
+          rows={fieldRows}
+          scrolls={scrolls}
+          disabled={view.textareaDisabled}
+          onDraftChange={composer.setDraft}
+        />
+        <ComposerMetaRow
+          identity={composer.identity}
+          stagedCount={composer.stagedCount}
+          amendShortHash={composer.amendShortHash}
+          columns={columns}
+        />
+        <ComposerActions
+          moreButtonId={composer.moreButtonId}
+          commitButtonId={composer.commitButtonId}
+          commitLabel={composer.commitLabel}
+          focusedControl={composer.focusedControl}
+          committing={composer.committing}
+          commitDisabled={view.commitDisabled}
+          commitReason={view.commitReason}
+          onMore={composer.openOptions}
+          onCommit={() => {
+            composer.runVariant("commit.submit");
+          }}
+        />
+        <ComposerMessages
+          messageError={composer.messageError}
+          showStateText={view.showStateText}
+          stateText={composer.blockedReason}
+        />
       </box>
     </Panel>
   );

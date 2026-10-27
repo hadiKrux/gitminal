@@ -21,11 +21,14 @@ import type { ComposerMenuRenderer } from "./composer.types";
  *
  * Every commit variant goes through the single command runner. The message is read from the live
  * draft at dispatch time, never from a captured render value, so a menu action runs exactly what the
- * textarea shows. Success clears the draft and any amend indicator; a blocked, failed, cancelled, or
- * timed-out result leaves both untouched. The options menu reads the same shared availability rule
- * the footer and palette use and reports the highlighted row, Run, and Cancel back through callbacks.
+ * textarea shows. An attempt while the only missing piece is the message reports through
+ * `onMessageRequired` instead of the shared status line, so the composer can show its inline error.
+ * Success clears the draft and any amend indicator; a blocked, failed, cancelled, or timed-out
+ * result leaves both untouched. The options menu reads the same shared availability rule the footer
+ * and palette use and reports the highlighted row, Run, and Cancel back through callbacks.
  *
- * @param input - Live draft ref, repository value, menu renderer, draft clear, and amend session.
+ * @param input - Live draft ref, repository value, menu renderer, draft clear, amend session, and
+ * the message-required attempt callback.
  * @returns The dispatch and menu entry points plus the committing flag.
  */
 export function useComposerCommands(input: {
@@ -33,6 +36,7 @@ export function useComposerCommands(input: {
   readonly repository: ReturnType<typeof useRepository>;
   readonly renderOptionsMenu: ComposerMenuRenderer;
   readonly clearDraft: () => void;
+  readonly onMessageRequired: () => void;
   readonly amend: {
     readonly beginSession: (snapshot: string) => void;
     readonly closeSession: (restore: boolean, keepAmendIndicator?: boolean) => void;
@@ -41,7 +45,7 @@ export function useComposerCommands(input: {
     readonly ensureAmendReady: (draft: string) => Promise<boolean>;
   };
 }) {
-  const { amend, clearDraft, draftRef, renderOptionsMenu, repository } = input;
+  const { amend, clearDraft, draftRef, onMessageRequired, renderOptionsMenu, repository } = input;
   const { operation, setStatus } = useStatus();
   const overlay = useOverlay();
   const { runCommand } = useCommandRunner();
@@ -100,6 +104,13 @@ export function useComposerCommands(input: {
     const liveState = readLiveState(variant.amend);
 
     if (!liveState.available) {
+      if (liveState.reason === "message-required") {
+        // The composer owns this feedback: it shows the message error inline after the attempt.
+        onMessageRequired();
+
+        return;
+      }
+
       reportBlocked(liveState.reason);
 
       return;

@@ -3,22 +3,21 @@ import { publishActionAvailability } from "@/app/hooks/useActionAvailability";
 import { useDraft } from "@/app/hooks/useDraft";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useRepository } from "@/app/hooks/useRepository";
-import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import { selectPendingCounts } from "@/domain/repository/repository.selectors";
 import { readComposerCommandState, readMissingIdentity } from "./composer.commands";
 import {
   COMPOSER_COMMIT_BUTTON_ID,
-  COMPOSER_COMMIT_LABEL,
   COMPOSER_MENU_SELECT_ID,
   COMPOSER_MORE_BUTTON_ID,
-  COMPOSER_NOTHING_TO_COMMIT_LABEL,
   COMPOSER_SCROLL_ID,
   COMPOSER_TEXTAREA_ID,
 } from "./composer.constants";
 import type { ComposerMenuRenderer } from "./composer.types";
+import { readComposerPanelText } from "./composer.view";
 import { useAmendSelection } from "./useAmendSelection";
 import { useComposerCommands } from "./useComposerCommands";
 import { useComposerControls } from "./useComposerControls";
+import { useComposerMessageAttempt } from "./useComposerMessageAttempt";
 
 // The shell imports the textarea id from this module, so keep that single re-export while every
 // other constant and helper is imported from its owning module.
@@ -36,7 +35,9 @@ export { COMPOSER_TEXTAREA_ID } from "./composer.constants";
  * This hook is the composition point. `useAmendSelection` owns the menu session and previous-message
  * load, `useComposerCommands` owns dispatch and the options overlay, and `useComposerControls` owns
  * the focused control. The hook publishes its enablement so the footer reads the same result the
- * panel renders.
+ * panel renders. It also owns the message-required attempt flag: the composer shows that error only
+ * after a commit was triggered with an empty draft, and any draft edit clears the flag so the error
+ * does not linger while the user fixes the message.
  *
  * @param options - The JSX renderer for the commit options overlay.
  * @returns Composer view state plus the handlers the panel renders.
@@ -46,20 +47,25 @@ export function useComposer(options: { readonly renderOptionsMenu: ComposerMenuR
   const { draft, setDraft, clearDraft } = useDraft();
   const region = useFocusRegion("right-pane");
   const draftRef = useRef(draft);
+  const messageAttempt = useComposerMessageAttempt();
 
   draftRef.current = draft;
 
   /**
    * Writes the draft through the single owner and keeps the dispatch-time mirror current.
    *
+   * Any edit clears the message-required attempt, so the inline error does not linger while the
+   * user fixes the message.
+   *
    * @param value - New draft text.
    */
   const writeDraft = useCallback(
     (value: string): void => {
       draftRef.current = value;
+      messageAttempt.clearAttempt();
       setDraft(value);
     },
-    [setDraft],
+    [messageAttempt, setDraft],
   );
 
   const amend = useAmendSelection({
@@ -73,6 +79,7 @@ export function useComposer(options: { readonly renderOptionsMenu: ComposerMenuR
     repository,
     renderOptionsMenu: options.renderOptionsMenu,
     clearDraft,
+    onMessageRequired: messageAttempt.markAttempted,
     amend,
   });
   const controls = useComposerControls({
@@ -99,6 +106,12 @@ export function useComposer(options: { readonly renderOptionsMenu: ComposerMenuR
     committing: commands.committing,
   });
 
+  const panelText = readComposerPanelText({
+    reason: enablement.reason,
+    available: enablement.available,
+    messageAttempted: messageAttempt.attempted,
+  });
+
   useEffect(() => {
     const cleanups = [
       publishActionAvailability("right-pane", "commit.submit", enablement.available),
@@ -123,15 +136,10 @@ export function useComposer(options: { readonly renderOptionsMenu: ComposerMenuR
     draft,
     setDraft: writeDraft,
     focusedControl: controls.focusedControl,
-    commitLabel:
-      enablement.reason === "nothing-to-commit"
-        ? COMPOSER_NOTHING_TO_COMMIT_LABEL
-        : COMPOSER_COMMIT_LABEL,
+    commitLabel: panelText.commitLabel,
     primaryReason: enablement.reason,
-    blockedReason: enablement.available
-      ? null
-      : describeCommandReason(enablement.reason ?? "operation-in-progress"),
-    messageError: enablement.reason === "message-required" ? "message required" : null,
+    blockedReason: panelText.blockedReason,
+    messageError: panelText.messageError,
     committing: commands.committing,
     identity,
     missingIdentity: readMissingIdentity(identity),

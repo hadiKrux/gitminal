@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { TextareaRenderable } from "@opentui/core";
+import type { BoxRenderable, TextareaRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { resetCommandOrchestration } from "@/app/hooks/commandRunner.state";
@@ -12,12 +12,14 @@ import type { CommandExecutionOutcome, CommandRequest } from "@/domain/commands/
 import type { GitClient } from "@/domain/git/git.types";
 import { CommitComposer } from "@/features/composer/CommitComposer";
 import {
+  COMPOSER_COMMIT_BUTTON_ID,
   COMPOSER_MENU_SELECT_ID,
   COMPOSER_SCROLL_ID,
   COMPOSER_TEXTAREA_ID,
 } from "@/features/composer/composer.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
+import { ICONS } from "@/theme/icons";
 
 /** Status output with one staged file. */
 const STAGED_STATUS =
@@ -273,11 +275,22 @@ describe("CommitComposer states", () => {
     await waitForStaged(setup, 1);
 
     const frame = setup.captureCharFrame();
+    const rows = frame.split("\n");
+    const textarea = readTextarea(setup);
+    const identityRow = rows.findIndex((row) => row.includes("Test User <test@example.com>"));
+    const stagedRow = rows.findIndex((row) => row.includes("1 staged"));
 
     expect(frame).toContain("Commit");
     expect(frame).toContain("Commit message...");
-    expect(frame).toContain("Test User <test@example.com>");
-    expect(frame).toContain("1 staged");
+    // The field carries no label row of its own.
+    expect(frame).not.toContain("Message");
+    // Identity and staged count share one row directly below the message field,
+    // identity on the left and the staged count on the right.
+    expect(identityRow).toBe(stagedRow);
+    expect(identityRow).toBe((textarea?.y ?? -2) + (textarea?.height ?? 0));
+    expect(rows[identityRow]?.indexOf("Test User")).toBeLessThan(
+      rows[identityRow]?.indexOf("1 staged") ?? -1,
+    );
 
     await act(async () => {
       await setup.dispose();
@@ -309,10 +322,49 @@ describe("CommitComposer states", () => {
     });
   });
 
-  it("shows message required with an empty draft and staged files", async () => {
+  it("shows message required only after a commit attempt with an empty draft", async () => {
     const setup = await renderComposer();
 
     await waitForStaged(setup, 1);
+    await focusTextarea(setup);
+
+    expect(setup.captureCharFrame()).not.toContain("message required");
+
+    await act(async () => {
+      setup.mockInput.pressKey("s", { ctrl: true });
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).toContain("message required");
+
+    await typeText(setup, "fix");
+
+    expect(setup.captureCharFrame()).not.toContain("message required");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("shows message required when the Commit button is pressed with an empty draft", async () => {
+    const setup = await renderComposer();
+
+    await waitForStaged(setup, 1);
+
+    const button = setup.renderer.root.findDescendantById(COMPOSER_COMMIT_BUTTON_ID) as
+      | BoxRenderable
+      | undefined;
+
+    expect(button).toBeDefined();
+
+    await act(async () => {
+      await setup.mockMouse.click(button?.screenX ?? 0, button?.screenY ?? 0);
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
 
     expect(setup.captureCharFrame()).toContain("message required");
 
@@ -321,7 +373,7 @@ describe("CommitComposer states", () => {
     });
   });
 
-  it("auto-grows to eight rows and then scrolls", async () => {
+  it("fills the rows the panel leaves and scrolls when the draft outgrows them", async () => {
     const setup = await renderComposer();
 
     await waitForStaged(setup, 1);
@@ -333,17 +385,17 @@ describe("CommitComposer states", () => {
       await setup.renderOnce();
     });
 
-    expect(readTextarea(setup)?.height).toBe(3);
+    expect(readTextarea(setup)?.height).toBe(36);
     expect(setup.renderer.root.findDescendantById(COMPOSER_SCROLL_ID)).toBeUndefined();
 
     await act(async () => {
-      latestDraft?.setDraft(Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\n"));
+      latestDraft?.setDraft(Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n"));
     });
     await act(async () => {
       await setup.renderOnce();
     });
 
-    expect(readTextarea(setup)?.height).toBe(8);
+    expect(readTextarea(setup)?.height).toBe(36);
     expect(setup.renderer.root.findDescendantById(COMPOSER_SCROLL_ID)).toBeDefined();
 
     await act(async () => {
@@ -351,7 +403,7 @@ describe("CommitComposer states", () => {
     });
   });
 
-  it("caps the message field inside an 11-row right-pane slot", async () => {
+  it("fills the message field inside an 11-row right-pane slot", async () => {
     const setup = await renderComposer(createClient({ statusOutput: CLEAN_STATUS }), {
       width: 60,
       height: 11,
@@ -366,7 +418,7 @@ describe("CommitComposer states", () => {
       await setup.renderOnce();
     });
 
-    expect(readTextarea(setup)?.height).toBe(4);
+    expect(readTextarea(setup)?.height).toBe(7);
     expect(setup.captureCharFrame()).toContain("Nothing to commit");
 
     await act(async () => {
@@ -374,7 +426,25 @@ describe("CommitComposer states", () => {
     });
   });
 
-  it("re-caps the message field when the terminal shrinks and grows again", async () => {
+  it("keeps the staged count on the right and truncates the identity on a narrow row", async () => {
+    const setup = await renderComposer(createClient(), { width: 34, height: 20 });
+
+    await waitForStaged(setup, 1);
+
+    const frame = setup.captureCharFrame();
+    const metaRow = frame.split("\n").find((row) => row.includes("1 staged")) ?? "";
+
+    expect(metaRow).toContain("Test User <test@");
+    expect(metaRow).toContain(ICONS.ellipsis);
+    expect(metaRow).not.toContain("test@example.com");
+    expect(metaRow.indexOf("Test User")).toBeLessThan(metaRow.indexOf("1 staged"));
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("re-sizes the message field when the terminal shrinks and grows again", async () => {
     const setup = await renderComposer();
 
     await waitForStaged(setup, 1);
@@ -386,7 +456,7 @@ describe("CommitComposer states", () => {
       await setup.renderOnce();
     });
 
-    expect(readTextarea(setup)?.height).toBe(8);
+    expect(readTextarea(setup)?.height).toBe(36);
 
     await act(async () => {
       setup.resize(120, 11);
@@ -396,8 +466,8 @@ describe("CommitComposer states", () => {
       await setup.renderOnce();
     });
 
-    expect(readTextarea(setup)?.height).toBe(4);
-    expect(setup.captureCharFrame()).toContain("Message");
+    expect(readTextarea(setup)?.height).toBe(7);
+    expect(setup.captureCharFrame()).toContain("1 staged");
     expect(setup.captureCharFrame()).toContain("Commit");
 
     await act(async () => {
@@ -408,7 +478,7 @@ describe("CommitComposer states", () => {
       await setup.renderOnce();
     });
 
-    expect(readTextarea(setup)?.height).toBe(8);
+    expect(readTextarea(setup)?.height).toBe(36);
 
     await act(async () => {
       await setup.dispose();

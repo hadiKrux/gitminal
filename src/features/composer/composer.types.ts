@@ -102,6 +102,26 @@ export interface ComposerViewFlags {
   readonly showStateText: boolean;
 }
 
+/** Input to the composer panel text rule. */
+export interface ComposerPanelTextInput {
+  /** Shared primary blocked reason, or null when the normal commit may run. */
+  readonly reason: CommandAvailabilityReason | null;
+  /** True when the primary commit variant may run. */
+  readonly available: boolean;
+  /** True after a commit attempt with an empty draft, until the draft changes. */
+  readonly messageAttempted: boolean;
+}
+
+/** Text the composer panel and its primary button render for the current enablement. */
+export interface ComposerPanelText {
+  /** Primary Commit button label. */
+  readonly commitLabel: string;
+  /** Human-readable text for the primary blocked reason, or null when available. */
+  readonly blockedReason: string | null;
+  /** Inline message error, or null when the user has not attempted an empty commit. */
+  readonly messageError: string | null;
+}
+
 /** Input to the composer presentation rule. */
 export interface ComposerViewInput {
   /** True while a commit runs. */

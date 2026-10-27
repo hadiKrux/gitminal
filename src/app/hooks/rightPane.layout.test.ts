@@ -15,6 +15,6 @@ describe("readRightPaneRows", () => {
   });
 
   it("clamps when the column cannot hold both surface minimums", () => {
-    expect(readRightPaneRows(8)).toBe(4);
+    expect(readRightPaneRows(8)).toBe(5);
   });
 });

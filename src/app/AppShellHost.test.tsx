@@ -1684,7 +1684,10 @@ async function expectComposerLayout(
   const frame = setup.captureCharFrame();
 
   expect(frame).toContain("Nothing to commit");
-  expect(frame).toContain("Message");
+  // The identity line truncates at 80 columns, but the staged count keeps the row's right edge.
+  expect(frame).toContain("Test User");
+  expect(frame).toContain("0 staged");
+  expect(frame).not.toContain("Message");
 
   if (options.consoleOpen === true) {
     expect(frame).toContain("No commands yet.");
@@ -1696,8 +1699,7 @@ async function expectComposerLayout(
   const more = readBox(setup, COMPOSER_MORE_BUTTON_ID);
   const commit = readBox(setup, COMPOSER_COMMIT_BUTTON_ID);
 
-  expect(rightPane.y + rightPane.height).toBeLessThanOrEqual(diff.y);
-  expect(diff.y - (rightPane.y + rightPane.height)).toBeGreaterThanOrEqual(1);
+  expect(diff.y).toBe(rightPane.y + rightPane.height);
   expect(rightPane.x - (graph.x + graph.width)).toBeGreaterThanOrEqual(1);
   expect(more.y).toBeGreaterThanOrEqual(rightPane.y);
   expect(more.y + more.height).toBeLessThanOrEqual(rightPane.y + rightPane.height);

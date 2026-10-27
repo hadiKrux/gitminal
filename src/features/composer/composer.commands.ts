@@ -2,8 +2,9 @@ import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import type { CommandAvailabilityReason } from "@/domain/commands/commands.types";
 import type { GitIdentity } from "@/domain/git/git.types";
 import {
-  COMPOSER_MAX_VISIBLE_ROWS,
-  COMPOSER_MIN_ROWS,
+  COMPOSER_BODY_PADDING,
+  COMPOSER_META_GAP,
+  COMPOSER_REASON_ROWS,
   COMPOSER_RESERVED_ROWS,
 } from "./composer.constants";
 import type { ComposerEnablement, ComposerEnablementInput } from "./composer.types";
@@ -120,38 +121,48 @@ export function readMissingIdentity(
 }
 
 /**
- * Reads the visible textarea height for a draft.
+ * Reads the message field rows the composer body leaves.
  *
- * @param message - Current draft.
- * @param maxRows - Maximum rows before the textarea scrolls. Defaults to eight.
- * @returns A row count between one and the cap.
+ * Every row the meta row, the button row, and an inline reason line do not use goes to the message
+ * field, so the field fills the panel instead of leaving dead space above or below those rows. The
+ * reason row only takes its row when it renders. The result never drops below one row, so the field
+ * stays visible while the console drawer clamps the slot.
+ *
+ * @param input - Measured body rows and whether the inline reason line renders.
+ * @returns Message field rows, at least one.
  */
-export function readComposerVisibleRows(
-  message: string,
-  maxRows: number = COMPOSER_MAX_VISIBLE_ROWS,
-): number {
-  const rows = message.split("\n").length;
+export function readComposerFieldRows(input: {
+  readonly bodyRows: number;
+  readonly showsReason: boolean;
+}): number {
+  const available =
+    input.bodyRows - COMPOSER_RESERVED_ROWS - (input.showsReason ? COMPOSER_REASON_ROWS : 0);
 
-  return Math.min(Math.max(1, Math.floor(maxRows)), Math.max(1, rows));
+  return Math.max(1, available);
 }
 
 /**
- * Reads the textarea row cap from the composer's measured body height.
+ * Reads the columns the identity line may use on the composer meta row.
  *
- * The body reserves rows for the staged line, identity line, message label, buttons, and one
- * reason or state row, so the cap is the space left inside the slot the composer actually got. It
- * shrinks with the clamped right-pane slot, down to one row when the console drawer leaves eight
- * rows, instead of pushing the More and Commit controls out of the panel or over the diff. It never
- * exceeds the documented eight rows. One row is the safe first-frame value before layout publishes
- * the body height.
+ * The staged count and the amend indicator sit at the right edge of that row, so the identity gets
+ * whatever columns are left inside the horizontal body padding after them and the documented gap. A
+ * row too narrow for both keeps the right edge intact and lets the identity truncate, so the result
+ * never goes negative.
  *
- * @param bodyRows - Measured composer body rows, excluding the panel border.
- * @returns A row cap between one and the documented eight rows.
+ * @param input - Measured body columns, the staged count label, and the amend label or null.
+ * @returns Columns available to the identity line, never below zero.
  */
-export function readComposerRowCap(bodyRows: number): number {
-  const available = bodyRows - COMPOSER_RESERVED_ROWS;
+export function readComposerIdentityColumns(input: {
+  readonly rowColumns: number;
+  readonly stagedLabel: string;
+  readonly amendLabel: string | null;
+}): number {
+  const rightColumns =
+    input.stagedLabel.length +
+    (input.amendLabel === null ? 0 : COMPOSER_META_GAP + input.amendLabel.length);
+  const contentColumns = input.rowColumns - COMPOSER_BODY_PADDING * 2;
 
-  return Math.min(COMPOSER_MAX_VISIBLE_ROWS, Math.max(COMPOSER_MIN_ROWS, available));
+  return Math.max(0, contentColumns - COMPOSER_META_GAP - rightColumns);
 }
 
 /**

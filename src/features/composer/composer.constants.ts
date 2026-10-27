@@ -28,11 +28,17 @@ export const COMPOSER_COMMIT_LABEL = "Commit";
 /** Text shown while a commit or amend is running. */
 export const COMPOSER_COMMITTING_LABEL = "Committing...";
 
-/** Rows the textarea grows to before it scrolls inside a bounded region. */
-export const COMPOSER_MAX_VISIBLE_ROWS = 8;
+/** Placeholder shown in the empty message field. */
+export const COMPOSER_PLACEHOLDER = "Commit message...";
 
-/** Rows the composer body reserves for the staged, identity, label, button, and reason rows. */
-export const COMPOSER_RESERVED_ROWS = 5;
+/** Rows the composer body reserves for the identity/staged row and the button row. */
+export const COMPOSER_RESERVED_ROWS = 2;
 
-/** Minimum textarea rows, so an empty draft still has a visible field. */
-export const COMPOSER_MIN_ROWS = 1;
+/** Rows the inline reason or state line takes when it renders. */
+export const COMPOSER_REASON_ROWS = 1;
+
+/** Columns between the identity line and the staged count on the composer meta row. */
+export const COMPOSER_META_GAP = 2;
+
+/** Cells of horizontal padding on each side of the composer body. */
+export const COMPOSER_BODY_PADDING = 1;

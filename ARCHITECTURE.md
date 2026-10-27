@@ -203,7 +203,7 @@ gitminal/
         useMainCommands.ts
         useMainCommands.types.ts
         rightPane.layout.ts
-        useBoxRows.ts
+        useBoxSize.ts
         useScrollContentWidth.ts
         useScrollViewportSize.ts
         useRepositoryEvidence.ts
@@ -390,7 +390,11 @@ gitminal/
         useSearchSession.ts
       composer/
         CommitComposer.tsx
+        ComposerActions.tsx
         ComposerIdentity.tsx
+        ComposerMessageField.tsx
+        ComposerMessages.tsx
+        ComposerMetaRow.tsx
         CommitOptionsMenu.tsx
         composer.amend.ts
         composer.commands.ts
@@ -401,6 +405,7 @@ gitminal/
         useComposer.ts
         useComposerCommands.ts
         useComposerControls.ts
+        useComposerMessageAttempt.ts
       commit-details/
         CommitDetails.tsx
         CommitMetaRow.tsx
