@@ -68,7 +68,10 @@ async function captureSplashFrame(
 ): Promise<string> {
   const setup = await testRender(
     <SplashScreen packageName={PACKAGE_NAME} version={version} update={update} />,
-    { width, height },
+    {
+      width,
+      height,
+    },
   );
 
   await act(async () => {
@@ -108,7 +111,7 @@ describe("SplashScreen", () => {
     });
   });
 
-  it("renders the update notice and install command when an update is available", async () => {
+  it("renders the newer version and bun command when an update is available", async () => {
     const update: UpdateCheckState = {
       status: "available",
       currentVersion: VERSION,
@@ -116,7 +119,10 @@ describe("SplashScreen", () => {
     };
     const setup = await testRender(
       <SplashScreen packageName={PACKAGE_NAME} version={VERSION} update={update} />,
-      { width: 80, height: 24 },
+      {
+        width: 80,
+        height: 24,
+      },
     );
 
     await act(async () => {
@@ -125,8 +131,9 @@ describe("SplashScreen", () => {
 
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("Update available: 0.2.0 (current 0.1.0)");
-    expect(frame).toContain("Run npm i -g @im4all/gitminal");
+    expect(frame).toContain("Update available: 0.2.0");
+    expect(frame).toContain("Run bun add -g @im4all/gitminal");
+    expect(frame).not.toContain("npm");
 
     await act(async () => {
       await setup.dispose();
@@ -139,7 +146,10 @@ describe("SplashScreen", () => {
     for (const update of results) {
       const setup = await testRender(
         <SplashScreen packageName={PACKAGE_NAME} version={VERSION} update={update} />,
-        { width: 80, height: 24 },
+        {
+          width: 80,
+          height: 24,
+        },
       );
 
       await act(async () => {
@@ -150,7 +160,7 @@ describe("SplashScreen", () => {
 
       expect(frame).not.toContain("Update available");
       expect(frame).not.toContain("Checking for updates...");
-      expect(frame).not.toContain("npm i -g");
+      expect(frame).not.toContain("bun add -g");
 
       await act(async () => {
         await setup.dispose();
@@ -231,15 +241,13 @@ describe("SplashScreen", () => {
     expectLinesWithinWidth(narrow, 30);
     expect(countLinesContaining(narrow, "version 10.20.30")).toBe(1);
     expect(countLinesContaining(narrow, "Update available")).toBe(1);
-    expect(countLinesContaining(narrow, "Run npm i -g @im4all/gitminal")).toBe(1);
+    expect(countLinesContaining(narrow, "bun add -g")).toBe(1);
     expect(countLinesContaining(narrow, "Press any key to continue")).toBe(1);
 
     expectLinesWithinWidth(clipped, 20);
     expect(countLinesContaining(clipped, "version 10.20.30")).toBe(1);
     expect(countLinesContaining(clipped, "Update available")).toBe(1);
-    expect(countLinesContaining(clipped, "npm i -g")).toBe(1);
+    expect(countLinesContaining(clipped, "Run bun")).toBe(1);
     expect(countLinesContaining(clipped, "Press any key")).toBe(1);
-    expect(countLinesContaining(clipped, "gitminal")).toBe(0);
-    expect(countLinesContaining(clipped, "Run npm")).toBe(1);
   });
 });
