@@ -1,6 +1,7 @@
 import { pathToFiletype } from "@opentui/core";
 import type { ReactNode } from "react";
 import type { DiffLoadState } from "@/domain/diff/diff.types";
+import { readDiffContentWidth } from "@/features/diff/diffContent.layout";
 import { ICONS } from "@/theme/icons";
 import { useSyntaxStyle } from "@/theme/useSyntaxStyle";
 import { useTokens } from "@/theme/useTokens";
@@ -46,11 +47,20 @@ const BYTES_PER_MEGABYTE = BYTES_PER_KILOBYTE * 1024;
  * metadata-only, empty, and truncated files each render their own notice with text. Loading and
  * failure states stay inline so the row stays expanded and Retry re-runs only this file.
  *
- * @param props - Target path, load state, and the Retry callback.
+ * Each `<diff>` receives an explicit width from `readDiffContentWidth`: the measured panel width
+ * while its longest rendered line fits, and the natural line width plus the line-number gutter once
+ * a line is longer. The installed renderable creates its code view with `width: "100%"` and
+ * `wrapMode: "none"`, so without that width it clips long lines instead of widening the scroll
+ * content, and `scrollX` alone could never reveal them. Notices, loading rows, error states, and
+ * empty states stay inside the measured width so they never stretch the scroll content to their own
+ * text length.
+ *
+ * @param props - Target path, measured width, load state, and the Retry callback.
  * @returns The composed diff content.
  */
 export function DiffContent(props: {
   readonly path: string;
+  readonly width: number;
   readonly state: DiffLoadState | undefined;
   readonly onRetry: () => void;
 }): ReactNode {
@@ -60,44 +70,56 @@ export function DiffContent(props: {
   const filetype = pathToFiletype(props.path);
 
   if (state === undefined || state.status === "idle" || state.status === "loading") {
-    return <LoadingRow label={DIFF_LOADING_LABEL} />;
+    return (
+      <box maxWidth={props.width} flexShrink={0}>
+        <LoadingRow label={DIFF_LOADING_LABEL} />
+      </box>
+    );
   }
 
   if (state.status === "error") {
     return (
-      <ErrorState
-        message={`Could not read diff for ${props.path}`}
-        details={state.message ?? undefined}
-        onRetry={props.onRetry}
-      />
+      <box maxWidth={props.width} flexShrink={0}>
+        <ErrorState
+          message={`Could not read diff for ${props.path}`}
+          details={state.message ?? undefined}
+          onRetry={props.onRetry}
+        />
+      </box>
     );
   }
 
   if (state.status === "binary") {
     return (
-      <text fg={tokens.muted} wrapMode="word">
-        {`${ICONS.info} ${DIFF_BINARY_NOTICE}`}
-      </text>
+      <box maxWidth={props.width} flexShrink={0}>
+        <text fg={tokens.muted} wrapMode="word">
+          {`${ICONS.info} ${DIFF_BINARY_NOTICE}`}
+        </text>
+      </box>
     );
   }
 
   if (state.status === "oversized") {
     return (
-      <text fg={tokens.muted} wrapMode="word">
-        {`${ICONS.info} ${DIFF_OVERSIZED_NOTICE} (${formatBytes(state.sizeBytes)})`}
-      </text>
+      <box maxWidth={props.width} flexShrink={0}>
+        <text fg={tokens.muted} wrapMode="word">
+          {`${ICONS.info} ${DIFF_OVERSIZED_NOTICE} (${formatBytes(state.sizeBytes)})`}
+        </text>
+      </box>
     );
   }
 
   return (
     <box flexDirection="column" flexShrink={0}>
       {state.file?.conflict === true ? (
-        <text fg={tokens.warning} wrapMode="word">
-          {`${ICONS.warning} ${DIFF_CONFLICT_NOTICE}`}
-        </text>
+        <box maxWidth={props.width} flexShrink={0}>
+          <text fg={tokens.warning} wrapMode="word">
+            {`${ICONS.warning} ${DIFF_CONFLICT_NOTICE}`}
+          </text>
+        </box>
       ) : null}
       {state.file?.modeOnly === true ? (
-        <>
+        <box maxWidth={props.width} flexShrink={0} flexDirection="column">
           <text fg={tokens.muted} wrapMode="word">
             {`${ICONS.info} ${DIFF_METADATA_ONLY_NOTICE}`}
           </text>
@@ -106,21 +128,24 @@ export function DiffContent(props: {
               {line}
             </text>
           ))}
-        </>
+        </box>
       ) : null}
       {state.segments.map((segment) =>
         segment.kind === "collapsed" ? (
-          <text
+          <box
             key={`collapsed:${segment.oldStart}:${segment.newStart}:${segment.count}`}
-            fg={tokens.diffContext}
-            wrapMode="none"
+            maxWidth={props.width}
+            flexShrink={0}
           >
-            {`${segment.count} unchanged lines`}
-          </text>
+            <text fg={tokens.diffContext} wrapMode="none">
+              {`${segment.count} unchanged lines`}
+            </text>
+          </box>
         ) : (
           <diff
             key={`diff:${segment.hunkIndex}:${segment.oldStart}:${segment.newStart}`}
             diff={segment.text}
+            width={readDiffContentWidth(segment.text, props.width)}
             view="unified"
             showLineNumbers
             filetype={filetype}
@@ -134,11 +159,17 @@ export function DiffContent(props: {
         ),
       )}
       {state.limits?.truncated === true ? (
-        <text fg={tokens.warning} wrapMode="word">
-          {`${ICONS.warning} ${DIFF_TRUNCATION_PREFIX} ${state.limits.shownLines} of ${state.limits.totalLines} lines`}
-        </text>
+        <box maxWidth={props.width} flexShrink={0}>
+          <text fg={tokens.warning} wrapMode="word">
+            {`${ICONS.warning} ${DIFF_TRUNCATION_PREFIX} ${state.limits.shownLines} of ${state.limits.totalLines} lines`}
+          </text>
+        </box>
       ) : null}
-      {hasNothingToRender(state) ? <EmptyState message={DIFF_NO_CONTENT_NOTICE} /> : null}
+      {hasNothingToRender(state) ? (
+        <box maxWidth={props.width} flexShrink={0}>
+          <EmptyState message={DIFF_NO_CONTENT_NOTICE} />
+        </box>
+      ) : null}
     </box>
   );
 }

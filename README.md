@@ -155,7 +155,7 @@ This project was created using `bun create tui`. [create-tui](https://github.com
 
 ## Mouse support
 
-Every action is reachable from the keyboard, and the same actions are available with the mouse: clicking a row selects it in the graph, diff, branches, stashes, tags, remotes, worktrees, commit details, help, and theme picker; buttons, checkboxes, and section headers respond to clicks; double-clicking a list row runs its primary action; and the wheel and scrollbars scroll every list. Mouse reporting is on by default and can be turned off with `"ui": { "mouse": false }`.
+Every action is reachable from the keyboard, and the same actions are available with the mouse: clicking a row selects it in the graph, diff, branches, stashes, tags, remotes, worktrees, commit details, help, and theme picker; buttons, checkboxes, and section headers respond to clicks; double-clicking a list row runs its primary action; and the wheel and vertical scrollbars scroll every list. Mouse reporting is on by default and can be turned off with `"ui": { "mouse": false }`.
 
 ## Keybindings
 
@@ -273,6 +273,12 @@ Defaults are scoped to the focused context: global keys work everywhere (forms a
 | Action | ID | Default keys |
 | --- | --- | --- |
 | Toggle file | `diff.toggle` | `enter` |
+| Scroll down one line | `diff.scrollDown` | `J` |
+| Scroll up one line | `diff.scrollUp` | `K` |
+| Scroll down five lines | `diff.scrollFastDown` | `shift+down` |
+| Scroll up five lines | `diff.scrollFastUp` | `shift+up` |
+| Scroll left eight columns | `diff.scrollLeft` | `H`, `shift+left` |
+| Scroll right eight columns | `diff.scrollRight` | `L`, `shift+right` |
 | Stage file | `diff.stage` | `s` |
 | Unstage file | `diff.unstage` | `u` |
 | Discard file changes | `diff.discard` | `d` |
@@ -282,6 +288,8 @@ Defaults are scoped to the focused context: global keys work everywhere (forms a
 | Discard all changes | `diff.discardAll` | `D` |
 | Delete all untracked files | `diff.deleteAllUntracked` | none |
 | Clear console | `console.clear` | `c` |
+
+The diff scroll chords move the focused diff viewport only; `j`/`k` and the arrow keys still move the selected row and the viewport reveals it again. `J`/`K`/`H`/`L` work in every terminal, while `Shift+Arrow` may need a Terminal.app key mapping before the terminal delivers it. The horizontal scrollbar is intentionally hidden and `H`/`L` are the horizontal controls.
 
 ## License
 

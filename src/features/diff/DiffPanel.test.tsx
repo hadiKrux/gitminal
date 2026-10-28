@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { resetCommandOrchestration } from "@/app/hooks/commandRunner.state";
@@ -6,6 +7,7 @@ import { resetActionRegistry, resolveActionHandler } from "@/app/hooks/useAction
 import { useHotkeys } from "@/app/hooks/useHotkeys";
 import { useRepository } from "@/app/hooks/useRepository";
 import { registerCommandHandler, resetCommandRunner } from "@/domain/commands/commands.runner";
+import type { CommandRequest } from "@/domain/commands/commands.types";
 import {
   buildBinaryProbeArgs,
   buildCommitDiffArgs,
@@ -16,6 +18,7 @@ import {
 } from "@/domain/git/git.diff";
 import type { GitArgPlan, GitClient, GitInvocationResult } from "@/domain/git/git.types";
 import { DiffPanel } from "@/features/diff/DiffPanel";
+import { DIFF_SCROLL_ID, DIFF_SCROLLBAR_WIDTH } from "@/features/diff/diffPanel.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
 
@@ -102,6 +105,98 @@ const COMMIT_PATCH = [
   "+new",
   "",
 ].join("\n");
+
+/** Marker at the left edge of the wide line in the read-only overflow commit patch. */
+const OVERFLOW_WIDE_START = "overflow-left-marker";
+
+/** Marker at the right edge of the wide line in the read-only overflow commit patch. */
+const OVERFLOW_WIDE_END = "overflow-right-marker";
+
+/** Column count of the single wide line in the read-only overflow commit patch. */
+const OVERFLOW_WIDE_COLUMNS = 200;
+
+/** Padding between the wide-line markers that brings the line to its column count. */
+const OVERFLOW_WIDE_PADDING =
+  OVERFLOW_WIDE_COLUMNS - OVERFLOW_WIDE_START.length - OVERFLOW_WIDE_END.length;
+
+/** Added filler lines in the read-only overflow commit patch, enough to overflow the viewport. */
+const OVERFLOW_FILLER_LINES = 80;
+
+/** Filler lines that make the read-only overflow commit patch tall enough to scroll. */
+const OVERFLOW_FILLER = Array.from(
+  { length: OVERFLOW_FILLER_LINES },
+  (_, index) => `+line ${index + 1}`,
+);
+
+/**
+ * Commit patch for `abc123` with one 200-column line plus eighty added lines.
+ *
+ * The wide line overflows the panel viewport horizontally and the filler lines overflow it
+ * vertically, so the read-only diff has to lay out its vertical scrollbar next to the frame.
+ */
+const OVERFLOW_COMMIT_PATCH = [
+  "diff --git a/one.txt b/one.txt",
+  "--- a/one.txt",
+  "+++ b/one.txt",
+  `@@ -1,1 +1,${OVERFLOW_FILLER_LINES + 2} @@`,
+  " before",
+  `+${OVERFLOW_WIDE_START}${"-".repeat(OVERFLOW_WIDE_PADDING)}${OVERFLOW_WIDE_END}`,
+  ...OVERFLOW_FILLER,
+  "",
+].join("\n");
+
+/** Status output with one working-tree file that has a tall diff. */
+const TALL_STATUS =
+  "# branch.oid abc123\0# branch.head main\0" +
+  "1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb long.txt\0";
+
+/** Added lines in the tall patches, enough to overflow the panel viewport. */
+const TALL_PATCH_LINES = 80;
+
+/** Marker at the left edge of the wide-line patch. */
+const WIDE_LINE_START = "wide-left-marker";
+
+/** Marker past the right edge of the default panel width. */
+const WIDE_LINE_END = "wide-right-marker";
+
+/**
+ * Builds a unified patch with many added lines so the panel viewport overflows.
+ *
+ * @param path - File path the patch belongs to.
+ * @returns A valid single-hunk unified patch.
+ */
+function buildTallPatch(path: string): string {
+  return [
+    `diff --git a/${path} b/${path}`,
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,1 +1,${TALL_PATCH_LINES + 1} @@`,
+    " before",
+    ...Array.from({ length: TALL_PATCH_LINES }, (_, index) => `+line ${index + 1}`),
+    "",
+  ].join("\n");
+}
+
+/**
+ * Builds a unified patch with one line wider than the panel viewport.
+ *
+ * @param path - File path the patch belongs to.
+ * @returns A valid single-hunk unified patch.
+ */
+function buildWidePatch(path: string): string {
+  const wideLine = `${WIDE_LINE_START}${"-".repeat(220)}${WIDE_LINE_END}`;
+  const fillerLines = Array.from({ length: 40 }, (_, index) => `+filler ${index + 1}`);
+
+  return [
+    `diff --git a/${path} b/${path}`,
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,0 +1,${fillerLines.length + 1} @@`,
+    `+${wideLine}`,
+    ...fillerLines,
+    "",
+  ].join("\n");
+}
 
 type RepositoryValue = ReturnType<typeof useRepository>;
 
@@ -300,6 +395,70 @@ async function runAction(actionId: string): Promise<void> {
   });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
+  });
+}
+
+/**
+ * Reads the diff panel scrollbox through its stable renderable id.
+ *
+ * @param setup - Renderer setup.
+ * @returns The panel scrollbox.
+ * @throws When the panel has not mounted its scrollbox.
+ */
+function readDiffScroll(setup: Awaited<ReturnType<typeof testRender>>): ScrollBoxRenderable {
+  const scrollBox = setup.renderer.root.findDescendantById(DIFF_SCROLL_ID);
+
+  if (scrollBox === undefined) {
+    throw new Error("The diff panel scrollbox is not mounted");
+  }
+
+  return scrollBox as ScrollBoxRenderable;
+}
+
+/**
+ * Builds the answers a tall `long.txt` diff needs.
+ *
+ * @returns The fake client answers keyed by joined argv.
+ */
+function tallDiffAnswers(): Readonly<Record<string, () => GitInvocationResult>> {
+  return {
+    [argsOf(buildSizeProbeArgs("long.txt"))]: () => fakeGitResult("4096\n"),
+    [argsOf(buildBinaryProbeArgs("working", "long.txt"))]: () => fakeGitResult("1\t1\tlong.txt\n"),
+    [argsOf(buildWorkingDiffArgs({ path: "long.txt", oldPath: null }, 3))]: () =>
+      fakeGitResult(buildTallPatch("long.txt")),
+  };
+}
+
+/**
+ * Builds the answers a wide `long.txt` diff needs.
+ *
+ * @returns The fake client answers keyed by joined argv.
+ */
+function wideDiffAnswers(): Readonly<Record<string, () => GitInvocationResult>> {
+  return {
+    [argsOf(buildSizeProbeArgs("long.txt"))]: () => fakeGitResult("4096\n"),
+    [argsOf(buildBinaryProbeArgs("working", "long.txt"))]: () => fakeGitResult("1\t1\tlong.txt\n"),
+    [argsOf(buildWorkingDiffArgs({ path: "long.txt", oldPath: null }, 3))]: () =>
+      fakeGitResult(buildWidePatch("long.txt")),
+  };
+}
+
+/**
+ * Registers a capture-only command handler.
+ *
+ * @param commandId - Command to capture.
+ * @param requests - Captured request list.
+ * @returns The registration cleanup.
+ */
+function registerCapture(commandId: string, requests: CommandRequest[]): () => void {
+  return registerCommandHandler({
+    commandId,
+    operationLabel: commandId,
+    handler: async (context) => {
+      requests.push(context.request);
+
+      return { steps: [] };
+    },
   });
 }
 
@@ -530,6 +689,35 @@ describe("DiffPanel read-only and gated states", () => {
     });
   });
 
+  it("keeps the vertical scrollbar inside the read-only diff scrollbox", async () => {
+    const { client } = createDiffClient(STATUS_OUTPUT, {
+      [argsOf(buildCommitDiffArgs("abc123", 3))]: () => fakeGitResult(OVERFLOW_COMMIT_PATCH),
+    });
+    const setup = await renderPanel(client);
+
+    await waitFor(setup, () => (latestRepository?.snapshot?.status?.entries.length ?? 0) === 3);
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "commit", oid: "abc123" });
+    });
+    await waitFor(setup, () => readFrame(setup).includes("line 1"));
+
+    const scrollBox = readDiffScroll(setup);
+
+    await waitFor(setup, () => scrollBox.verticalScrollBar.visible);
+
+    expect(scrollBox.verticalScrollBar.visible).toBe(true);
+    expect(scrollBox.verticalScrollBar.width).toBe(DIFF_SCROLLBAR_WIDTH);
+    expect(scrollBox.scrollWidth).toBeGreaterThan(scrollBox.viewport.width);
+    expect(scrollBox.verticalScrollBar.x + scrollBox.verticalScrollBar.width).toBeLessThanOrEqual(
+      scrollBox.x + scrollBox.width,
+    );
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("keeps a settled commit diff across a graph-window refresh", async () => {
     let commitReads = 0;
     const { client } = createDiffClient(STATUS_OUTPUT, {
@@ -618,5 +806,323 @@ describe("DiffPanel read-only and gated states", () => {
     await act(async () => {
       await setup.dispose();
     });
+  });
+});
+
+describe("DiffPanel keyboard scrolling", () => {
+  it("scrolls one line per J and five lines per Shift+Down, and reverses both", async () => {
+    const { client } = createDiffClient(TALL_STATUS, tallDiffAnswers());
+    const setup = await renderPanel(client);
+
+    await waitFor(setup, () => readFrame(setup).includes("line 1"));
+
+    const scrollBox = readDiffScroll(setup);
+
+    await waitFor(setup, () => scrollBox.scrollHeight > scrollBox.viewport.height + 10);
+
+    expect(scrollBox.scrollTop).toBe(0);
+
+    await runAction("diff.scrollDown");
+    expect(scrollBox.scrollTop).toBe(1);
+
+    await runAction("diff.scrollFastDown");
+    expect(scrollBox.scrollTop).toBe(6);
+
+    await runAction("diff.scrollUp");
+    expect(scrollBox.scrollTop).toBe(5);
+
+    await runAction("diff.scrollFastUp");
+    expect(scrollBox.scrollTop).toBe(0);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps a fitting diff free of horizontal overflow", async () => {
+    const { client } = createDiffClient(TALL_STATUS, tallDiffAnswers());
+    const setup = await renderPanel(client);
+
+    await waitFor(setup, () => readFrame(setup).includes("line 1"));
+
+    const scrollBox = readDiffScroll(setup);
+
+    await waitFor(setup, () => scrollBox.scrollHeight > scrollBox.viewport.height);
+
+    // Focusing the region triggers the render that re-reads the settled viewport width after the vertical scrollbar appears.
+    await focusDiff(setup);
+
+    expect(scrollBox.scrollWidth).toBe(scrollBox.viewport.width);
+    expect(scrollBox.scrollLeft).toBe(0);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("clamps at both vertical edges and keeps the selected file as the command target", async () => {
+    const requests: CommandRequest[] = [];
+    const cleanup = registerCapture("diff.stage", requests);
+    const { client } = createDiffClient(TALL_STATUS, tallDiffAnswers());
+    const setup = await renderPanel(client);
+
+    try {
+      await waitFor(setup, () => readFrame(setup).includes("line 1"));
+
+      const scrollBox = readDiffScroll(setup);
+
+      await waitFor(setup, () => scrollBox.scrollHeight > scrollBox.viewport.height + 10);
+      await runAction("nav.down");
+
+      await act(async () => {
+        scrollBox.scrollTop = 0;
+      });
+      await runAction("diff.scrollUp");
+      expect(scrollBox.scrollTop).toBe(0);
+
+      const maxScrollTop = scrollBox.scrollHeight - scrollBox.viewport.height;
+
+      await act(async () => {
+        scrollBox.scrollTop = maxScrollTop;
+      });
+      await runAction("diff.scrollDown");
+      expect(scrollBox.scrollTop).toBe(maxScrollTop);
+
+      await runAction("diff.stage");
+      await waitFor(setup, () => requests.length === 1);
+
+      expect(requests[0]?.target).toEqual({
+        kind: "diffFile",
+        section: "working",
+        path: "long.txt",
+      });
+    } finally {
+      cleanup();
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
+  });
+
+  it("scrolls by eight columns and clamps at the horizontal edges", async () => {
+    const { client } = createDiffClient(TALL_STATUS, wideDiffAnswers());
+    const setup = await renderPanel(client);
+
+    await waitFor(setup, () => readFrame(setup).includes(WIDE_LINE_START));
+
+    const scrollBox = readDiffScroll(setup);
+
+    await waitFor(setup, () => scrollBox.scrollWidth > scrollBox.viewport.width + 8);
+
+    expect(scrollBox.scrollWidth).toBeGreaterThan(scrollBox.viewport.width + 8);
+    expect(scrollBox.scrollLeft).toBe(0);
+
+    await runAction("diff.scrollRight");
+    expect(scrollBox.scrollLeft).toBe(8);
+
+    await runAction("diff.scrollRight");
+    expect(scrollBox.scrollLeft).toBe(16);
+
+    await runAction("diff.scrollLeft");
+    expect(scrollBox.scrollLeft).toBe(8);
+
+    await runAction("diff.scrollLeft");
+    expect(scrollBox.scrollLeft).toBe(0);
+
+    await runAction("diff.scrollLeft");
+    expect(scrollBox.scrollLeft).toBe(0);
+
+    await runAction("nav.down");
+    expect(scrollBox.scrollLeft).toBe(0);
+
+    const maxScrollLeft = scrollBox.scrollWidth - scrollBox.viewport.width;
+
+    await act(async () => {
+      scrollBox.scrollLeft = maxScrollLeft;
+    });
+    await runAction("diff.scrollRight");
+    expect(scrollBox.scrollLeft).toBe(maxScrollLeft);
+
+    await runAction("diff.scrollDown");
+    expect(scrollBox.scrollTop).toBe(1);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("hides the horizontal scrollbar while keeping keyboard horizontal scrolling", async () => {
+    const { client } = createDiffClient(TALL_STATUS, wideDiffAnswers());
+    const setup = await renderPanel(client);
+
+    await waitFor(setup, () => readFrame(setup).includes(WIDE_LINE_START));
+
+    const scrollBox = readDiffScroll(setup);
+
+    await waitFor(setup, () => scrollBox.scrollWidth > scrollBox.viewport.width + 8);
+
+    expect(scrollBox.horizontalScrollBar.visible).toBe(false);
+
+    await runAction("diff.scrollRight");
+    expect(scrollBox.scrollLeft).toBe(8);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("reveals clipped content after scrolling right and hides it again at offset 0", async () => {
+    const { client } = createDiffClient(TALL_STATUS, wideDiffAnswers());
+    const setup = await renderPanel(client);
+
+    await waitFor(setup, () => readFrame(setup).includes(WIDE_LINE_START));
+
+    const scrollBox = readDiffScroll(setup);
+
+    await waitFor(setup, () => scrollBox.scrollWidth > scrollBox.viewport.width + 8);
+
+    expect(readFrame(setup)).not.toContain(WIDE_LINE_END);
+
+    for (let step = 0; step < 40; step += 1) {
+      await runAction("diff.scrollRight");
+      await act(async () => {
+        await setup.renderOnce();
+      });
+
+      if (readFrame(setup).includes(WIDE_LINE_END)) {
+        break;
+      }
+    }
+
+    await waitFor(setup, () => readFrame(setup).includes(WIDE_LINE_END));
+
+    expect(readFrame(setup)).toContain(WIDE_LINE_END);
+
+    for (let step = 0; step < 40 && scrollBox.scrollLeft > 0; step += 1) {
+      await runAction("diff.scrollLeft");
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+
+    expect(scrollBox.scrollLeft).toBe(0);
+    await waitFor(setup, () => !readFrame(setup).includes(WIDE_LINE_END));
+
+    expect(readFrame(setup)).not.toContain(WIDE_LINE_END);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps the horizontal offset while revealing the selected header", async () => {
+    const { client } = createDiffClient(TALL_STATUS, wideDiffAnswers());
+    const setup = await renderPanel(client);
+
+    await waitFor(setup, () => readFrame(setup).includes(WIDE_LINE_START));
+
+    const scrollBox = readDiffScroll(setup);
+
+    await waitFor(setup, () => scrollBox.scrollHeight > scrollBox.viewport.height + 8);
+
+    await focusDiff(setup);
+    await runAction("nav.down");
+    await runAction("diff.scrollFastDown");
+    await runAction("diff.scrollFastDown");
+    await runAction("diff.scrollFastDown");
+    await runAction("diff.scrollRight");
+    await runAction("diff.scrollRight");
+
+    expect(scrollBox.scrollLeft).toBe(16);
+
+    const deepScrollTop = scrollBox.scrollTop;
+
+    expect(deepScrollTop).toBeGreaterThan(0);
+
+    // The reveal targets are width-capped rows, so the vertical reveal leaves the horizontal offset
+    // alone. Assert that directly, then return to column 0 so the revealed row text is visible.
+    await runAction("nav.up");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(scrollBox.scrollTop).toBeLessThan(deepScrollTop);
+    expect(scrollBox.scrollLeft).toBe(16);
+
+    await runAction("diff.scrollLeft");
+    await runAction("diff.scrollLeft");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(scrollBox.scrollLeft).toBe(0);
+    expect(readFrame(setup)).toContain("Working Directory");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("scrolls a read-only commit diff the same way", async () => {
+    const { client } = createDiffClient(STATUS_OUTPUT, {
+      [argsOf(buildCommitDiffArgs("abc123", 3))]: () => fakeGitResult(buildTallPatch("one.txt")),
+    });
+    const setup = await renderPanel(client);
+
+    await waitFor(setup, () => (latestRepository?.snapshot?.status?.entries.length ?? 0) === 3);
+
+    await act(async () => {
+      latestRepository?.setSelection({ kind: "commit", oid: "abc123" });
+    });
+    await waitFor(setup, () => readFrame(setup).includes("line 1"));
+
+    const scrollBox = readDiffScroll(setup);
+
+    await waitFor(setup, () => scrollBox.scrollHeight > scrollBox.viewport.height + 10);
+
+    await runAction("diff.scrollFastDown");
+    expect(scrollBox.scrollTop).toBe(5);
+
+    await runAction("diff.scrollFastUp");
+    expect(scrollBox.scrollTop).toBe(0);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps j on the row cursor after the viewport scrolled", async () => {
+    const requests: CommandRequest[] = [];
+    const cleanup = registerCapture("diff.stage", requests);
+    const { client } = createDiffClient(TALL_STATUS, tallDiffAnswers());
+    const setup = await renderPanel(client);
+
+    try {
+      await waitFor(setup, () => readFrame(setup).includes("line 1"));
+
+      const scrollBox = readDiffScroll(setup);
+
+      await waitFor(setup, () => scrollBox.scrollHeight > scrollBox.viewport.height + 10);
+
+      await runAction("diff.scrollFastDown");
+      await runAction("diff.scrollFastDown");
+
+      expect(scrollBox.scrollTop).toBe(10);
+
+      await runAction("nav.down");
+      await runAction("diff.stage");
+      await waitFor(setup, () => requests.length === 1);
+
+      expect(requests[0]?.target).toEqual({
+        kind: "diffFile",
+        section: "working",
+        path: "long.txt",
+      });
+    } finally {
+      cleanup();
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
   });
 });

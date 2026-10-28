@@ -169,6 +169,7 @@ gitminal/
         useModalControlCycle.types.ts
         useMouseSetting.ts
         useScrollSelectedRow.ts
+        useScrollSelectedRow.types.ts
         useInputEscapeClear.ts
         useDebouncedValue.ts
         useDraft.ts
@@ -425,10 +426,12 @@ gitminal/
         DiffSection.tsx
         DiffFileRow.tsx
         DiffContent.tsx
+        DiffContent.constants.ts
         ConflictBanner.tsx
         diff.actions.ts
         diff.confirmations.ts
         diff.rows.ts
+        diffContent.layout.ts
         diffPanel.constants.ts
         diffPanel.types.ts
         fileDiff.load.ts
@@ -439,6 +442,8 @@ gitminal/
         useDiffPanel.ts
         useDiffReadOnly.ts
         useDiffRows.ts
+        useDiffScroll.ts
+        useDiffScroll.types.ts
         useFileDiff.ts
         useFileDiffEntries.ts
         useReadOnlyDiff.ts
@@ -927,7 +932,8 @@ Direct region jumps use the digits `1`-`9` in screen order: `1`-`5` are the five
 - Precedence is computed in `src/domain/keymap/keymap.resolve.ts`. A key may appear once per context. Context overrides global for the same key.
 - `diff.stageAll` invoked through its diff-scoped shortcut (`S`) stages only the section that owns the cursor: Working Directory or Untracked Files. On Staged Files it is blocked as an invalid target. The global `diff.stageAllUnstaged` (`A`) stages the deduplicated union of Working Directory and Untracked Files paths independent of the selected row or section and sends explicit literal paths with no section. Inline section Stage All buttons retain their own section and path sets. Read-only, busy, conflict, and empty-path guards still apply to every stage-all path. Other bulk diff shortcuts retain their selected-section scope.
 - Diff cursor recovery is feature-owned in `useDiffRows`: when a selected file disappears from the editable list, selection returns to that file's section header instead of falling onto an adjacent section. This keeps subsequent bulk shortcuts targeting the same section across staging, commits, and status refreshes. Surviving file identities retain the shared cursor behavior.
-- Footer hints come from `src/domain/keymap/keymap.describe.ts` filtered by the focused region and current availability. Help and the palette read the same effective keys and availability reasons, but they keep unavailable actions visible; only footer hints drop them. The `focus.region.*` actions are help- and palette-only and are never emitted as footer hints. Self-evident actions are suppressed everywhere, the More menu trigger stays visible so `.` is discoverable, and the `top-bar` context additionally suppresses `nav.activate`, `app.themePicker`, and `app.refresh`. The `branches` context passes `includeGlobals: false` to `describeFooterHints` and suppresses its own `nav.activate`, and every other content region also passes `includeGlobals: false`, so a focused block lists only its own verbs. The `graph` context also suppresses the `nav.pageUp` and `nav.pageDown` hints because most laptop keyboards lack those keys. The top bar and the no-focus fallback keep the global hints. The focused control or row already shows what Enter does, and Help and the palette remain the discovery surfaces.
+- The diff surface scrolls its own scrollbox vertically and horizontally through `useDiffScroll` and the `diff.scroll*` actions (`J`/`K`, `Shift+Down`/`Shift+Up`, `H`/`L`, and `Shift+Left`/`Shift+Right`). Those actions change viewport offsets only: they clamp at the scrollbox edges, never wrap, never move the cursor, and stay silent when there is nothing to scroll. `nav.up`/`nav.down` keep moving the row cursor, and `useScrollSelectedRow` keeps that row visible through the same scrollbox. The step sizes are feature constants in `diffPanel.constants.ts`, and the horizontal offset stays 0 until the user scrolls right; the selection reveal targets width-capped section headers and file rows, so it moves the viewport vertically only and keyboard row navigation never changes that horizontal offset. The horizontal scrollbar is hidden because OpenTUI draws it in the last row of the panel body at the bottom edge of the frame; `H`/`L` plus `Shift+Left`/`Shift+Right` are the supported keyboard horizontal controls, and Shift+wheel or a horizontal wheel can still move the offset when the terminal reports it. The vertical scrollbar stays visible, and it reserves one explicit column so a long diff line that widens the content cannot push it over the panel border. All six `diff.scroll*` actions are key-only: they have no command descriptor and no command palette entry. Installed `@opentui/core` 0.6.6 creates each diff code renderable with `width: "100%"` and `wrapMode: "none"`, so `scrollX` alone clips long diff lines instead of widening the scroll content. The deliberate deviation is that `DiffContent` sizes each `<diff>` through `readDiffContentWidth` in `diffContent.layout.ts`: the measured panel width while the longest rendered line fits, and the natural line width plus the exact line-number gutter once a line is longer. A scroll-only structure cannot reveal clipped content in this version, so this width pass is required rather than optional. Section headers, file rows, empty states, and notices stay at the measured width, so only diff content becomes horizontally scrollable.
+- Footer hints come from `src/domain/keymap/keymap.describe.ts` filtered by the focused region and current availability. Help and the palette read the same effective keys and availability reasons, but they keep unavailable actions visible; only footer hints drop them. The `focus.region.*` actions are help- and palette-only and are never emitted as footer hints. Self-evident actions are suppressed everywhere, the More menu trigger stays visible so `.` is discoverable, and the `top-bar` context additionally suppresses `nav.activate`, `app.themePicker`, and `app.refresh`. The `branches` context passes `includeGlobals: false` to `describeFooterHints` and suppresses its own `nav.activate`, and every other content region also passes `includeGlobals: false`, so a focused block lists only its own verbs. The diff scroll hints are ranked first in `CONTEXT_HINT_PRIORITIES` so `J`/`K`/`H`/`L` survive width shrinking, while the fast `Shift+Down` and `Shift+Up` variants are filtered out by the footer. The `graph` context also suppresses the `nav.pageUp` and `nav.pageDown` hints because most laptop keyboards lack those keys. The top bar and the no-focus fallback keep the global hints. The focused control or row already shows what Enter does, and Help and the palette remain the discovery surfaces.
 
 ### 8.1 Action, command, and handler model
 

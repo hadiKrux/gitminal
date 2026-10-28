@@ -67,8 +67,10 @@ function headerFitsOnOneLine(
  * at the documented 80x24 minimum. A disabled bulk action stays visible with its reason. The empty
  * message renders inside the expanded body so a collapsed empty section stays one header row. The
  * leading selection marker is suppressed so the expand indicator is the section's only leading
- * glyph. The component is presentational: the owning hook supplies the file renderer and every
- * callback.
+ * glyph. The header row stays inside the measured panel width, while the empty message sits one cell
+ * into the expanded body and is capped at that width minus the indent, so a wide diff in the same
+ * scroll content never stretches either. The component is presentational: the owning hook supplies
+ * the file renderer and every callback.
  *
  * @param props - Section model, measured width, expansion, focus, bulk actions, empty text, and the
  * file renderer.
@@ -92,33 +94,39 @@ export function DiffSection(props: {
 
   return (
     <box flexDirection="column" flexShrink={0}>
-      <ListRow
-        id={`section::${props.view.section}`}
-        selected={props.selected}
-        focused={props.focused}
-        showMarker={false}
-        onMouseDown={props.onMouseDown}
-      >
-        <box flexDirection="column" flexShrink={0}>
-          <box flexDirection="row" flexShrink={0} gap={1} overflow="hidden">
-            <text fg={tokens.muted} wrapMode="none" flexShrink={0}>
-              {props.expanded ? ICONS.expanded : ICONS.collapsed}
-            </text>
-            <text fg={tokens.text} wrapMode="none" flexShrink={1}>
-              {title}
-            </text>
-            {actionsInline ? (
-              <ActionRow section={props.view.section} actions={props.bulkActions} />
-            ) : null}
+      <box maxWidth={props.width} flexShrink={0}>
+        <ListRow
+          id={`section::${props.view.section}`}
+          selected={props.selected}
+          focused={props.focused}
+          showMarker={false}
+          onMouseDown={props.onMouseDown}
+        >
+          <box flexDirection="column" flexShrink={0}>
+            <box flexDirection="row" flexShrink={0} gap={1} overflow="hidden">
+              <text fg={tokens.muted} wrapMode="none" flexShrink={0}>
+                {props.expanded ? ICONS.expanded : ICONS.collapsed}
+              </text>
+              <text fg={tokens.text} wrapMode="none" flexShrink={1}>
+                {title}
+              </text>
+              {actionsInline ? (
+                <ActionRow section={props.view.section} actions={props.bulkActions} />
+              ) : null}
+            </box>
+            {actionsInline ? null : (
+              <ActionRow section={props.view.section} actions={props.bulkActions} indented />
+            )}
           </box>
-          {actionsInline ? null : (
-            <ActionRow section={props.view.section} actions={props.bulkActions} indented />
-          )}
-        </box>
-      </ListRow>
+        </ListRow>
+      </box>
       {props.expanded ? (
         <box flexDirection="column" flexShrink={0} paddingLeft={1}>
-          {props.view.files.length === 0 ? <EmptyState message={props.emptyText} /> : null}
+          {props.view.files.length === 0 ? (
+            <box maxWidth={Math.max(0, props.width - 1)} flexShrink={0}>
+              <EmptyState message={props.emptyText} />
+            </box>
+          ) : null}
           {props.view.files.map((file) => props.renderFile(file))}
         </box>
       ) : null}

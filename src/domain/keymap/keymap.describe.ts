@@ -122,11 +122,12 @@ function hasModifier(binding: ParsedBinding): boolean {
 /**
  * Derives footer-ready hints for one focus context.
  *
- * Context actions are listed before globals. A global action is dropped when the focused context
- * binds any of its effective keys to a different action, matching the precedence rule that a
- * context key shadows a global key, or when `includeGlobals` is `false`. Direct region jumps never
- * appear in the footer; Help and the palette are their discovery surfaces. Hints are sorted by
- * priority so a width-constrained footer can drop the least important ones first.
+ * Context actions are emitted before globals and then stable-sorted by priority, so a rank shared by
+ * a context action and a global action keeps the context action first. A global action is dropped
+ * when the focused context binds any of its effective keys to a different action, matching the
+ * precedence rule that a context key shadows a global key, or when `includeGlobals` is `false`.
+ * Direct region jumps never appear in the footer; Help and the palette are their discovery surfaces.
+ * Hints are sorted by priority so a width-constrained footer can drop the least important ones first.
  *
  * @param keymap - The resolved keymap.
  * @param context - Focused region, or `global` when no region owns focus.
@@ -295,9 +296,28 @@ const GLOBAL_HINT_PRIORITIES: Readonly<Record<string, number>> = Object.freeze({
 });
 
 /**
+ * Drop priorities for named context actions; lower values survive shrinking widths longer.
+ *
+ * The diff viewport scroll actions are ranked first so the stable sort keeps them ahead of the
+ * other diff verbs and the footer keeps advertising `J`, `K`, `H`, and `L` as the width shrinks.
+ * The fast variants are ranked with them for consistency even though the footer filters those two
+ * hints out.
+ */
+const CONTEXT_HINT_PRIORITIES: Readonly<Record<string, number>> = Object.freeze({
+  "diff.scrollDown": 0,
+  "diff.scrollUp": 0,
+  "diff.scrollFastDown": 0,
+  "diff.scrollFastUp": 0,
+  "diff.scrollLeft": 0,
+  "diff.scrollRight": 0,
+});
+
+/**
  * Assigns a footer drop priority to an action.
  *
- * Help is kept longest, then context actions, the common shell actions, the remaining globals, and
+ * `app.help` and the diff scroll actions share the top rank at priority 0; context hints are emitted
+ * before globals and the list is stable-sorted, so the scroll actions still lead the other context
+ * actions. Context actions rank next, then the common shell actions, the remaining globals, and
  * finally navigation. Lower values survive shrinking widths longer. Self-evident actions are
  * filtered out by the footer before ranking, so they never reach this function.
  *
@@ -308,7 +328,7 @@ const GLOBAL_HINT_PRIORITIES: Readonly<Record<string, number>> = Object.freeze({
  */
 function hintPriority(actionId: string, scope: KeymapContext, category: string): number {
   if (scope !== "global") {
-    return 1;
+    return CONTEXT_HINT_PRIORITIES[actionId] ?? 1;
   }
 
   return GLOBAL_HINT_PRIORITIES[actionId] ?? (category === "navigation" ? 6 : 5);

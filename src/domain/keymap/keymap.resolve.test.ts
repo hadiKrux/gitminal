@@ -86,6 +86,24 @@ const UNBOUND_BY_DEFAULT = [
   "diff.deleteAllUntracked",
 ];
 
+/** Actions that scroll the diff viewport and the plain-letter or Shift+Arrow keys they own. */
+const DIFF_SCROLL_DEFAULTS: readonly [string, readonly string[]][] = [
+  ["diff.scrollDown", ["shift+j"]],
+  ["diff.scrollUp", ["shift+k"]],
+  ["diff.scrollFastDown", ["shift+down"]],
+  ["diff.scrollFastUp", ["shift+up"]],
+  ["diff.scrollLeft", ["shift+h", "shift+left"]],
+  ["diff.scrollRight", ["shift+l", "shift+right"]],
+];
+
+/** Contexts that must never bind the diff viewport scrolling chords. */
+const DIFF_SCROLL_ABSENT_CONTEXTS: readonly KeymapContext[] = [
+  "branches",
+  "graph",
+  "global",
+  "overlay",
+];
+
 /**
  * Reads the canonical keys bound to one action.
  *
@@ -298,6 +316,46 @@ describe("resolveKeymap defaults", () => {
 
     for (const context of keymap.contexts.keys()) {
       expect(actionForKey(keymap, context, "ctrl+c")).toBe("app.quit");
+    }
+  });
+});
+
+describe("resolveKeymap diff viewport scrolling", () => {
+  it("binds the six diff scroll actions to their plain-letter and Shift+Arrow chords", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+
+    for (const [actionId, keys] of DIFF_SCROLL_DEFAULTS) {
+      expect(actionKeys(keymap, actionId), actionId).toEqual([...keys]);
+
+      for (const key of keys) {
+        expect(actionForKey(keymap, "diff", key), `${actionId}:${key}`).toBe(actionId);
+      }
+    }
+
+    expect(keymap.conflicts).toEqual([]);
+  });
+
+  it("keeps unmodified row navigation and expansion unchanged in the diff context", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+
+    expect(actionForKey(keymap, "diff", "j")).toBe("nav.down");
+    expect(actionForKey(keymap, "diff", "k")).toBe("nav.up");
+    expect(actionForKey(keymap, "diff", "h")).toBe("nav.collapse");
+    expect(actionForKey(keymap, "diff", "l")).toBe("nav.expand");
+    expect(actionForKey(keymap, "diff", "down")).toBe("nav.down");
+    expect(actionForKey(keymap, "diff", "up")).toBe("nav.up");
+    expect(actionForKey(keymap, "diff", "left")).toBe("nav.collapse");
+    expect(actionForKey(keymap, "diff", "right")).toBe("nav.expand");
+  });
+
+  it("leaves every diff scroll chord unbound outside the diff context", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const keys = [...new Set(DIFF_SCROLL_DEFAULTS.flatMap(([, defaults]) => defaults))];
+
+    for (const context of DIFF_SCROLL_ABSENT_CONTEXTS) {
+      for (const key of keys) {
+        expect(actionForKey(keymap, context, key), `${context}:${key}`).toBeUndefined();
+      }
     }
   });
 });

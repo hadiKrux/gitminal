@@ -9,9 +9,11 @@ import type { KeymapContext } from "@/domain/keymap/keymap.types";
  * learned once and documented in Help and the command palette. Hiding them leaves the single footer
  * line for the focused region's actions and the globals that change with repository state, such as
  * pull and fetch, as the mockup shows. The More menu trigger stays visible because `.` is not
- * guessable and it is the discovery path for the force and prune variants. This filter applies to
- * context hints only; the modal list below is a separate allowlist, where Esc and Left/Right are
- * deliberate choices inside a modal rather than generic navigation.
+ * guessable and it is the discovery path for the force and prune variants. The diff fast scroll
+ * chords are hidden as well: the plain `J`/`K` hints already teach the diff viewport scrolling, and
+ * `Shift+Up`/`Shift+Down` are documented in Help. This filter applies to context hints only; the
+ * modal list below is a separate allowlist, where Esc and Left/Right are deliberate choices inside a
+ * modal rather than generic navigation.
  */
 export const HIDDEN_CONTEXT_HINT_ACTIONS: ReadonlySet<string> = Object.freeze(
   new Set([
@@ -22,6 +24,8 @@ export const HIDDEN_CONTEXT_HINT_ACTIONS: ReadonlySet<string> = Object.freeze(
     "nav.left",
     "nav.right",
     "overlay.close",
+    "diff.scrollFastUp",
+    "diff.scrollFastDown",
   ]),
 );
 

@@ -12,6 +12,7 @@ import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useStatus } from "@/app/hooks/useStatus";
 import type { ConsoleEntry } from "@/domain/console/console.types";
 import type { GitClient } from "@/domain/git/git.types";
+import { ACTION_CATALOGUE } from "@/domain/keymap/keymap.defaults";
 import { Footer } from "@/features/shell/Footer";
 import type { RegionId } from "@/features/shell/focus.types";
 import { AppTestProviders } from "@/test/app.harness";
@@ -63,6 +64,11 @@ function ConsoleEntrySeed(): ReactNode {
 
   return null;
 }
+
+/** Every action the diff context can dispatch, in catalogue order. */
+const DIFF_CONTEXT_ACTION_IDS: readonly string[] = ACTION_CATALOGUE.filter((action) =>
+  action.contexts.some((context) => context === "diff"),
+).map((action) => action.id);
 
 /** One minimal console entry for footer availability tests. */
 const CONSOLE_SEED_ENTRY: ConsoleEntry = {
@@ -347,6 +353,39 @@ describe("Footer", () => {
     await act(async () => {
       await setup.dispose();
     });
+  });
+
+  it("keeps the diff scroll hints at 120 and 80 columns", async () => {
+    for (const width of [120, 80]) {
+      resetActionRegistry();
+
+      const setup = await renderFooter(
+        <FooterHarness region="diff">
+          {DIFF_CONTEXT_ACTION_IDS.map((actionId) => (
+            <Registration key={actionId} actionId={actionId} options={{ scope: "diff" }} />
+          ))}
+        </FooterHarness>,
+        width,
+      );
+
+      await act(async () => {
+        await setup.renderOnce();
+      });
+      await focusRegion(setup, "diff");
+
+      const frame = setup.captureCharFrame();
+
+      expect(frame).toContain("J Scroll down");
+      expect(frame).toContain("K Scroll up");
+      expect(frame).toContain("H Scroll left");
+      expect(frame).toContain("L Scroll right");
+      expect(frame).not.toContain("Scroll down 5 lines");
+      expect(frame).not.toContain("Scroll up 5 lines");
+
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
   });
 
   it("falls back to global hints when focus leaves every region", async () => {

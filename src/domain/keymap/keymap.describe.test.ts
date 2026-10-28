@@ -101,6 +101,20 @@ describe("describeFooterHints", () => {
     expect(hints.some((hint) => hint.actionId === "app.help")).toBe(false);
   });
 
+  it("ranks the diff scroll actions first in catalogue order", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const hints = describeFooterHints(keymap, "diff", { includeGlobals: false });
+
+    expect(hints.slice(0, 6).map((hint) => hint.actionId)).toEqual([
+      "diff.scrollDown",
+      "diff.scrollUp",
+      "diff.scrollFastDown",
+      "diff.scrollFastUp",
+      "diff.scrollLeft",
+      "diff.scrollRight",
+    ]);
+  });
+
   it("keeps help first and filters by availability", () => {
     const keymap = resolveKeymap({ platform: "linux" });
     const hints = describeFooterHints(keymap, "global", {

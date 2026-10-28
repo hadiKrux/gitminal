@@ -1,12 +1,15 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { type ReactNode, useRef } from "react";
 import { useScrollContentWidth } from "@/app/hooks/useScrollContentWidth";
+import { useScrollSelectedRow } from "@/app/hooks/useScrollSelectedRow";
 import type { DiffFileView } from "@/domain/repository/repository.types";
 import { ConflictBanner } from "@/features/diff/ConflictBanner";
 import { DiffContent } from "@/features/diff/DiffContent";
 import { DiffFileRow } from "@/features/diff/DiffFileRow";
 import { DiffSection } from "@/features/diff/DiffSection";
+import { DIFF_SCROLL_ID, DIFF_SCROLLBAR_WIDTH } from "@/features/diff/diffPanel.constants";
 import { useDiffPanel } from "@/features/diff/useDiffPanel";
+import { useDiffScroll } from "@/features/diff/useDiffScroll";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { EmptyState } from "@/ui/EmptyState";
@@ -42,6 +45,20 @@ const DIFF_READ_ONLY_EMPTY_MESSAGE = "No changed files";
  * stage, unstage, discard, or delete actions. Loading, empty, error, busy, conflict, and operation
  * notices all render as text.
  *
+ * The panel scrolls its one scrollbox from the keyboard: `J`/`K` move one line, `Shift+Down` and
+ * `Shift+Up` move five, and `H`/`L` plus `Shift+Left`/`Shift+Right` move eight columns. Those offsets
+ * are viewport state only, so every expanded file shares them and the selected row never moves.
+ * The scroll keys are the supported keyboard horizontal controls: the scrollbox's horizontal
+ * scrollbar is hidden to protect the panel frame, while the vertical scrollbar stays visible and
+ * reserves its own column so it stays inside the panel frame even when a long diff line widens the
+ * content.
+ * Shift+wheel or a horizontal wheel can still move the offset when the terminal reports it. `j`/`k`
+ * keep moving the row cursor and `useScrollSelectedRow` reveals the selected row again after it
+ * leaves the viewport. Because the installed renderable clips long lines, each expanded diff is sized
+ * to its longest line while the section headers, file rows, empty states, and notices stay within
+ * the measured panel width, and every padded wrapper subtracts its indent from the width it hands to
+ * its children, so only diff content becomes horizontally scrollable.
+ *
  * @returns The composed diff panel.
  */
 export function DiffPanel(): ReactNode {
@@ -49,6 +66,9 @@ export function DiffPanel(): ReactNode {
   const tokens = useTokens();
   const scrollRef = useRef<ScrollBoxRenderable | null>(null);
   const { width, onSizeChange } = useScrollContentWidth(scrollRef);
+  const diffScroll = useDiffScroll(scrollRef);
+
+  useScrollSelectedRow(panel.selectedId, panel.selectedIndex, diffScroll.scrollTarget);
 
   return (
     <Panel
@@ -77,13 +97,24 @@ export function DiffPanel(): ReactNode {
           <ConflictBanner conflictedFiles={panel.conflictedFiles} operation={panel.operation} />
         )}
         <scrollbox
+          id={DIFF_SCROLL_ID}
           ref={scrollRef}
           onSizeChange={onSizeChange}
           flexGrow={1}
           flexShrink={1}
           focusable={false}
           viewportCulling
+          scrollX
+          scrollY
           scrollbarOptions={{ trackOptions: { foregroundColor: tokens.scrollbar } }}
+          // The explicit one-column width reserves the scrollbar column instead of letting the
+          // auto-sized bar sit one cell past the scrollbox right edge and overlay the panel border
+          // once a diff line widens the content past the viewport.
+          verticalScrollbarOptions={{ width: DIFF_SCROLLBAR_WIDTH }}
+          // OpenTUI draws the horizontal bar in the last row of the panel body on the bottom edge of
+          // the frame, so the bar is deliberately hidden and the scroll keys remain the supported
+          // keyboard horizontal controls.
+          horizontalScrollbarOptions={{ visible: false }}
         >
           {panel.readOnly ? renderReadOnly(panel, width) : renderSections(panel, width)}
         </scrollbox>
@@ -95,48 +126,64 @@ export function DiffPanel(): ReactNode {
 /**
  * Renders the read-only commit or stash file list.
  *
+ * File rows use the measured panel width, while each expanded diff sits in a one-cell indented
+ * wrapper and therefore receives that width minus the indent.
+ *
  * @param panel - Diff panel handle.
  * @param width - Measured panel content width.
  * @returns The loading, error, empty, or file list body.
  */
 function renderReadOnly(panel: ReturnType<typeof useDiffPanel>, width: number): ReactNode {
   if (panel.readOnlyState.status === "idle" || panel.readOnlyState.status === "loading") {
-    return <LoadingRow label={DIFF_READ_ONLY_LOADING_LABEL} />;
+    return (
+      <box maxWidth={width} flexShrink={0}>
+        <LoadingRow label={DIFF_READ_ONLY_LOADING_LABEL} />
+      </box>
+    );
   }
 
   if (panel.readOnlyState.status === "error") {
     return (
-      <ErrorState
-        message={DIFF_READ_ONLY_ERROR_MESSAGE}
-        details={panel.readOnlyState.message ?? undefined}
-        onRetry={panel.retryReadOnly}
-      />
+      <box maxWidth={width} flexShrink={0}>
+        <ErrorState
+          message={DIFF_READ_ONLY_ERROR_MESSAGE}
+          details={panel.readOnlyState.message ?? undefined}
+          onRetry={panel.retryReadOnly}
+        />
+      </box>
     );
   }
 
   if (panel.readOnlyFiles.length === 0) {
-    return <EmptyState message={DIFF_READ_ONLY_EMPTY_MESSAGE} />;
+    return (
+      <box maxWidth={width} flexShrink={0}>
+        <EmptyState message={DIFF_READ_ONLY_EMPTY_MESSAGE} />
+      </box>
+    );
   }
 
   return (
     <box flexDirection="column" flexShrink={0}>
       {panel.readOnlyFiles.map((file) => (
         <box key={file.id} flexDirection="column" flexShrink={0}>
-          <DiffFileRow
-            file={file}
-            width={width}
-            selected={panel.selectedId === file.id}
-            focused={panel.region.focused}
-            expanded={panel.isFileExpanded(file)}
-            counts={panel.countsFor(file)}
-            actions={panel.fileActions(file)}
-            onToggle={() => panel.toggleFile(file)}
-            onMouseDown={() => panel.clickRow(file.id)}
-          />
+          <box maxWidth={width} flexShrink={0}>
+            <DiffFileRow
+              file={file}
+              width={width}
+              selected={panel.selectedId === file.id}
+              focused={panel.region.focused}
+              expanded={panel.isFileExpanded(file)}
+              counts={panel.countsFor(file)}
+              actions={panel.fileActions(file)}
+              onToggle={() => panel.toggleFile(file)}
+              onMouseDown={() => panel.clickRow(file.id)}
+            />
+          </box>
           {panel.isFileExpanded(file) ? (
             <box flexDirection="column" flexShrink={0} paddingLeft={1}>
               <DiffContent
                 path={file.path}
+                width={Math.max(0, width - 1)}
                 state={panel.readOnlyFileState(file)}
                 onRetry={panel.retryReadOnly}
               />
@@ -150,6 +197,9 @@ function renderReadOnly(panel: ReturnType<typeof useDiffPanel>, width: number): 
 
 /**
  * Renders the three pending-change sections.
+ *
+ * Section headers use the measured panel width. Files and empty states live in each section's
+ * one-cell indented expanded body and therefore receive that width minus the indent.
  *
  * @param panel - Diff panel handle.
  * @param width - Measured panel content width.
@@ -170,7 +220,7 @@ function renderSections(panel: ReturnType<typeof useDiffPanel>, width: number): 
           bulkActions={panel.sectionActions(section)}
           onToggle={() => panel.toggleSection(section.section)}
           onMouseDown={() => panel.clickRow(`section::${section.section}`)}
-          renderFile={(file) => renderFile(panel, file, width)}
+          renderFile={(file) => renderFile(panel, file, Math.max(0, width - 1))}
         />
       ))}
     </box>
@@ -182,7 +232,7 @@ function renderSections(panel: ReturnType<typeof useDiffPanel>, width: number): 
  *
  * @param panel - Diff panel handle.
  * @param file - File row.
- * @param width - Measured panel content width.
+ * @param width - Width available inside the section's padded expanded body.
  * @returns The row and, when expanded, its diff content.
  */
 function renderFile(
@@ -192,21 +242,24 @@ function renderFile(
 ): ReactNode {
   return (
     <box key={file.id} flexDirection="column" flexShrink={0}>
-      <DiffFileRow
-        file={file}
-        width={width}
-        selected={panel.selectedId === file.id}
-        focused={panel.region.focused}
-        expanded={panel.isFileExpanded(file)}
-        counts={panel.countsFor(file)}
-        actions={panel.fileActions(file)}
-        onToggle={() => panel.toggleFile(file)}
-        onMouseDown={() => panel.clickRow(file.id)}
-      />
+      <box maxWidth={width} flexShrink={0}>
+        <DiffFileRow
+          file={file}
+          width={width}
+          selected={panel.selectedId === file.id}
+          focused={panel.region.focused}
+          expanded={panel.isFileExpanded(file)}
+          counts={panel.countsFor(file)}
+          actions={panel.fileActions(file)}
+          onToggle={() => panel.toggleFile(file)}
+          onMouseDown={() => panel.clickRow(file.id)}
+        />
+      </box>
       {panel.isFileExpanded(file) ? (
         <box flexDirection="column" flexShrink={0} paddingLeft={1}>
           <DiffContent
             path={file.path}
+            width={Math.max(0, width - 1)}
             state={panel.fileState(file)}
             onRetry={() => panel.retryFile(file)}
           />

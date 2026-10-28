@@ -5,6 +5,7 @@ import { act } from "react";
 import type { DiffLoadState, DiffSegment, FileDiff } from "@/domain/diff/diff.types";
 import { THEME_FLAVORS } from "@/domain/theme/theme.catppuccin";
 import { DiffContent } from "@/features/diff/DiffContent";
+import { readDiffContentWidth } from "@/features/diff/diffContent.layout";
 import { ShellTestProviders } from "@/test/shell.harness";
 
 /**
@@ -65,7 +66,7 @@ async function renderContent(
   const setup = await testRender(
     <ShellTestProviders themeName={themeName}>
       <box flexDirection="column" width={80} height={20}>
-        <DiffContent path={path} state={state} onRetry={() => {}} />
+        <DiffContent path={path} width={80} state={state} onRetry={() => {}} />
       </box>
     </ShellTestProviders>,
     { width: 90, height: 24 },
@@ -383,5 +384,114 @@ describe("DiffContent", () => {
     await act(async () => {
       await setup.dispose();
     });
+  });
+});
+
+describe("readDiffContentWidth", () => {
+  /** A short hunk whose rendered lines all fit a narrow panel. */
+  const SHORT_PATCH = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,1 +1,1 @@",
+    "-old",
+    "+new",
+  ].join("\n");
+
+  /** A hunk with one line wider than the measured panel. */
+  const LONG_PATCH = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,0 +1,1 @@",
+    `+${"x".repeat(200)}`,
+  ].join("\n");
+
+  /**
+   * Builds a patch with one 200-cell added line under the given hunk header.
+   *
+   * @param header - Hunk header line.
+   * @returns The unified patch text.
+   */
+  function longPatchWithHeader(header: string): string {
+    return [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      header,
+      `+${"x".repeat(200)}`,
+    ].join("\n");
+  }
+
+  it("keeps a short patch at the measured width", () => {
+    expect(readDiffContentWidth(SHORT_PATCH, 40)).toBe(40);
+  });
+
+  it("widens a long patch line past the measured width", () => {
+    expect(readDiffContentWidth(LONG_PATCH, 40)).toBeGreaterThan(40);
+  });
+
+  it("adds the exact five-cell gutter to a long patch line", () => {
+    expect(readDiffContentWidth(LONG_PATCH, 40)).toBe(205);
+  });
+
+  it("widens the gutter for a hunk starting at a four-digit line number", () => {
+    expect(readDiffContentWidth(longPatchWithHeader("@@ -999,5 +999,5 @@"), 40)).toBe(208);
+  });
+
+  it("widens the gutter when the hunk numbers roll over to two digits", () => {
+    expect(readDiffContentWidth(longPatchWithHeader("@@ -9,5 +9,5 @@"), 40)).toBe(206);
+  });
+
+  it("reads the omitted-count hunk form as a one-line range", () => {
+    expect(readDiffContentWidth(longPatchWithHeader("@@ -1 +1 @@"), 40)).toBe(205);
+  });
+
+  it("uses the largest line number across every hunk header", () => {
+    const patch = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1,2 +1,2 @@",
+      "-old",
+      "+new",
+      "@@ -1200,3 +1200,3 @@",
+      `+${"x".repeat(200)}`,
+    ].join("\n");
+
+    expect(readDiffContentWidth(patch, 40)).toBe(208);
+  });
+
+  it("keeps a patch without a hunk header at the measured width", () => {
+    const headerOnlyPatch = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+    ].join("\n");
+
+    expect(readDiffContentWidth(headerOnlyPatch, 40)).toBe(40);
+    expect(readDiffContentWidth(headerOnlyPatch, 0)).toBe(0);
+  });
+
+  it("ignores a long path in the patch header", () => {
+    const header = `diff --git a/${"deep/".repeat(30)}file.txt b/${"deep/".repeat(30)}file.txt`;
+    const lines = [header, "--- a/file.txt", "+++ b/file.txt", "@@ -1,1 +1,1 @@", "+new"];
+    const patch = lines.join("\n");
+
+    expect(readDiffContentWidth(patch, 40)).toBe(40);
+  });
+
+  it("expands tabs to the fixed tab stop before measuring", () => {
+    const tabbedPatch = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1,0 +1,1 @@",
+      `+\t\t${"y".repeat(20)}`,
+    ].join("\n");
+    const spacedPatch = tabbedPatch.replace("+\t\t", `+${" ".repeat(8)}`);
+
+    expect(readDiffContentWidth(tabbedPatch, 10)).toBe(readDiffContentWidth(spacedPatch, 10));
   });
 });
