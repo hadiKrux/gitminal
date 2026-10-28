@@ -1,6 +1,5 @@
 import { type ReactNode, useMemo } from "react";
 import {
-  PALETTE_HEIGHT,
   PALETTE_SEARCH_INPUT_ID,
   PALETTE_SEARCH_PLACEHOLDER,
   PALETTE_SELECT_ID,
@@ -44,7 +43,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
   );
 
   return (
-    <ModalFrame title={PALETTE_TITLE} width={PALETTE_WIDTH} height={PALETTE_HEIGHT}>
+    <ModalFrame title={PALETTE_TITLE} width={PALETTE_WIDTH}>
       <SearchField
         id={PALETTE_SEARCH_INPUT_ID}
         value={palette.query}
@@ -60,7 +59,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
           id={PALETTE_SELECT_ID}
           options={options}
           selectedIndex={palette.highlightedIndex}
-          height={palette.optionRows}
+          height={Math.min(palette.optionRows, options.length * 2)}
           onChange={palette.highlightOption}
           onSelect={palette.selectValue}
         />

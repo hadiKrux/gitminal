@@ -18,7 +18,7 @@ export const DEFAULT_CONFIG: GitminalConfig = Object.freeze({
   ui: Object.freeze({ mouse: true }),
   graph: Object.freeze({ scope: "all", initialPageSize: 500, style: "rounded" }),
   diff: Object.freeze({ contextLines: 3, expandFirstWorkingFile: true }),
-  stash: Object.freeze({ includeUntrackedByDefault: false }),
+  stash: Object.freeze({ includeUntrackedByDefault: true }),
   remote: Object.freeze({ fetchScope: "local" }),
   keybindings: Object.freeze({}),
 });

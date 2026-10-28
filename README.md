@@ -84,7 +84,7 @@ Every key is optional. An invalid field keeps the previous effective value and a
     "contextLines": 3,
     "expandFirstWorkingFile": true
   },
-  "stash": { "includeUntrackedByDefault": false },
+  "stash": { "includeUntrackedByDefault": true },
   "remote": { "fetchScope": "local" }
 }
 ```

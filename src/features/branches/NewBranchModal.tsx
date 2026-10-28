@@ -5,7 +5,6 @@ import {
   NEW_BRANCH_CANCEL_ID,
   NEW_BRANCH_CHECKOUT_ID,
   NEW_BRANCH_CREATE_ID,
-  NEW_BRANCH_MODAL_HEIGHT,
   NEW_BRANCH_MODAL_WIDTH,
 } from "@/features/branches/NewBranchModal.constants";
 import { ICONS } from "@/theme/icons";
@@ -25,7 +24,8 @@ import { ModalFrame } from "@/ui/ModalFrame";
  * rules, so the same names are accepted here, in Create Local Branch, and in New Worktree; a name
  * that already exists in the snapshot's local branch list is refused inline. An unavailable
  * `branch.create` (for example "no commits yet") keeps Create visible with its dim reason instead
- * of hiding it.
+ * of hiding it. The padded layout fits its content, growing for validation and availability
+ * messages. After a failed submission, validation follows edits so corrected names clear the error.
  *
  * Create and Cancel are footer actions with mouse activation; Enter inside the field submits and
  * `overlay.close` on Esc cancels. The footer keeps Create focused by default because creating a
@@ -45,17 +45,16 @@ export function NewBranchModal(props: {
   const tokens = useTokens();
   const [name, setName] = useState("");
   const [checkout, setCheckout] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [attempted, setAttempted] = useState(false);
+  const error = attempted ? validateBranchName(name, props.existingBranchNames) : null;
   const [focusedAction, setFocusedAction] = useState<"create" | "cancel">("create");
   const blocked = props.blockedReason !== null;
 
   /** Validates the name and submits the create form when it is usable. */
   const submit = useCallback((): void => {
-    const validation = validateBranchName(name, props.existingBranchNames);
+    setAttempted(true);
 
-    if (validation !== null) {
-      setError(validation);
-
+    if (validateBranchName(name, props.existingBranchNames) !== null) {
       return;
     }
 
@@ -63,7 +62,6 @@ export function NewBranchModal(props: {
       return;
     }
 
-    setError(null);
     props.onCreate({ name, checkout });
   }, [checkout, name, props]);
 
@@ -90,7 +88,7 @@ export function NewBranchModal(props: {
   useAction("form.submit", { scope: "overlay" }, submit);
 
   return (
-    <ModalFrame title="New branch" width={NEW_BRANCH_MODAL_WIDTH} height={NEW_BRANCH_MODAL_HEIGHT}>
+    <ModalFrame title="New branch" width={NEW_BRANCH_MODAL_WIDTH}>
       <FormField
         id={props.nameFieldId}
         label="Branch name"
@@ -100,23 +98,24 @@ export function NewBranchModal(props: {
         onSubmit={submit}
         error={error ?? undefined}
       />
-      <text fg={tokens.muted} wrapMode="none">
-        {`Start point: ${props.startPointLabel}`}
-      </text>
-      <Checkbox
-        id={NEW_BRANCH_CHECKOUT_ID}
-        label="Check out after creating"
-        checked={checkout}
-        onPress={() => {
-          setCheckout((current) => !current);
-        }}
-      />
-      {props.blockedReason === null ? null : (
-        <text fg={tokens.dim} wrapMode="word">
-          {`${ICONS.warning} ${props.blockedReason}`}
+      <box flexDirection="column" flexShrink={0}>
+        <text fg={tokens.muted} wrapMode="none">
+          {`Start point: ${props.startPointLabel}`}
         </text>
-      )}
-      <box flexGrow={1} />
+        <Checkbox
+          id={NEW_BRANCH_CHECKOUT_ID}
+          label="Check out after creating"
+          checked={checkout}
+          onPress={() => {
+            setCheckout((current) => !current);
+          }}
+        />
+        {props.blockedReason === null ? null : (
+          <text fg={tokens.dim} wrapMode="word">
+            {`${ICONS.warning} ${props.blockedReason}`}
+          </text>
+        )}
+      </box>
       <ModalActions
         actions={[
           {

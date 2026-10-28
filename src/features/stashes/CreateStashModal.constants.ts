@@ -13,9 +13,6 @@ export const CREATE_STASH_CANCEL_BUTTON_ID = "create-stash-cancel";
 /** Requested modal width, in cells, before terminal clamping. */
 export const CREATE_STASH_WIDTH = 68;
 
-/** Requested modal height, in rows, holding the explanation, field, checkbox, and footer. */
-export const CREATE_STASH_HEIGHT = 19;
-
 /** Modal title. */
 export const CREATE_STASH_TITLE = "Create stash";
 

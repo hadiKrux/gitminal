@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-  CREATE_STASH_HEIGHT,
   CREATE_STASH_INCLUDE_CHECKBOX_ID,
   CREATE_STASH_TITLE,
   CREATE_STASH_WIDTH,
@@ -17,7 +16,8 @@ import { ModalFrame } from "@/ui/ModalFrame";
  * Renders the Create Stash modal.
  *
  * The message is required and starts from the deterministic prefill supplied by the panel. The
- * Include untracked files checkbox starts from `stash.includeUntrackedByDefault`; changing it
+ * Include untracked files checkbox starts from `stash.includeUntrackedByDefault` (true unless
+ * overridden); changing it
  * re-evaluates `getStashCreateAvailability`, so the confirm shows the exact disabled reason for an
  * empty repository, a clean working tree, or only-untracked changes until the checkbox is on.
  *
@@ -33,7 +33,7 @@ export function CreateStashModal(props: CreateStashModalProps): ReactNode {
   const form = useCreateStashModal(props);
 
   return (
-    <ModalFrame title={CREATE_STASH_TITLE} width={CREATE_STASH_WIDTH} height={CREATE_STASH_HEIGHT}>
+    <ModalFrame title={CREATE_STASH_TITLE} width={CREATE_STASH_WIDTH}>
       <text fg={tokens.muted} wrapMode="word">
         The message identifies this stash in the list and in confirmations.
       </text>
@@ -57,7 +57,6 @@ export function CreateStashModal(props: CreateStashModalProps): ReactNode {
         checked={form.includeUntracked}
         onPress={form.toggleUntracked}
       />
-      <box flexGrow={1} />
       <ModalActions actions={form.actions} />
     </ModalFrame>
   );

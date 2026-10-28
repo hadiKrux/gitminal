@@ -69,11 +69,7 @@ export function DeleteBranchModalBody(props: {
   });
 
   return (
-    <ModalFrame
-      title="Delete branch"
-      width={DELETE_BRANCH_MODAL_WIDTH}
-      height={props.layout.modalHeight}
-    >
+    <ModalFrame title="Delete branch" width={DELETE_BRANCH_MODAL_WIDTH} gap={0}>
       <TruncatedText
         text={`Branch: ${props.branch.name}`}
         maxWidth={contentWidth}
@@ -122,7 +118,7 @@ export function DeleteBranchModalBody(props: {
           fg={tokens.dim}
         />
       )}
-      <box flexGrow={1} />
+      <box height={1} flexShrink={0} />
       <ModalActions
         actions={[
           {

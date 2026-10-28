@@ -8,7 +8,8 @@ import { useTokens } from "@/theme/useTokens";
  * The wrapper adapts the caller's labelled options to OpenTUI's `SelectOption` shape and reports
  * the selected option's value instead of its index. `onChange` fires when native navigation moves
  * the selection, and `onSelect` fires when the focused option is confirmed. The stable id lets the
- * owning feature focus the control through `FocusProvider`.
+ * owning feature focus the control through `FocusProvider`. Its viewport may shrink inside a
+ * terminal-clamped modal, keeping subsequent controls visible while native navigation scrolls.
  *
  * @param props - Stable id, options, optional selection and focus state, and change handlers.
  * @returns The composed select field.
@@ -58,6 +59,7 @@ export function SelectField(props: {
       selectedIndex={props.selectedIndex}
       focused={props.focused}
       height={props.height}
+      flexShrink={1}
       backgroundColor={tokens.surface}
       textColor={tokens.text}
       focusedBackgroundColor={tokens.surface}

@@ -9,9 +9,6 @@ export const DELETE_STASH_CANCEL_BUTTON_ID = "delete-stash-cancel";
 /** Requested modal width, in cells, before terminal clamping. */
 export const DELETE_STASH_WIDTH = 66;
 
-/** Requested modal height, in rows, holding the identity, consequence, and footer. */
-export const DELETE_STASH_HEIGHT = 17;
-
 /** Modal title. */
 export const DELETE_STASH_TITLE = "Drop stash";
 

@@ -889,7 +889,7 @@ Tests: `src/theme/icons.test.ts` asserts that every required group and key from 
 | `FormField` | `<box>` + `<text>` + `<input>`/`<textarea>` + error text | Labeled field with inline validation. |
 | `Checkbox` | `<box>` + `<text>` marker | Toggle rendered from `ICONS.checkboxOn`/`ICONS.checkboxOff`, keyboard and mouse. |
 | `SelectField` | `<select>` | Field that picks from options. |
-| `ModalFrame` | `<box>` centered overlay wrapper + focusable frame with border and title + `<ModalActions>` | Standard modal structure and native focus trap. |
+| `ModalFrame` | `<box>` centered overlay wrapper + focusable frame with border and title + `<ModalActions>` | Standard modal structure and native focus trap. Defaults to content-sized height capped by the terminal, one-cell content padding, and one-row gaps. Short dialogs never reserve empty filler rows; native option lists declare their content height and scroll when bounded. Help keeps an explicit scroll viewport, and Delete Branch overrides the gap for its dense, separately budgeted risk section. |
 | `ModalActions` | `<ButtonRow>` | Footer actions in caller order; a destructive modal never makes its destructive action the default focus, and may focus its option list first. |
 | `Overlay` | `<box>` full-width layer that leaves the footer row visible | Background deactivation behind modals. |
 | `Swatch` | `<box>` colored cell | Theme picker color preview. |

@@ -22,9 +22,6 @@ export const NEW_WORKTREE_CANCEL_BUTTON_ID = "new-worktree-cancel";
 /** Requested modal width, in cells, before terminal clamping. */
 export const NEW_WORKTREE_WIDTH = 70;
 
-/** Requested modal height, in rows, holding the path, mode, branch field or picker, and footer. */
-export const NEW_WORKTREE_HEIGHT = 21;
-
 /** Modal title. */
 export const NEW_WORKTREE_TITLE = "New worktree";
 

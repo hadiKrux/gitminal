@@ -489,7 +489,7 @@ describe("useStashes availability and modal inputs", () => {
 
     expect(createInput?.initialMessage).toBe("WIP on main: abc123 initial commit");
     expect(createInput?.messageFieldId).toBe(CREATE_STASH_MESSAGE_FIELD_ID);
-    expect(createInput?.includeUntrackedByDefault).toBe(false);
+    expect(createInput?.includeUntrackedByDefault).toBe(true);
 
     await act(async () => {
       await setup.dispose();

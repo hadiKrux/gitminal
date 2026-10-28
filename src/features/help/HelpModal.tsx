@@ -54,6 +54,8 @@ export function HelpModal(props: HelpModalProps): ReactNode {
 
   useEffect(() => {
     if (help.selectedActionId === null) {
+      scrollRef.current?.scrollTo(0);
+
       return;
     }
 

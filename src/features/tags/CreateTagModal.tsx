@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-  CREATE_TAG_HEIGHT,
   CREATE_TAG_MESSAGE_INPUT_ID,
   CREATE_TAG_NAME_INPUT_ID,
   CREATE_TAG_PUSH_CHECKBOX_ID,
@@ -21,7 +20,8 @@ import { ModalFrame } from "@/ui/ModalFrame";
  * name, and a name known on a remote are all refused before a command is requested. The target is
  * read-only and comes from the right-pane selection when it is a commit, otherwise `HEAD`. An empty
  * message requests a lightweight tag and a non-empty message requests an annotated tag. The optional
- * push names the remote that will receive the tag and is off by default.
+ * push names the remote that will receive the tag and is checked by default when a remote exists;
+ * without a remote it stays unchecked and disabled.
  *
  * `useCreateTagModal` owns the form state and validation; the modal renders it and dispatches only
  * `runCommand({ commandId: "tag.create", ... })`, so it never calls a domain executor or git. It
@@ -35,7 +35,7 @@ export function CreateTagModal(props: CreateTagModalProps): ReactNode {
   const form = useCreateTagModal(props);
 
   return (
-    <ModalFrame title={CREATE_TAG_TITLE} width={CREATE_TAG_WIDTH} height={CREATE_TAG_HEIGHT}>
+    <ModalFrame title={CREATE_TAG_TITLE} width={CREATE_TAG_WIDTH}>
       <FormField
         label="Tag name"
         id={CREATE_TAG_NAME_INPUT_ID}
@@ -68,7 +68,6 @@ export function CreateTagModal(props: CreateTagModalProps): ReactNode {
         disabled={form.pushDisabled}
         onPress={form.togglePush}
       />
-      <box flexGrow={1} />
       <ModalActions actions={form.actions} />
     </ModalFrame>
   );

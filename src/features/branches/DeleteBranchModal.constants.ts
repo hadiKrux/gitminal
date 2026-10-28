@@ -10,14 +10,14 @@ export const DELETE_BRANCH_MODAL_MAX_HEIGHT = 40;
 /**
  * Rows reserved inside the modal for everything except the at-risk scrollbox.
  *
- * The value covers the two borders, the branch line, the four-row scope select, the resolved-remote
+ * The value covers the borders and padding, the branch line, the four-row scope select, the resolved-remote
  * line, the optional behind warning, the evidence heading, the overflow hint, the hidden-count
  * notice, the force checkbox, the acknowledgement line, the disabled reason, and the footer. Every
  * one of those lines renders on a single row and is truncated to the modal content width, so a long
  * branch name or a long notice can never wrap into an extra row and push a control out. Reserving
  * them keeps the acknowledgement and the footer on screen on a short terminal.
  */
-export const DELETE_BRANCH_RESERVED_ROWS = 18;
+export const DELETE_BRANCH_RESERVED_ROWS = 19;
 
 /** Rows the hidden-count notice adds to the requested modal height. */
 export const DELETE_BRANCH_NOTICE_ROWS = 1;

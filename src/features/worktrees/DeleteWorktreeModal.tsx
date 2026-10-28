@@ -3,7 +3,6 @@ import {
   DELETE_WORKTREE_BRANCH_KEPT_TEXT,
   DELETE_WORKTREE_FORCE_CHECKBOX_ID,
   DELETE_WORKTREE_FORCE_REQUIRED_TEXT,
-  DELETE_WORKTREE_HEIGHT,
   DELETE_WORKTREE_TITLE,
   DELETE_WORKTREE_WIDTH,
 } from "@/features/worktrees/DeleteWorktreeModal.constants";
@@ -40,11 +39,7 @@ export function DeleteWorktreeModal(props: DeleteWorktreeModalProps): ReactNode 
   const riskColor = modal.forceRequired ? tokens.warning : tokens.muted;
 
   return (
-    <ModalFrame
-      title={DELETE_WORKTREE_TITLE}
-      width={DELETE_WORKTREE_WIDTH}
-      height={DELETE_WORKTREE_HEIGHT}
-    >
+    <ModalFrame title={DELETE_WORKTREE_TITLE} width={DELETE_WORKTREE_WIDTH}>
       <text fg={tokens.text} wrapMode="none">
         {`Worktree: ${readWorktreeLabel(props.worktree)}`}
       </text>
@@ -71,7 +66,6 @@ export function DeleteWorktreeModal(props: DeleteWorktreeModalProps): ReactNode 
           {`${ICONS.warning} ${DELETE_WORKTREE_FORCE_REQUIRED_TEXT}`}
         </text>
       ) : null}
-      <box flexGrow={1} />
       <ModalActions actions={modal.actions} />
     </ModalFrame>
   );

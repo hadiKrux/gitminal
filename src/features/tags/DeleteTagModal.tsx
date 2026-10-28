@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import {
-  DELETE_TAG_HEIGHT,
   DELETE_TAG_NOT_ON_REMOTE,
+  DELETE_TAG_REMOTE_MAX_ROWS,
   DELETE_TAG_REMOTE_SELECT_ID,
   DELETE_TAG_SCOPE_SELECT_ID,
   DELETE_TAG_TITLE,
@@ -38,7 +38,7 @@ export function DeleteTagModal(props: DeleteTagModalProps): ReactNode {
   const modal = useDeleteTagModal(props);
 
   return (
-    <ModalFrame title={DELETE_TAG_TITLE} width={DELETE_TAG_WIDTH} height={DELETE_TAG_HEIGHT}>
+    <ModalFrame title={DELETE_TAG_TITLE} width={DELETE_TAG_WIDTH}>
       <text fg={tokens.text} wrapMode="none">
         {`Tag: ${props.row.name}`}
       </text>
@@ -57,7 +57,7 @@ export function DeleteTagModal(props: DeleteTagModalProps): ReactNode {
           options={props.row.remotes.map((name) => ({ label: name, value: name }))}
           selectedIndex={Math.max(0, props.row.remotes.indexOf(modal.remote))}
           focused={modal.control === "remote"}
-          height={props.row.remotes.length * 2}
+          height={Math.min(DELETE_TAG_REMOTE_MAX_ROWS, props.row.remotes.length * 2)}
           onChange={modal.selectRemote}
           onSelect={modal.confirmRemote}
         />
@@ -76,7 +76,6 @@ export function DeleteTagModal(props: DeleteTagModalProps): ReactNode {
           {modal.consequence}
         </text>
       )}
-      <box flexGrow={1} />
       <ModalActions actions={modal.actions} />
     </ModalFrame>
   );
