@@ -19,9 +19,6 @@ export const CREATE_LOCAL_CANCEL_ID = "remotes-create-local-cancel";
 /** Requested modal width in cells, clamped by the modal frame. */
 export const CREATE_LOCAL_MODAL_WIDTH = 56;
 
-/** Requested modal height in rows, clamped by the modal frame. */
-export const CREATE_LOCAL_MODAL_HEIGHT = 13;
-
 /** Title prefix naming the remote branch the local branch is created from. */
 export const CREATE_LOCAL_TITLE_PREFIX = "Create local branch from";
 

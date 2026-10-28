@@ -86,7 +86,6 @@ export function ConfirmModal(props: {
           {`${ICONS.warning} ${warning}`}
         </text>
       )}
-      <box flexGrow={1} />
       <ModalActions actions={actions} />
     </ModalFrame>
   );

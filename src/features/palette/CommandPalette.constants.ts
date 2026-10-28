@@ -16,14 +16,11 @@ export const PALETTE_SEARCH_PLACEHOLDER = "Search commands";
 /** Requested modal width in cells; `ModalFrame` clamps it to the terminal. */
 export const PALETTE_WIDTH = 72;
 
-/** Requested modal height in rows; `ModalFrame` clamps it to the terminal. */
-export const PALETTE_HEIGHT = 20;
-
 /** Columns the modal chrome occupies outside the option text. */
 export const PALETTE_RESERVED_COLUMNS = 10;
 
-/** Rows the modal chrome occupies outside the option list. */
-export const PALETTE_RESERVED_ROWS = 6;
+/** Rows reserved for terminal insets, borders, padding, search, hints, and content gaps. */
+export const PALETTE_RESERVED_ROWS = 12;
 
 /** Largest option window handed to the native select. */
 export const PALETTE_MAX_OPTION_ROWS = 15;

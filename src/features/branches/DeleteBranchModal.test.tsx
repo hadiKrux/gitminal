@@ -511,7 +511,7 @@ describe("DeleteBranchModal", () => {
     expect(lines).toHaveLength(24);
     expect(lines.filter((line) => line.includes("Branch:"))).toHaveLength(1);
     expect(branchRow.line).toContain(
-      "Branch: feature/a-very-long-branch-name-that-exceeds-the-mo...",
+      "Branch: feature/a-very-long-branch-name-that-exceeds-the-...",
     );
     expect(branchRow.line).toContain(ICONS.ellipsis);
     expect(branchRow.line).not.toContain(longName);
@@ -582,7 +582,7 @@ describe("DeleteBranchModal", () => {
       | ScrollBoxRenderable
       | undefined;
 
-    expect(after).toContain("commit subject 2");
+    expect(after).toContain(`commit subject ${list?.height ?? 0}`);
     expect(after).not.toContain("commit subject 0");
     expect(list?.scrollTop ?? 0).toBeGreaterThan(0);
 

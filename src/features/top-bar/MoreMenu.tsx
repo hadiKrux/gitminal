@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useState } from "react";
 import { useAction } from "@/app/hooks/useAction";
 import {
-  MORE_MENU_HEIGHT,
+  MORE_MENU_OPTION_HEIGHT,
   MORE_MENU_SELECT_ID,
   MORE_MENU_TITLE,
   MORE_MENU_WIDTH,
@@ -19,7 +19,8 @@ import { ModalFrame } from "@/ui/ModalFrame";
  * availability reason when the option cannot run. Selecting an unavailable option keeps the menu
  * open and shows the reason in a subdued warning line, so the user never loses the list; selecting
  * an available option closes through the caller and dispatches that option's command id. The menu
- * never replays a raw key and never reads another feature's cursor.
+ * never replays a raw key and never reads another feature's cursor. Its height fits the option
+ * labels and descriptions, adding a separated warning line only while a warning is visible.
  *
  * The overlay-scope navigation handlers are registered even though the native select consumes
  * Up/Down and Enter while it is focused. They give the footer's modal hint set a handler for the
@@ -83,10 +84,11 @@ export function MoreMenu(props: {
   useAction("nav.down", { scope: "overlay" }, moveDown);
 
   return (
-    <ModalFrame title={MORE_MENU_TITLE} width={MORE_MENU_WIDTH} height={MORE_MENU_HEIGHT}>
+    <ModalFrame title={MORE_MENU_TITLE} width={MORE_MENU_WIDTH}>
       <select
         id={MORE_MENU_SELECT_ID}
-        flexGrow={1}
+        height={props.options.length * MORE_MENU_OPTION_HEIGHT}
+        flexShrink={1}
         options={props.options.map((option) => ({
           name: option.label,
           description: option.description,

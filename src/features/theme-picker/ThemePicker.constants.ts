@@ -7,9 +7,6 @@ export const THEME_PICKER_TITLE = "Theme";
 /** Modal width in cells before the frame clamps it to the terminal. */
 export const THEME_PICKER_WIDTH = 56;
 
-/** Modal height in rows: four flavors, the override note, the footer, and borders. */
-export const THEME_PICKER_HEIGHT = 12;
-
 /** Footer label of the cancel action. */
 export const THEME_PICKER_CANCEL_LABEL = "Cancel";
 

@@ -8,7 +8,6 @@ import {
   CREATE_LOCAL_CHECKOUT_ID,
   CREATE_LOCAL_CHECKOUT_LABEL,
   CREATE_LOCAL_MODAL_FRAME_ID,
-  CREATE_LOCAL_MODAL_HEIGHT,
   CREATE_LOCAL_MODAL_WIDTH,
   CREATE_LOCAL_NAME_DUPLICATE_PREFIX,
   CREATE_LOCAL_NAME_INPUT_ID,
@@ -98,7 +97,6 @@ export function CreateLocalBranchModal(props: {
       id={CREATE_LOCAL_MODAL_FRAME_ID}
       title={`${CREATE_LOCAL_TITLE_PREFIX} ${props.remote}/${props.branch}`}
       width={CREATE_LOCAL_MODAL_WIDTH}
-      height={CREATE_LOCAL_MODAL_HEIGHT}
     >
       <FormField
         id={CREATE_LOCAL_NAME_INPUT_ID}
@@ -117,7 +115,6 @@ export function CreateLocalBranchModal(props: {
         checked={checkout}
         onPress={toggleCheckout}
       />
-      <box flexGrow={1} />
       <ModalActions actions={buildActions(props.onCancel, submit, focusedAction)} />
     </ModalFrame>
   );

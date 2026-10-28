@@ -5,7 +5,6 @@ import {
   NEW_WORKTREE_CANCEL_BUTTON_ID,
   NEW_WORKTREE_CREATE_BUTTON_ID,
   NEW_WORKTREE_EXISTING_SELECT_ID,
-  NEW_WORKTREE_HEIGHT,
   NEW_WORKTREE_MODE_SELECT_ID,
   NEW_WORKTREE_PATH_INPUT_ID,
   NEW_WORKTREE_TITLE,
@@ -63,7 +62,7 @@ export function NewWorktreeModal(props: NewWorktreeModalProps): ReactNode {
   ];
 
   return (
-    <ModalFrame title={NEW_WORKTREE_TITLE} width={NEW_WORKTREE_WIDTH} height={NEW_WORKTREE_HEIGHT}>
+    <ModalFrame title={NEW_WORKTREE_TITLE} width={NEW_WORKTREE_WIDTH}>
       <FormField
         id={NEW_WORKTREE_PATH_INPUT_ID}
         label="Path"
@@ -120,7 +119,6 @@ export function NewWorktreeModal(props: NewWorktreeModalProps): ReactNode {
           {`${ICONS.warning} ${form.blockedReason}`}
         </text>
       )}
-      <box flexGrow={1} />
       <ModalActions actions={actions} />
     </ModalFrame>
   );

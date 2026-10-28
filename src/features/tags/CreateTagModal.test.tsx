@@ -16,6 +16,7 @@ import { CreateTagModal } from "@/features/tags/CreateTagModal";
 import {
   CREATE_TAG_MESSAGE_INPUT_ID,
   CREATE_TAG_NAME_INPUT_ID,
+  CREATE_TAG_PUSH_CHECKBOX_ID,
 } from "@/features/tags/CreateTagModal.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
@@ -259,7 +260,7 @@ describe("CreateTagModal", () => {
       formValues: {
         name: "v2.0.0",
         message: "",
-        push: "false",
+        push: "true",
         remote: "origin",
         target: "HEAD",
       },
@@ -289,7 +290,7 @@ describe("CreateTagModal", () => {
     });
   });
 
-  it("states the remote that would receive a created tag", async () => {
+  it("checks push by default and names the receiving remote", async () => {
     const setup = await renderModal({ gitClient: createClient(), onClose: () => {} });
 
     await waitFor(setup, () => latestTags.length > 0);
@@ -297,8 +298,67 @@ describe("CreateTagModal", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("Push to remote after creating (origin)");
-    expect(frame).toContain(ICONS.checkboxOff);
+    expect(frame).toContain(`${ICONS.checkboxOn} Push to remote after creating (origin)`);
 
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("allows unchecking push to create a local-only tag", async () => {
+    const cleanup = registerCapture();
+    const setup = await renderModal({ gitClient: createClient(), onClose: () => {} });
+
+    await waitFor(setup, () => latestTags.length > 0);
+
+    const checkbox = setup.renderer.root.findDescendantById(CREATE_TAG_PUSH_CHECKBOX_ID);
+
+    expect(checkbox).toBeDefined();
+
+    await act(async () => {
+      await setup.mockMouse.click(checkbox?.screenX ?? 0, checkbox?.screenY ?? 0);
+    });
+    await typeName(setup, "v2.0.0");
+    await submitForm(setup);
+    await waitFor(setup, () => capturedRequests.length > 0);
+
+    expect(capturedRequests[0]?.formValues?.push).toBe("false");
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps push unchecked without a configured remote and creates locally", async () => {
+    const cleanup = registerCapture();
+    const base = createClient();
+    const client: GitClient = {
+      ...base,
+      invoke: async (options) =>
+        options.args.join(" ") === "remote -v" ? fakeGitResult("") : base.invoke(options),
+    };
+    const setup = await renderModal({ gitClient: client, onClose: () => {} });
+
+    await waitFor(setup, () => latestTags.length > 0);
+
+    expect(setup.captureCharFrame()).toContain(
+      `${ICONS.checkboxOff} Push to remote after creating (no remote)`,
+    );
+
+    const checkbox = setup.renderer.root.findDescendantById(CREATE_TAG_PUSH_CHECKBOX_ID);
+
+    await act(async () => {
+      await setup.mockMouse.click(checkbox?.screenX ?? 0, checkbox?.screenY ?? 0);
+    });
+    await typeName(setup, "v2.0.0");
+    await submitForm(setup);
+    await waitFor(setup, () => capturedRequests.length > 0);
+
+    expect(capturedRequests[0]?.formValues?.push).toBe("false");
+    expect(capturedRequests[0]?.formValues?.remote).toBe("");
+
+    cleanup();
     await act(async () => {
       await setup.dispose();
     });

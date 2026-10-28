@@ -15,8 +15,8 @@ export const DELETE_TAG_CANCEL_BUTTON_ID = "delete-tag-cancel";
 /** Requested modal width, in cells, before terminal clamping. */
 export const DELETE_TAG_WIDTH = 66;
 
-/** Requested modal height, in rows, holding the scope, remote choice, consequence, and footer. */
-export const DELETE_TAG_HEIGHT = 20;
+/** Maximum remote picker height before native scrolling, in rows. */
+export const DELETE_TAG_REMOTE_MAX_ROWS = 6;
 
 /** Modal title. */
 export const DELETE_TAG_TITLE = "Delete tag";

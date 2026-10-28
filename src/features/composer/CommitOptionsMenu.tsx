@@ -31,9 +31,6 @@ const MENU_TITLE = "Commit options";
 /** Modal width in cells before terminal clamping. */
 const MENU_WIDTH = 68;
 
-/** Modal height in rows: four options, a reason line, a footer, and borders. */
-const MENU_HEIGHT = 13;
-
 /** Fallback reason when a disabled variant carries no text. */
 const UNAVAILABLE_REASON = "not available";
 
@@ -144,7 +141,7 @@ export function CommitOptionsMenu(props: CommitOptionsMenuProps): ReactNode {
   useAction("nav.activate", { scope: "overlay" }, activate);
 
   return (
-    <ModalFrame title={MENU_TITLE} width={MENU_WIDTH} height={MENU_HEIGHT}>
+    <ModalFrame title={MENU_TITLE} width={MENU_WIDTH}>
       <select
         id={COMPOSER_MENU_SELECT_ID}
         height={4}
@@ -177,7 +174,6 @@ export function CommitOptionsMenu(props: CommitOptionsMenuProps): ReactNode {
           {`${ICONS.warning} ${highlightedReason}`}
         </text>
       )}
-      <box flexGrow={1} />
       <ModalActions
         actions={readFooterActions({
           control: cycle.control,

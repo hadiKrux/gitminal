@@ -4,9 +4,6 @@ export const ERROR_OVERLAY_FRAME_ID = "error-overlay";
 /** Width of the error overlay frame, in cells, before terminal clamping. */
 export const ERROR_OVERLAY_WIDTH = 72;
 
-/** Height of the error overlay frame, in rows, before terminal clamping. */
-export const ERROR_OVERLAY_HEIGHT = 18;
-
 /** Rows reserved for the scrollable redacted detail block. */
 export const ERROR_DETAILS_ROWS = 9;
 

@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-  THEME_PICKER_HEIGHT,
   THEME_PICKER_TITLE,
   THEME_PICKER_WIDTH,
 } from "@/features/theme-picker/ThemePicker.constants";
@@ -31,8 +30,8 @@ export function ThemePicker(props: ThemePickerProps): ReactNode {
   const picker = useThemePicker({ onClose: props.onClose, persist: props.persist });
 
   return (
-    <ModalFrame title={THEME_PICKER_TITLE} width={THEME_PICKER_WIDTH} height={THEME_PICKER_HEIGHT}>
-      <ScrollableList viewportCulling>
+    <ModalFrame title={THEME_PICKER_TITLE} width={THEME_PICKER_WIDTH}>
+      <ScrollableList height={picker.rows.length} flexGrow={0} viewportCulling>
         {picker.rows.map((row, index) => (
           <ThemeRow
             key={row.name}

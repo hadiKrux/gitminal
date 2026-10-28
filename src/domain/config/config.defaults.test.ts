@@ -17,7 +17,7 @@ describe("DEFAULT_CONFIG", () => {
       ui: { mouse: true },
       graph: { scope: "all", initialPageSize: 500, style: "rounded" },
       diff: { contextLines: 3, expandFirstWorkingFile: true },
-      stash: { includeUntrackedByDefault: false },
+      stash: { includeUntrackedByDefault: true },
       remote: { fetchScope: "local" },
       keybindings: {},
     });

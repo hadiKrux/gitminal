@@ -16,9 +16,6 @@ export const CREATE_TAG_CANCEL_BUTTON_ID = "create-tag-cancel";
 /** Requested modal width, in cells, before terminal clamping. */
 export const CREATE_TAG_WIDTH = 66;
 
-/** Requested modal height, in rows, holding both fields, the checkbox, and the footer. */
-export const CREATE_TAG_HEIGHT = 18;
-
 /** Modal title. */
 export const CREATE_TAG_TITLE = "Create tag";
 

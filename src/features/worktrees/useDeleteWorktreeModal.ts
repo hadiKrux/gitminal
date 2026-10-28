@@ -127,7 +127,7 @@ function readRiskText(worktree: WorktreeRecord): string {
   }
 
   if (worktree.dirty) {
-    return "This worktree has uncommitted changes; it is removed with --force.";
+    return "This worktree has uncommitted changes; removal uses --force.";
   }
 
   return "No dirty or locked state was reported for this worktree.";

@@ -27,7 +27,8 @@ import type { ButtonProps } from "@/ui/Button.types";
  * The name validates against local and remote tag knowledge before a command is requested. The
  * target is read-only and comes from the right-pane selection when it is a commit, otherwise
  * `HEAD`. An empty message requests a lightweight tag and a non-empty message requests an annotated
- * tag. The optional push names the remote that will receive the tag and is off by default.
+ * tag. Push defaults on when a remote is configured, names that remote, and can be unchecked.
+ * Without a configured remote it remains unchecked and disabled.
  *
  * @param props - Overlay close callback.
  * @returns The form state and handlers consumed by the modal view.
@@ -37,7 +38,7 @@ export function useCreateTagModal(props: CreateTagModalProps): CreateTagFormHand
   const { runCommand } = useCommandRunner();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [pushAfterCreate, setPushAfterCreate] = useState(false);
+  const [pushAfterCreate, setPushAfterCreate] = useState(true);
   const messageRef = useRef<TextareaRenderable | null>(null);
   const selection = repository.selection;
   const selectedOid = selection.kind === "commit" ? selection.oid : null;

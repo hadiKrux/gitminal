@@ -9,7 +9,6 @@ import {
   DELETE_STASH_CONSEQUENCE,
   DELETE_STASH_CONTROL_ORDER,
   DELETE_STASH_DROP_BUTTON_ID,
-  DELETE_STASH_HEIGHT,
   DELETE_STASH_INITIAL_CONTROL,
   DELETE_STASH_TITLE,
   DELETE_STASH_WIDTH,
@@ -74,7 +73,7 @@ export function DeleteStashModal(props: {
   useAction("nav.activate", { scope: "overlay" }, activateFocusedAction);
 
   return (
-    <ModalFrame title={DELETE_STASH_TITLE} width={DELETE_STASH_WIDTH} height={DELETE_STASH_HEIGHT}>
+    <ModalFrame title={DELETE_STASH_TITLE} width={DELETE_STASH_WIDTH}>
       <text fg={tokens.text} wrapMode="none">
         {`Stash: ${props.stash.index}`}
       </text>
@@ -84,7 +83,6 @@ export function DeleteStashModal(props: {
       <text fg={tokens.muted} wrapMode="word">
         {DELETE_STASH_CONSEQUENCE}
       </text>
-      <box flexGrow={1} />
       <ModalActions actions={actions} />
     </ModalFrame>
   );

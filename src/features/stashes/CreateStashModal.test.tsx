@@ -5,6 +5,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { resetActionRegistry, resolveActionHandler } from "@/app/hooks/useAction";
 import { useRepository } from "@/app/hooks/useRepository";
+import { DEFAULT_CONFIG } from "@/domain/config/config.defaults";
 import type { GitClient } from "@/domain/git/git.types";
 import type { RepositorySnapshot } from "@/domain/repository/repository.types";
 import { CreateStashModal } from "@/features/stashes/CreateStashModal";
@@ -85,7 +86,9 @@ async function renderModal(options: {
       <CreateStashModal
         messageFieldId={MESSAGE_FIELD_ID}
         initialMessage={options.initialMessage ?? "WIP on main: abc123 initial commit"}
-        includeUntrackedByDefault={options.includeUntrackedByDefault ?? false}
+        includeUntrackedByDefault={
+          options.includeUntrackedByDefault ?? DEFAULT_CONFIG.stash.includeUntrackedByDefault
+        }
         onClose={() => {
           closedCount += 1;
         }}
@@ -201,7 +204,7 @@ beforeEach(() => {
 
 describe("CreateStashModal", () => {
   it("starts the include-untracked checkbox from the configured default", async () => {
-    const checkedSetup = await renderModal({ includeUntrackedByDefault: true });
+    const checkedSetup = await renderModal({});
 
     await waitFor(checkedSetup, () => latestSnapshot !== null);
 
@@ -251,7 +254,7 @@ describe("CreateStashModal", () => {
     await typeMessage(setup, "work in progress");
     await activatePrimary();
 
-    expect(submitted).toEqual({ message: "work in progress", includeUntracked: false });
+    expect(submitted).toEqual({ message: "work in progress", includeUntracked: true });
     expect(closedCount).toBe(1);
 
     await act(async () => {

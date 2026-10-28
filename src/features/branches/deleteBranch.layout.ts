@@ -18,6 +18,7 @@ import type {
 import { truncateText } from "@/lib/text";
 import { ICONS } from "@/theme/icons";
 import {
+  MODAL_CONTENT_PADDING,
   MODAL_HORIZONTAL_INSET,
   MODAL_MIN_HEIGHT,
   MODAL_MIN_WIDTH,
@@ -42,7 +43,8 @@ export function readDeleteBranchCommitBudget(risk: BranchRiskState): DeleteBranc
  * Computes the modal height and the at-risk row budgets for the current terminal.
  *
  * The modal grows with the at-risk list up to its documented maximum, then clamps to the terminal
- * the same way `ModalFrame` does. The scrollbox receives only the rows left after the fixed modal
+ * the same way `ModalFrame` does; the frame itself fits its visible content. The scrollbox receives
+ * only the rows left after the fixed modal
  * content, so the force checkbox, the acknowledgement line, and the footer keep their reserved rows.
  * Every fixed line is rendered on one row, so the branch-name length never changes this budget.
  *
@@ -56,7 +58,8 @@ export function readDeleteBranchLayout(input: {
   readonly hasMore: boolean;
 }): DeleteBranchLayout {
   const modalHeight = readModalHeight(input.terminalHeight, input.commitCount, input.hasMore);
-  const contentWidth = readModalWidth(input.terminalWidth) - DELETE_BRANCH_BORDER_WIDTH;
+  const contentWidth =
+    readModalWidth(input.terminalWidth) - DELETE_BRANCH_BORDER_WIDTH - MODAL_CONTENT_PADDING * 2;
   const listHeight = Math.max(
     0,
     Math.min(input.commitCount, modalHeight - DELETE_BRANCH_RESERVED_ROWS),

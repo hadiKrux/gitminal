@@ -125,6 +125,23 @@ describe("MoreMenu", () => {
     });
   });
 
+  it.each([2, 5])("fits %i options without unused rows", async (count) => {
+    const setup = await renderMenu(buildOptions().slice(0, count), () => {});
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const select = setup.renderer.root.findDescendantById(MORE_MENU_SELECT_ID);
+
+    expect(select?.height).toBe(count * 2);
+    expect(select?.parent?.height).toBe(count * 2 + 4);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
   it("renders the five options with their descriptions", async () => {
     const setup = await renderMenu(buildOptions(), () => {});
 
@@ -178,6 +195,8 @@ describe("MoreMenu", () => {
     expect(selected).toEqual([]);
     expect(frame).toContain("More remote actions");
     expect(frame).toContain("! detached HEAD");
+    expect(select?.height).toBe(10);
+    expect(select?.parent?.height).toBe(16);
 
     await act(async () => {
       await setup.dispose();
@@ -420,6 +439,8 @@ describe("MoreMenu", () => {
 
     expect(frame).toContain("Fetch the upstream refs of local branches");
     expect(frame).not.toContain("! loading repository");
+    expect(select?.height).toBe(10);
+    expect(select?.parent?.height).toBe(14);
 
     await act(async () => {
       await setup.dispose();

@@ -21,6 +21,7 @@ import { useTokens } from "@/theme/useTokens";
 import { KeyHint } from "@/ui/KeyHint";
 import { ModalFrame } from "@/ui/ModalFrame";
 import { SearchField } from "@/ui/SearchField";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
@@ -42,6 +43,7 @@ import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
  */
 export function HelpModal(props: HelpModalProps): ReactNode {
   const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
   const dimensions = useTerminalDimensions();
   const scrollRef = useRef<ScrollBoxRenderable | null>(null);
   const help = useHelp({ onClose: props.onClose });
@@ -52,6 +54,8 @@ export function HelpModal(props: HelpModalProps): ReactNode {
 
   useEffect(() => {
     if (help.selectedActionId === null) {
+      scrollRef.current?.scrollTo(0);
+
       return;
     }
 
@@ -78,6 +82,7 @@ export function HelpModal(props: HelpModalProps): ReactNode {
         flexShrink={1}
         focusable={false}
         viewportCulling
+        scrollbarOptions={scrollbarOptions}
       >
         {help.matchCount === 0 && help.hasQuery ? (
           <text fg={tokens.dim} wrapMode="word">

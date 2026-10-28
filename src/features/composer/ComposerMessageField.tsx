@@ -2,6 +2,7 @@ import type { TextareaRenderable } from "@opentui/core";
 import type { ReactNode, RefObject } from "react";
 import { COMPOSER_PLACEHOLDER } from "@/features/composer/composer.constants";
 import { useTokens } from "@/theme/useTokens";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 
 /**
  * Renders the composer's multiline message field and its bounded scroll region.
@@ -25,6 +26,7 @@ export function ComposerMessageField(props: {
   readonly onDraftChange: (value: string) => void;
 }): ReactNode {
   const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
   const field = (
     <textarea
       id={props.textareaId}
@@ -53,7 +55,7 @@ export function ComposerMessageField(props: {
       id={props.scrollId}
       height={props.rows}
       focusable={false}
-      scrollbarOptions={{ trackOptions: { foregroundColor: tokens.scrollbar } }}
+      scrollbarOptions={scrollbarOptions}
     >
       {field}
     </scrollbox>

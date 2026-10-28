@@ -16,6 +16,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { LoadingRow } from "@/ui/LoadingRow";
 import { Panel } from "@/ui/Panel";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 
 /** Loading label while the first status read is in flight. */
 const DIFF_SECTIONS_LOADING_LABEL = "loading changes";
@@ -64,6 +65,7 @@ const DIFF_READ_ONLY_EMPTY_MESSAGE = "No changed files";
 export function DiffPanel(): ReactNode {
   const panel = useDiffPanel();
   const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
   const scrollRef = useRef<ScrollBoxRenderable | null>(null);
   const { width, onSizeChange } = useScrollContentWidth(scrollRef);
   const diffScroll = useDiffScroll(scrollRef);
@@ -106,7 +108,7 @@ export function DiffPanel(): ReactNode {
           viewportCulling
           scrollX
           scrollY
-          scrollbarOptions={{ trackOptions: { foregroundColor: tokens.scrollbar } }}
+          scrollbarOptions={scrollbarOptions}
           // The explicit one-column width reserves the scrollbar column instead of letting the
           // auto-sized bar sit one cell past the scrollbox right edge and overlay the panel border
           // once a diff line widens the content past the viewport.

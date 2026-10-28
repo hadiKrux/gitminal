@@ -7,6 +7,7 @@ import { resetActionRegistry } from "@/app/hooks/useAction";
 import { NewBranchModal } from "@/features/branches/NewBranchModal";
 import { ShellTestProviders } from "@/test/shell.harness";
 import { ICONS } from "@/theme/icons";
+import { MODAL_FRAME_ID } from "@/ui/ModalFrame.constants";
 
 const NAME_FIELD_ID = "branch-name";
 const CHECKOUT_ID = "branches-new-checkout";
@@ -101,6 +102,52 @@ describe("NewBranchModal", () => {
     });
 
     expect(created).toEqual({ name: "feature/next", checkout: true });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("uses a compact padded layout with a separated footer", async () => {
+    const setup = await renderModal();
+    const modal = setup.renderer.root.findDescendantById(MODAL_FRAME_ID);
+    const input = readInput(setup);
+    const cancel = setup.renderer.root.findDescendantById(CANCEL_ID);
+    const checkout = setup.renderer.root.findDescendantById(CHECKOUT_ID);
+
+    expect(modal?.height).toBe(11);
+    expect(input.x).toBe((modal?.x ?? 0) + 2);
+    expect(input.y).toBe((modal?.y ?? 0) + 3);
+    expect(cancel?.y).toBe((checkout?.y ?? 0) + 2);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("clears validation while correcting the name and shrinks back to fit", async () => {
+    const setup = await renderModal();
+
+    await act(async () => {
+      readInput(setup).submit();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).toContain("Enter a branch name");
+    expect(setup.renderer.root.findDescendantById(MODAL_FRAME_ID)?.height).toBe(12);
+
+    await act(async () => {
+      readInput(setup).insertText("feature/fixed");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(setup.captureCharFrame()).not.toContain("Enter a branch name");
+    expect(setup.renderer.root.findDescendantById(MODAL_FRAME_ID)?.height).toBe(11);
+    expect(created).toBeUndefined();
 
     await act(async () => {
       await setup.dispose();

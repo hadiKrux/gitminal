@@ -1,9 +1,6 @@
 /** Requested modal width, in cells, before terminal clamping. */
 export const DELETE_WORKTREE_WIDTH = 70;
 
-/** Requested modal height, in rows, holding the identity, risk, checkbox, and footer. */
-export const DELETE_WORKTREE_HEIGHT = 19;
-
 /** Modal title. */
 export const DELETE_WORKTREE_TITLE = "Delete worktree";
 

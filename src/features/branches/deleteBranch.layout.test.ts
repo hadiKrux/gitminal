@@ -45,7 +45,7 @@ const LAYOUT_CASES: readonly LayoutCase[] = [
     commitCount: 2,
     hasMore: false,
     expectedHeight: 20,
-    expectedListHeight: 2,
+    expectedListHeight: 1,
   },
   {
     name: "80x24 with twenty commits",
@@ -54,7 +54,7 @@ const LAYOUT_CASES: readonly LayoutCase[] = [
     commitCount: 20,
     hasMore: false,
     expectedHeight: 20,
-    expectedListHeight: 2,
+    expectedListHeight: 1,
   },
   {
     name: "80x24 with a capped twenty-one commit read",
@@ -63,7 +63,7 @@ const LAYOUT_CASES: readonly LayoutCase[] = [
     commitCount: 21,
     hasMore: true,
     expectedHeight: 20,
-    expectedListHeight: 2,
+    expectedListHeight: 1,
   },
   {
     name: "100x32 with no commits",
@@ -90,7 +90,7 @@ const LAYOUT_CASES: readonly LayoutCase[] = [
     commitCount: 20,
     hasMore: false,
     expectedHeight: 28,
-    expectedListHeight: 10,
+    expectedListHeight: 9,
   },
   {
     name: "100x32 with a capped twenty-one commit read",
@@ -99,7 +99,7 @@ const LAYOUT_CASES: readonly LayoutCase[] = [
     commitCount: 21,
     hasMore: true,
     expectedHeight: 28,
-    expectedListHeight: 10,
+    expectedListHeight: 9,
   },
 ];
 
@@ -121,7 +121,7 @@ describe("readDeleteBranchLayout", () => {
       expect(layout.modalHeight).toBeGreaterThanOrEqual(
         DELETE_BRANCH_RESERVED_ROWS + layout.listHeight,
       );
-      expect(layout.contentWidth).toBe(62);
+      expect(layout.contentWidth).toBe(60);
     });
   }
 

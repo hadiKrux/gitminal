@@ -7,7 +7,6 @@ import {
   ERROR_OPEN_CONSOLE_ID,
   ERROR_OPEN_CONSOLE_LABEL,
   ERROR_OVERLAY_FRAME_ID,
-  ERROR_OVERLAY_HEIGHT,
   ERROR_OVERLAY_WIDTH,
   ERROR_RETRY_ID,
   ERROR_RETRY_LABEL,
@@ -18,6 +17,7 @@ import { useTokens } from "@/theme/useTokens";
 import type { ButtonProps } from "@/ui/Button.types";
 import { ModalActions } from "@/ui/ModalActions";
 import { ModalFrame } from "@/ui/ModalFrame";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 
 /**
  * Renders the persistent error overlay for a failed command.
@@ -33,6 +33,7 @@ import { ModalFrame } from "@/ui/ModalFrame";
  */
 export function ErrorOverlay(props: ErrorOverlayProps): ReactNode {
   const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
   const [focusedIndex, setFocusedIndex] = useState(0);
   const actions = buildActions(props, focusedIndex);
 
@@ -61,18 +62,18 @@ export function ErrorOverlay(props: ErrorOverlayProps): ReactNode {
       title={props.title}
       description={props.message}
       width={ERROR_OVERLAY_WIDTH}
-      height={ERROR_OVERLAY_HEIGHT}
     >
-      <box flexDirection="column" flexGrow={1} minHeight={3}>
+      <box flexDirection="column" flexShrink={1} minHeight={3}>
         <text fg={tokens.muted} wrapMode="none">
           {`${ICONS.error} Details`}
         </text>
         <scrollbox
           id={`${ERROR_OVERLAY_FRAME_ID}-details`}
-          height={ERROR_DETAILS_ROWS}
-          flexShrink={0}
+          height={Math.min(ERROR_DETAILS_ROWS, props.details.split("\n").length)}
+          flexShrink={1}
           focusable={false}
           viewportCulling
+          scrollbarOptions={scrollbarOptions}
         >
           <text fg={tokens.muted} wrapMode="word">
             {props.details}

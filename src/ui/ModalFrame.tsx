@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { useTokens } from "@/theme/useTokens";
 import {
+  MODAL_CONTENT_GAP,
+  MODAL_CONTENT_PADDING,
   MODAL_FRAME_ID,
   MODAL_HORIZONTAL_INSET,
   MODAL_MIN_HEIGHT,
@@ -16,10 +18,12 @@ import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
  * wrapper, and clamped to the terminal so a small terminal still shows a usable modal instead of
  * overflowing it. It is focusable with a stable id, so the overlay host can move native focus into
  * the modal and the focus trap comes from native focus rather than a custom key loop. The component
- * is presentational: it owns no feature logic and no action registrations.
+ * is presentational: it owns no feature logic and no action registrations. Without an explicit
+ * height it fits its content, bounded by the terminal. All dialogs share inset content and a
+ * one-row gap; dense, explicitly budgeted dialogs can override the gap.
  *
  * @param props - Title, optional description, optional children, requested width and height, stable
- * id, and whether the frame shows its focused border.
+ * id, content gap, and whether the frame shows its focused border.
  * @returns The modal frame.
  */
 export function ModalFrame(props: {
@@ -28,6 +32,7 @@ export function ModalFrame(props: {
   readonly children?: ReactNode;
   readonly width: number;
   readonly height?: number;
+  readonly gap?: number;
   readonly id?: string;
   readonly focused?: boolean;
 }): ReactNode {
@@ -51,7 +56,11 @@ export function ModalFrame(props: {
       <box
         id={props.id ?? MODAL_FRAME_ID}
         width={width}
-        height={height}
+        height={props.height === undefined ? undefined : height}
+        maxHeight={height}
+        minHeight={Math.min(MODAL_MIN_HEIGHT, height)}
+        padding={MODAL_CONTENT_PADDING}
+        gap={props.gap ?? MODAL_CONTENT_GAP}
         border
         flexDirection="column"
         focusable
@@ -80,21 +89,21 @@ export function ModalFrame(props: {
  * @returns A width that fits the terminal with the documented inset.
  */
 function clampModalWidth(requested: number, terminalWidth: number): number {
-  const available = Math.max(MODAL_MIN_WIDTH, terminalWidth - MODAL_HORIZONTAL_INSET * 2);
+  const available = Math.max(1, terminalWidth - MODAL_HORIZONTAL_INSET * 2);
 
-  return Math.max(MODAL_MIN_WIDTH, Math.min(requested, available, terminalWidth));
+  return Math.min(Math.max(MODAL_MIN_WIDTH, requested), available, terminalWidth);
 }
 
 /**
  * Clamps a requested modal height to the terminal.
  *
- * @param requested - Requested height in rows, or undefined for the default modal height.
+ * @param requested - Requested height in rows, or undefined for content sizing up to the terminal.
  * @param terminalHeight - Current terminal height in rows.
  * @returns A height that fits the terminal with the documented inset.
  */
 function clampModalHeight(requested: number | undefined, terminalHeight: number): number {
-  const target = requested ?? MODAL_MIN_HEIGHT + 2;
-  const available = Math.max(MODAL_MIN_HEIGHT, terminalHeight - MODAL_VERTICAL_INSET * 2);
+  const available = Math.max(1, terminalHeight - MODAL_VERTICAL_INSET * 2);
+  const target = requested ?? available;
 
-  return Math.max(MODAL_MIN_HEIGHT, Math.min(target, available, terminalHeight));
+  return Math.min(Math.max(MODAL_MIN_HEIGHT, target), available, terminalHeight);
 }
