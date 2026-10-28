@@ -1,5 +1,5 @@
-import type { ScrollBoxRenderable } from "@opentui/core";
 import { describe, expect, it } from "bun:test";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { GRAPH_ROW_HEIGHT } from "@/features/graph/graph.constants";
 import { graphRowRenderableId } from "@/features/graph/graph.rows";
 import {

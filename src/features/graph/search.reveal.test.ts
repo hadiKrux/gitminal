@@ -1,5 +1,5 @@
-import type { ScrollBoxRenderable } from "@opentui/core";
 import { describe, expect, it } from "bun:test";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { searchResultRowId } from "@/features/graph/graph.rows";
 import type { SearchResultView } from "@/features/graph/graph.types";
 import { readSearchMoveAnchor, readSearchMoveIndex } from "@/features/graph/search.reveal";

@@ -22,10 +22,10 @@ import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
 import { CommitGraph } from "@/features/graph/CommitGraph";
 import {
   GRAPH_CONTENT_PADDING_X,
-  GRAPH_PENDING_ROW_ID,
   GRAPH_LOAD_ERROR_MESSAGE,
-  GRAPH_RETRY_ID,
   GRAPH_LOAD_OLDER_ID,
+  GRAPH_PENDING_ROW_ID,
+  GRAPH_RETRY_ID,
   GRAPH_ROW_HEIGHT,
   GRAPH_SCROLL_ID,
   GRAPH_SEARCH_INPUT_ID,
