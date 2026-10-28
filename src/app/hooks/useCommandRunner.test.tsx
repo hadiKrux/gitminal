@@ -322,6 +322,12 @@ async function waitForConsoleEntries(
 /** The fetch command request used by the success and failure cases. */
 const FETCH_REQUEST: CommandRequest = { commandId: "remote.fetch", target: { kind: "none" } };
 
+/** The fetch-prune command request used by the timed-out prune case. */
+const PRUNE_REQUEST: CommandRequest = {
+  commandId: "remote.fetchPrune",
+  target: { kind: "none" },
+};
+
 beforeEach(() => {
   resetCommandRunner();
   resetCommandOrchestration();
@@ -602,6 +608,44 @@ describe("useCommandRunner", () => {
       message: "upstream not found for origin/feature",
     });
     expect(latestStatus?.operation).toBeNull();
+
+    cleanup();
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps a timed-out prune successful with a warning and no error surface", async () => {
+    const cleanup = registerOutcome("remote.fetchPrune", {
+      steps: [
+        okStep(),
+        okStep({
+          argv: ["git", "remote", "prune", "--", "origin"],
+          exitCode: null,
+          timedOut: true,
+          timedOutAfterMs: 120_000,
+          nonFatal: true,
+        }),
+      ],
+      warnings: ["origin: prune timed out; stale refs kept"],
+    });
+    const { setup, fake } = await renderRunner();
+
+    await waitForInitialRead(setup, fake);
+
+    await act(async () => {
+      await latestRunner?.runCommand(PRUNE_REQUEST);
+    });
+
+    expect(latestConsole?.entries).toHaveLength(1);
+    expect(latestConsole?.entries[0]?.status).toBe("success");
+    expect(latestConsole?.entries[0]?.exitCode).toBe(0);
+    expect(latestStatus?.status).toEqual({
+      kind: "warning",
+      message: "origin: prune timed out; stale refs kept",
+    });
+    expect(latestStatus?.operation).toBeNull();
+    expect(errorReports).toHaveLength(0);
 
     cleanup();
     await act(async () => {

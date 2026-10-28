@@ -5,11 +5,8 @@ import type {
 } from "@/app/hooks/useRemoteCommands.types";
 import { useRepository } from "@/app/hooks/useRepository";
 import { executeRemoteFetch } from "@/domain/commands/commands.fetch";
-import {
-  executeRemoteFetchPrune,
-  executeRemotePull,
-  executeRemotePush,
-} from "@/domain/commands/commands.remote";
+import { executeRemoteFetchPrune } from "@/domain/commands/commands.prune";
+import { executeRemotePull, executeRemotePush } from "@/domain/commands/commands.remote";
 import { registerCommandHandler } from "@/domain/commands/commands.runner";
 import type {
   CommandExecutionOutcome,

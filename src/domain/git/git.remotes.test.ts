@@ -5,6 +5,7 @@ import {
   buildLsRemoteHeadsArgs,
   buildPullArgs,
   buildPushArgs,
+  buildRemotePruneArgs,
   buildUpstreamGroupsArgs,
   isSafeGitName,
   isTruncatedOutput,
@@ -368,6 +369,17 @@ describe("remote ref builders", () => {
     expect(buildFetchTrackingRefArgs("-oops", "main")).toBeNull();
     expect(buildFetchTrackingRefArgs("origin", "bad branch")).toBeNull();
     expect(buildDeleteTrackingRefArgs("origin", "refs..bad")).toBeNull();
+  });
+
+  it("prunes every stale tracking ref of one remote", () => {
+    expect(buildRemotePruneArgs("origin")).toEqual(["remote", "prune", "--", "origin"]);
+    expect(buildRemotePruneArgs("a/b")).toEqual(["remote", "prune", "--", "a/b"]);
+  });
+
+  it("rejects an option-like or malformed remote before prune", () => {
+    expect(buildRemotePruneArgs("-oops")).toBeNull();
+    expect(buildRemotePruneArgs("bad remote")).toBeNull();
+    expect(buildRemotePruneArgs("")).toBeNull();
   });
 });
 

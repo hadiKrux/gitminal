@@ -1,4 +1,8 @@
-import type { GitOperationClass } from "@/domain/git/git.types";
+import type {
+  GitInvocationResult,
+  GitOperationClass,
+  GitProgressParser,
+} from "@/domain/git/git.types";
 import { toCommandStep } from "./commands.steps";
 import type {
   CommandAvailabilityReason,
@@ -88,6 +92,48 @@ export async function invokeCommandStep(
   });
 
   return toCommandStep(result);
+}
+
+/**
+ * Runs one git invocation on the network class and forwards its progress.
+ *
+ * The network class gives the invocation the network timeout and the abort path, so no remote call
+ * can hang. Progress lines parsed from stderr reach the status strip as they arrive, and the parser
+ * is flushed once after the invocation settles so a phase that never ended with a newline is still
+ * reported. Pull, push, fetch, and the remote-wide prune all share this helper.
+ *
+ * @param context - Handler context carrying the root, client, signal, and progress callback.
+ * @param args - Validated argument array produced by a domain planner.
+ * @param parser - Progress parser for this invocation, or null when the command emits no progress.
+ * @returns The settled invocation.
+ */
+export async function invokeNetwork(
+  context: CommandHandlerContext,
+  args: readonly string[],
+  parser: GitProgressParser | null,
+): Promise<GitInvocationResult> {
+  const result = await context.client.invoke({
+    args,
+    cwd: context.cwd,
+    signal: context.signal,
+    operationClass: "network",
+    onStderr:
+      parser === null
+        ? undefined
+        : (chunk) => {
+            for (const event of parser.push(chunk)) {
+              context.notifyProgress(event);
+            }
+          },
+  });
+
+  if (parser !== null) {
+    for (const event of parser.flush()) {
+      context.notifyProgress(event);
+    }
+  }
+
+  return result;
 }
 
 /**

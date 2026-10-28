@@ -51,7 +51,7 @@
     "format:check": "biome format .",
     "check": "biome check . && bun run check:boundary && bun run check:glyph && bun run check:structure",
     "check:fix": "biome check --write .",
-    "check:all": "bun run check && bun run typecheck && bun run test",
+    "check:all": "bun run check && bun run typecheck && bun run test && bun run test:integration",
     "check:boundary": "bun scripts/check-boundary.ts",
     "check:glyph": "bun scripts/check-glyph.ts",
     "check:structure": "bun scripts/check-structure.ts",

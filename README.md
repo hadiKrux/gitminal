@@ -136,7 +136,7 @@ To lint, format, and run the architecture checks:
 
 ```bash
 bun run check                  # Biome plus boundary, glyph, and structure checks
-bun run check:all              # check, typecheck, and unit tests
+bun run check:all              # check, typecheck, unit tests, and integration tests
 bun run check:fix              # apply safe Biome fixes and formatting
 bun run check:structure --strict # fail on planned paths too, for the v1 freeze
 bun run lint                   # lint only

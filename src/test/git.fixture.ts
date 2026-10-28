@@ -6,7 +6,7 @@ import { createGitClient } from "@/domain/git/git.client";
 import type { GitClient, GitInvocationResult, GitOperationClass } from "@/domain/git/git.types";
 
 /** Minimum git version the integration suite runs against. */
-const MINIMUM_GIT_VERSION = "2.31.0";
+export const MINIMUM_GIT_VERSION = "2.31.0";
 
 /** Options accepted when creating a temporary repository. */
 export interface GitFixtureOptions {
@@ -108,8 +108,9 @@ export interface GitFixture extends GitFixtureFiles {
 /**
  * Reports whether the installed git meets the documented minimum.
  *
- * Integration tests skip when this returns false, so a missing or old git is reported as a skip,
- * never as a pass.
+ * Integration tests skip when this returns false. `git.availability.integration.test.ts` is the
+ * unskipped gate caller: it asserts this returns true so a missing or old git fails the integration
+ * run loudly instead of letting every fixture suite skip silently.
  *
  * @returns True when `git --version` is at least `MINIMUM_GIT_VERSION`.
  */
@@ -124,7 +125,7 @@ export function isGitAvailable(): boolean {
  *
  * @returns The parsed version, or null when git is missing or unparseable.
  */
-function readGitVersion(): string | null {
+export function readGitVersion(): string | null {
   const result = spawnSync("git", ["--version"], { encoding: "utf8" });
 
   if (result.status !== 0) {

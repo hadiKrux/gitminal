@@ -145,7 +145,8 @@ function formatDuration(durationMs: number): string {
  * zero after a cancellation race.
  *
  * @param status - Entry outcome.
- * @param exitCode - Last exit code, or null when no child exited, such as a post-result refresh failure.
+ * @param exitCode - Exit code of the last step that reported one, or null when no step reported
+ *   one or the last fatal step reported none.
  * @param summary - Entry summary, used for the timed-out duration.
  * @returns The status marker, label, and resolved token color.
  */

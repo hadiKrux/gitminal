@@ -433,6 +433,24 @@ export function buildDeleteTrackingRefArgs(
 }
 
 /**
+ * Builds the removal of every stale remote-tracking ref of one remote.
+ *
+ * `git remote prune` compares the remote with the configured fetch refspecs and deletes only the
+ * tracking refs whose source ref is gone, so a ref that maps to a still-existing namespace such as
+ * `refs/pull/<n>/head` is kept. `--` keeps an option-like remote name from being parsed as a flag.
+ *
+ * @param remote - Remote name.
+ * @returns The argument array, or null when the name is unsafe.
+ */
+export function buildRemotePruneArgs(remote: string): readonly string[] | null {
+  if (!isSafeGitName(remote)) {
+    return null;
+  }
+
+  return Object.freeze(["remote", "prune", "--", remote]);
+}
+
+/**
  * Parses advertised branch names from `git ls-remote --heads` output.
  *
  * Each line is `<oid>\trefs/heads/<branch>`. Malformed lines, refs outside `refs/heads`, and blank

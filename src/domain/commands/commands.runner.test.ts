@@ -321,6 +321,48 @@ describe("runCommand", () => {
     expect(result.timedOut).toBeTrue();
   });
 
+  it("does not time out a command for a non-fatal timed-out step", async () => {
+    registerOutcome("remote.fetchPrune", {
+      steps: [
+        {
+          ...okStep(["git", "remote", "prune", "--", "origin"]),
+          exitCode: null,
+          timedOut: true,
+          timedOutAfterMs: 120_000,
+          nonFatal: true,
+        },
+      ],
+      warnings: ["origin: prune timed out; stale refs kept"],
+    });
+
+    const result = await runCommand(createRequest("remote.fetchPrune"), createOptions());
+
+    expect(result.status).toBe("success");
+    expect(result.timedOut).toBeUndefined();
+    expect(result.timedOutAfterMs).toBeNull();
+    expect(result.steps[0]?.timedOut).toBeTrue();
+    expect(result.warnings).toEqual(["origin: prune timed out; stale refs kept"]);
+  });
+
+  it("times out a command when only a fatal step timed out", async () => {
+    registerOutcome("remote.fetch", {
+      steps: [
+        {
+          ...okStep(["git", "fetch"]),
+          exitCode: null,
+          timedOut: true,
+          timedOutAfterMs: 120_000,
+        },
+      ],
+    });
+
+    const result = await runCommand(createRequest("remote.fetch"), createOptions());
+
+    expect(result.status).toBe("failure");
+    expect(result.timedOut).toBeTrue();
+    expect(result.timedOutAfterMs).toBe(120_000);
+  });
+
   it("blocks a second mutation while one is running", async () => {
     const gate = createDeferred();
     const started = { count: 0 };

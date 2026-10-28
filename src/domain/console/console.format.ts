@@ -48,7 +48,7 @@ export function formatCommandResult(
     steps,
     cwd: readDisplayCwd(result.cwd, options.repositoryRoot ?? null),
     status,
-    exitCode: result.steps.at(-1)?.exitCode ?? null,
+    exitCode: readDisplayExitCode(result.steps),
     durationMs: result.steps.reduce((total, step) => total + step.durationMs, 0),
     phase: result.progress.at(-1)?.phase ?? null,
     cancelled: result.cancelled === true,
@@ -157,6 +157,38 @@ function formatStep(
     stdout: capConsoleOutput(step.stdout, options.limits),
     stderr: capConsoleOutput(step.stderr, options.limits),
   };
+}
+
+/**
+ * Reads the exit code the console row shows.
+ *
+ * A trailing non-fatal timed-out step reports a null exit code, so a row that used only the last
+ * step would render an unknown exit on an otherwise successful command. The row therefore skips
+ * only those steps and takes the last exit code a step actually reported. A null exit code on a
+ * fatal step ends the search, because that step, for example a child killed by a signal, is the one
+ * the entry reports as a failure and an earlier `exit 0` would contradict the error marker.
+ *
+ * @param steps - Ordered command steps.
+ * @returns The last reported exit code, or null when a fatal step reported none or no step did.
+ */
+function readDisplayExitCode(steps: readonly CommandStepResult[]): number | null {
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index];
+
+    if (step === undefined) {
+      continue;
+    }
+
+    if (step.exitCode !== null) {
+      return step.exitCode;
+    }
+
+    if (step.nonFatal !== true) {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 /**

@@ -152,6 +152,46 @@ describe("formatCommandResult", () => {
 
     expect(entry.summary).toBe("1 step completed; upstream not found");
   });
+
+  it("derives the row exit code from the last step that reported one", () => {
+    const entry = formatCommandResult(
+      result({
+        steps: [
+          step(),
+          step({
+            argv: ["git", "remote", "prune", "--", "origin"],
+            exitCode: null,
+            timedOut: true,
+            nonFatal: true,
+          }),
+        ],
+      }),
+      { id: "entry-1", at: 100 },
+    );
+
+    expect(entry.status).toBe("success");
+    expect(entry.exitCode).toBe(0);
+  });
+
+  it("reports no exit code when a fatal step reported none", () => {
+    const entry = formatCommandResult(
+      result({
+        steps: [
+          step(),
+          step({
+            argv: ["git", "update-ref", "-d", "--", "refs/remotes/origin/feature"],
+            exitCode: null,
+            stderr: "fatal: child terminated by SIGKILL",
+          }),
+        ],
+        status: "failure",
+      }),
+      { id: "entry-1", at: 100 },
+    );
+
+    expect(entry.status).toBe("failure");
+    expect(entry.exitCode).toBeNull();
+  });
 });
 
 describe("formatRefreshEntry", () => {

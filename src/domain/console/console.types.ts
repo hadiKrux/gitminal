@@ -49,7 +49,10 @@ export interface ConsoleEntry {
   readonly cwd: string | null;
   /** Entry outcome. */
   readonly status: ConsoleEntryStatus;
-  /** Exit code of the last step, or null when no step ran. */
+  /**
+   * Exit code of the last step that reported one, or null when no step reported one or the last
+   * fatal step reported none.
+   */
   readonly exitCode: number | null;
   /** Total duration in milliseconds. */
   readonly durationMs: number;

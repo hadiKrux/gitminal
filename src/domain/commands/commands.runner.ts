@@ -250,7 +250,7 @@ function createExecutedResult(
   const timedOut = isOutcomeTimedOut(outcome);
   const failed = outcome.failed === true || outcome.steps.some(isFailedStep);
   const warnings = outcome.warnings ?? [];
-  const timedOutAfterMs = readTimedOutAfterMs(outcome);
+  const timedOutAfterMs = timedOut ? readTimedOutAfterMs(outcome) : null;
 
   return {
     commandId,
@@ -269,17 +269,29 @@ function createExecutedResult(
 /**
  * Reads the timeout duration that expired for an outcome.
  *
+ * A fatal timed-out step wins over a non-fatal one, mirroring `isOutcomeTimedOut`: a group whose
+ * non-fatal prune timed out and whose fatal delete also timed out reports the delete's duration,
+ * which is the timeout the entry actually surfaces. A non-fatal duration is the fallback.
+ *
  * @param outcome - Handler outcome.
- * @returns The first reported timeout duration, or null when none is known.
+ * @returns The fatal step's timeout duration, otherwise a non-fatal one, or null when none is known.
  */
 function readTimedOutAfterMs(outcome: CommandExecutionOutcome): number | null {
+  let fallback: number | null = null;
+
   for (const step of outcome.steps) {
-    if (step.timedOutAfterMs !== undefined && step.timedOutAfterMs !== null) {
+    if (step.timedOutAfterMs === undefined || step.timedOutAfterMs === null) {
+      continue;
+    }
+
+    if (step.nonFatal !== true) {
       return step.timedOutAfterMs;
     }
+
+    fallback ??= step.timedOutAfterMs;
   }
 
-  return null;
+  return fallback;
 }
 
 /**
@@ -307,11 +319,18 @@ function isOutcomeCancelled(outcome: CommandExecutionOutcome): boolean {
 /**
  * Reports whether the outcome timed out.
  *
+ * A step marked `nonFatal` reports its own timeout through warnings, so it never makes the command
+ * timed out. That is what lets a cleanup phase such as the remote-wide prune fail or time out
+ * visibly on its step without relabeling the fetch that already succeeded.
+ *
  * @param outcome - Handler outcome.
- * @returns True when the outcome or any step timed out.
+ * @returns True when the outcome or a fatal step timed out.
  */
 function isOutcomeTimedOut(outcome: CommandExecutionOutcome): boolean {
-  return outcome.timedOut === true || outcome.steps.some((step) => step.timedOut === true);
+  return (
+    outcome.timedOut === true ||
+    outcome.steps.some((step) => step.timedOut === true && step.nonFatal !== true)
+  );
 }
 
 /**

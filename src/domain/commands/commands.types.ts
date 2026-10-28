@@ -335,7 +335,13 @@ export interface CommandRunOptions {
 export interface CommandRemoteResult {
   /** Remote name. */
   readonly remote: string;
-  /** True when every invocation for this remote completed without a reported failure. */
+  /**
+   * True when every counted invocation for this remote completed without a reported failure.
+   *
+   * For Fetch --prune the counted phases are the remote-wide check, the scoped fetch, and the
+   * per-ref deletes, while the remote-wide prune is deliberately excluded so its failure cannot
+   * regress this remote's freshness evidence.
+   */
   readonly succeeded: boolean;
 }
 

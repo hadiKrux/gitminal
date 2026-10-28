@@ -8,7 +8,8 @@ import type { RemoteFetchGroup } from "@/domain/git/git.remotes.types";
 import type { GitInvocationResult } from "@/domain/git/git.types";
 import { readEmptyFetchScopeReason, readScopedUpstreamGroups } from "./commands.fetch.scope";
 import type { RemoteFetchRun } from "./commands.fetch.types";
-import { toCommandStep } from "./commands.steps";
+import { invokeNetwork } from "./commands.invoke";
+import { createFailureStep, toCommandStep } from "./commands.steps";
 import type {
   CommandExecutionOutcome,
   CommandHandlerContext,
@@ -101,7 +102,7 @@ async function runFetchGroup(
 
     if (args === null) {
       succeeded = false;
-      steps.push(createInvalidRefStep(descriptor.ref));
+      steps.push(createFailureStep(`fatal: invalid configured upstream "${descriptor.ref}"`));
 
       continue;
     }
@@ -163,9 +164,10 @@ function isMissingRemoteRef(result: GitInvocationResult): boolean {
  * The destination is a remote-tracking ref with the forced-update prefix, which mirrors what a plain
  * `git fetch <remote>` does for `refs/remotes/**`. Without the prefix, an amended, rebased, or
  * force-pushed upstream is rejected as non-fast-forward and its tracking ref stays stale. A local
- * branch is never a destination.
+ * branch is never a destination. The invocation and its progress parser come from `invokeNetwork`,
+ * the same helper the prune, pull, and push executors use.
  *
- * @param context - Handler context carrying the root and signal.
+ * @param context - Handler context carrying the root, signal, and progress callback.
  * @param args - Validated fetch argument array.
  * @returns The settled invocation.
  */
@@ -173,38 +175,5 @@ async function fetchRef(
   context: CommandHandlerContext,
   args: readonly string[],
 ): Promise<GitInvocationResult> {
-  const parser = createGitProgressParser();
-  const result = await context.client.invoke({
-    args,
-    cwd: context.cwd,
-    signal: context.signal,
-    operationClass: "network",
-    onStderr: (chunk) => {
-      for (const event of parser.push(chunk)) {
-        context.notifyProgress(event);
-      }
-    },
-  });
-
-  for (const event of parser.flush()) {
-    context.notifyProgress(event);
-  }
-
-  return result;
-}
-
-/**
- * Builds a failed step for a configured upstream that is unsafe as one argv value.
- *
- * @param ref - Rejected upstream ref.
- * @returns A step with no argv and a naming error.
- */
-function createInvalidRefStep(ref: string): CommandStepResult {
-  return {
-    argv: [],
-    exitCode: 1,
-    durationMs: 0,
-    stdout: "",
-    stderr: `fatal: invalid configured upstream "${ref}"`,
-  };
+  return await invokeNetwork(context, args, createGitProgressParser());
 }
