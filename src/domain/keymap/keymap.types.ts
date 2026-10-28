@@ -160,6 +160,13 @@ export interface KeymapHint {
 export interface KeymapHintOptions {
   /** Reports whether the action has a current handler in the given context. */
   readonly isAvailable?: (actionId: string, scope: KeymapContext) => boolean;
+  /**
+   * Include global-context fallback hints. Defaults to `true`.
+   *
+   * A context that sets this to `false` keeps only its own hints, so a panel can advertise its
+   * verbs without the shared global chords. Help remains the discovery surface for those chords.
+   */
+  readonly includeGlobals?: boolean;
 }
 
 /**

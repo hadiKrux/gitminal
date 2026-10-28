@@ -21,7 +21,9 @@ import { ACTION_BY_ID } from "@/domain/keymap/keymap.defaults";
 import { describeFooterHints, formatBinding } from "@/domain/keymap/keymap.describe";
 import type { KeymapContext, ResolvedKeymap } from "@/domain/keymap/keymap.types";
 import {
+  CONTEXTS_WITHOUT_GLOBAL_HINTS,
   HIDDEN_CONTEXT_HINT_ACTIONS,
+  HIDDEN_HINTS_BY_CONTEXT,
   MODAL_HINT_ACTIONS,
   SELECTION_HINT_ACTIONS,
 } from "@/features/shell/Footer.constants";
@@ -33,8 +35,12 @@ import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
  *
  * Hints come from the resolved keymap for the focused region plus globals, minus actions whose
  * global key is shadowed by the focused context and minus self-evident actions such as Tab
- * traversal, arrow movement, quit, the console toggle, the More menu trigger, and Esc cancel, which
- * Help documents instead. A `remote.*` hint is shown only when the same target-aware availability
+ * traversal, arrow movement, Enter activation on the top bar, quit, the console toggle, and Esc
+ * cancel, which Help documents instead. The More menu trigger stays visible because `.` is not
+ * guessable. The top-bar context also drops the theme picker and refresh globals so its footer
+ * stays a single short strip. Every content region drops all global hints, so only the block's own
+ * verbs remain there, and the `graph` context also drops the PageUp and PageDown hints because most
+ * laptop keyboards lack those keys. A `remote.*` hint is shown only when the same target-aware availability
  * the top bar uses reports it available; another action's published availability, when the owning
  * surface published one for its selected target, decides the hint before any fallback. Actions with
  * no publication fall back to handler presence, so a placeholder surface never advertises a feature
@@ -102,8 +108,11 @@ export function Footer(): ReactNode {
       ? (state.activeRegion ?? "global")
       : "global";
 
-    return describeFooterHints(keymap, context, { isAvailable })
-      .filter((hint) => !HIDDEN_CONTEXT_HINT_ACTIONS.has(hint.actionId))
+    return describeFooterHints(keymap, context, {
+      isAvailable,
+      includeGlobals: !CONTEXTS_WITHOUT_GLOBAL_HINTS.has(context),
+    })
+      .filter((hint) => !isHiddenContextHint(context, hint.actionId))
       .map((hint) => ({
         key: hint.keys[0] ?? "",
         label: hint.label,
@@ -115,6 +124,25 @@ export function Footer(): ReactNode {
       <HintBar hints={hints} maxWidth={width} />
     </box>
   );
+}
+
+/**
+ * Reports whether a context hint is deliberately suppressed.
+ *
+ * Global self-evident actions are suppressed everywhere. Actions the focused context hides are
+ * suppressed only there, so the same global chord can stay visible in a panel where it is part of
+ * the primary workflow.
+ *
+ * @param context - Focus context that supplied the hint.
+ * @param actionId - Hint candidate.
+ * @returns True when the hint should not render.
+ */
+function isHiddenContextHint(context: KeymapContext, actionId: string): boolean {
+  if (HIDDEN_CONTEXT_HINT_ACTIONS.has(actionId)) {
+    return true;
+  }
+
+  return HIDDEN_HINTS_BY_CONTEXT[context]?.has(actionId) ?? false;
 }
 
 /**

@@ -245,7 +245,7 @@ async function renderFooterWithRepository(
   const fake = createStateClient(state);
   const setup = await testRender(
     <AppTestProviders gitClient={fake.client}>
-      <FooterHarness region="branches">
+      <FooterHarness region="top-bar">
         {children}
         <Registration actionId="remote.pull" options={{ scope: "global", owner: "top-bar" }} />
         <Registration actionId="remote.push" options={{ scope: "global", owner: "top-bar" }} />
@@ -277,13 +277,20 @@ beforeEach(() => {
 });
 
 describe("Footer", () => {
-  it("shows hints for the focused region and hides self-evident globals", async () => {
+  it("shows only the branches panel's own verbs", async () => {
     const setup = await renderFooter(
       <FooterHarness region="branches">
         <Registration actionId="branch.create" options={{ scope: "branches" }} />
+        <Registration actionId="nav.activate" options={{ scope: "branches" }} />
         <Registration actionId="app.quit" options={{ scope: "global", owner: "app" }} />
         <Registration actionId="app.console" options={{ scope: "global", owner: "app" }} />
         <Registration actionId="focus.next" options={{ scope: "global", owner: "shell" }} />
+        <Registration actionId="app.palette" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.themePicker" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.refresh" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="remote.pull" options={{ scope: "global", owner: "top-bar" }} />
+        <Registration actionId="remote.push" options={{ scope: "global", owner: "top-bar" }} />
+        <Registration actionId="remote.more" options={{ scope: "global", owner: "top-bar" }} />
         <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
       </FooterHarness>,
     );
@@ -296,10 +303,46 @@ describe("Footer", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("n New branch");
-    expect(frame).toContain("? Help");
+    expect(frame).not.toContain("Activate");
+    expect(frame).not.toContain("Command palette");
+    expect(frame).not.toContain("Theme picker");
+    expect(frame).not.toContain("Refresh");
+    expect(frame).not.toContain("Help");
+    expect(frame).not.toContain("Pull");
+    expect(frame).not.toContain("Push");
+    expect(frame).not.toContain("More remote actions");
     expect(frame).not.toContain("Quit");
     expect(frame).not.toContain("Toggle console");
     expect(frame).not.toContain("Next region");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("hides the PageUp and PageDown hints in the commits footer", async () => {
+    const setup = await renderFooter(
+      <FooterHarness region="graph">
+        <Registration actionId="nav.up" options={{ scope: "graph" }} />
+        <Registration actionId="nav.down" options={{ scope: "graph" }} />
+        <Registration actionId="nav.pageUp" options={{ scope: "graph" }} />
+        <Registration actionId="nav.pageDown" options={{ scope: "graph" }} />
+        <Registration actionId="graph.search" options={{ scope: "graph" }} />
+      </FooterHarness>,
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await focusRegion(setup, "graph");
+
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Move up");
+    expect(frame).toContain("Move down");
+    expect(frame).toContain("Search commits");
+    expect(frame).not.toContain("Page up");
+    expect(frame).not.toContain("Page down");
 
     await act(async () => {
       await setup.dispose();
@@ -333,7 +376,7 @@ describe("Footer", () => {
     });
   });
 
-  it("hides a global hint when the focused context owns the same key", async () => {
+  it("shows only the block's own hints when focus is in a content region", async () => {
     const setup = await renderFooter(
       <FooterHarness region="stashes">
         <Registration actionId="stash.pop" options={{ scope: "stashes" }} />
@@ -350,6 +393,7 @@ describe("Footer", () => {
 
     expect(frame).toContain("p Pop stash");
     expect(frame).not.toContain("Pull");
+    expect(frame).not.toContain("Help");
 
     await act(async () => {
       await setup.dispose();
@@ -406,7 +450,7 @@ describe("Footer", () => {
 
   it("never emits direct region jump hints", async () => {
     const setup = await renderFooter(
-      <FooterHarness region="branches">
+      <FooterHarness region="graph">
         <Registration actionId="focus.region.graph" options={{ scope: "global", owner: "shell" }} />
         <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
       </FooterHarness>,
@@ -415,11 +459,10 @@ describe("Footer", () => {
     await act(async () => {
       await setup.renderOnce();
     });
-    await focusRegion(setup, "branches");
+    await focusRegion(setup, "graph");
 
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("? Help");
     expect(frame).not.toContain("Focus commit graph");
 
     await act(async () => {
@@ -427,7 +470,7 @@ describe("Footer", () => {
     });
   });
 
-  it("never advertises self-evident movement, More, or Esc hints in a context", async () => {
+  it("advertises the More menu trigger and hides self-evident movement and Esc hints", async () => {
     const setup = await renderFooter(
       <FooterHarness region="top-bar">
         <Registration actionId="nav.left" options={{ scope: "top-bar" }} />
@@ -435,6 +478,9 @@ describe("Footer", () => {
         <Registration actionId="nav.activate" options={{ scope: "top-bar" }} />
         <Registration actionId="remote.more" options={{ scope: "global", owner: "top-bar" }} />
         <Registration actionId="overlay.close" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.palette" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.themePicker" options={{ scope: "global", owner: "app" }} />
+        <Registration actionId="app.refresh" options={{ scope: "global", owner: "app" }} />
         <Registration actionId="app.help" options={{ scope: "global", owner: "app" }} />
       </FooterHarness>,
     );
@@ -446,11 +492,14 @@ describe("Footer", () => {
 
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("Enter Activate");
     expect(frame).toContain("? Help");
+    expect(frame).not.toContain("Enter Activate");
+    expect(frame).toContain("Command palette");
+    expect(frame).not.toContain("Theme picker");
+    expect(frame).not.toContain("Refresh");
     expect(frame).not.toContain("Move left");
     expect(frame).not.toContain("Move right");
-    expect(frame).not.toContain("More remote actions");
+    expect(frame).toContain(". More remote actions");
     expect(frame).not.toContain("Close or cancel");
 
     await act(async () => {
@@ -609,7 +658,7 @@ describe("Footer", () => {
     startOperation = () => {};
     const setup = await renderFooterWithRepository("normal", <OperationModeProbe />);
 
-    await focusRegion(setup, "branches");
+    await focusRegion(setup, "top-bar");
 
     expect(setup.captureCharFrame()).toContain("Pull");
 
@@ -634,7 +683,7 @@ describe("Footer", () => {
   it("filters remote hints by availability in a detached HEAD state", async () => {
     const setup = await renderFooterWithRepository("detached");
 
-    await focusRegion(setup, "branches");
+    await focusRegion(setup, "top-bar");
 
     const frame = setup.captureCharFrame();
 
@@ -650,7 +699,7 @@ describe("Footer", () => {
   it("filters remote hints by availability with no configured remote", async () => {
     const setup = await renderFooterWithRepository("no-remote");
 
-    await focusRegion(setup, "branches");
+    await focusRegion(setup, "top-bar");
 
     const frame = setup.captureCharFrame();
 

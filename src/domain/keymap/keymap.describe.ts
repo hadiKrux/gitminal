@@ -124,9 +124,9 @@ function hasModifier(binding: ParsedBinding): boolean {
  *
  * Context actions are listed before globals. A global action is dropped when the focused context
  * binds any of its effective keys to a different action, matching the precedence rule that a
- * context key shadows a global key. Direct region jumps never appear in the footer; Help and the
- * palette are their discovery surfaces. Hints are sorted by priority so a width-constrained footer
- * can drop the least important ones first.
+ * context key shadows a global key, or when `includeGlobals` is `false`. Direct region jumps never
+ * appear in the footer; Help and the palette are their discovery surfaces. Hints are sorted by
+ * priority so a width-constrained footer can drop the least important ones first.
  *
  * @param keymap - The resolved keymap.
  * @param context - Focused region, or `global` when no region owns focus.
@@ -150,6 +150,10 @@ export function describeFooterHints(
   }
 
   for (const actionId of new Set(globalMap.values())) {
+    if (options.includeGlobals === false) {
+      break;
+    }
+
     if (context !== "global" && isShadowedByContext(keymap, actionId, contextMap)) {
       continue;
     }

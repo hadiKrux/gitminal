@@ -90,6 +90,17 @@ describe("describeFooterHints", () => {
     expect(hints.some((hint) => hint.actionId === "remote.pull")).toBe(false);
   });
 
+  it("keeps only context hints when globals are excluded", () => {
+    const keymap = resolveKeymap({ platform: "linux" });
+    const contextActions = new Set(keymap.contexts.get("branches")?.values() ?? []);
+    const hints = describeFooterHints(keymap, "branches", { includeGlobals: false });
+
+    expect(hints.length).toBeGreaterThan(0);
+    expect(hints.every((hint) => contextActions.has(hint.actionId))).toBe(true);
+    expect(hints.some((hint) => hint.actionId === "branch.create")).toBe(true);
+    expect(hints.some((hint) => hint.actionId === "app.help")).toBe(false);
+  });
+
   it("keeps help first and filters by availability", () => {
     const keymap = resolveKeymap({ platform: "linux" });
     const hints = describeFooterHints(keymap, "global", {
