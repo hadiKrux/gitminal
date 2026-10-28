@@ -18,6 +18,7 @@ import { useConsole } from "@/features/console/useConsole";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
 import { Spinner } from "@/ui/Spinner";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
@@ -36,6 +37,7 @@ import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
  */
 export function ConsoleDrawer(): ReactNode {
   const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
   const renderer = useRenderer();
   const dimensions = useTerminalDimensions();
   const log = useConsoleLog();
@@ -83,6 +85,7 @@ export function ConsoleDrawer(): ReactNode {
         flexShrink={1}
         focusable={false}
         viewportCulling
+        scrollbarOptions={scrollbarOptions}
         stickyScroll={log.followMode}
         stickyStart="bottom"
         onMouseScroll={(event) => {

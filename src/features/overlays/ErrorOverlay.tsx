@@ -18,6 +18,7 @@ import { useTokens } from "@/theme/useTokens";
 import type { ButtonProps } from "@/ui/Button.types";
 import { ModalActions } from "@/ui/ModalActions";
 import { ModalFrame } from "@/ui/ModalFrame";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 
 /**
  * Renders the persistent error overlay for a failed command.
@@ -33,6 +34,7 @@ import { ModalFrame } from "@/ui/ModalFrame";
  */
 export function ErrorOverlay(props: ErrorOverlayProps): ReactNode {
   const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
   const [focusedIndex, setFocusedIndex] = useState(0);
   const actions = buildActions(props, focusedIndex);
 
@@ -73,6 +75,7 @@ export function ErrorOverlay(props: ErrorOverlayProps): ReactNode {
           flexShrink={0}
           focusable={false}
           viewportCulling
+          scrollbarOptions={scrollbarOptions}
         >
           <text fg={tokens.muted} wrapMode="word">
             {props.details}

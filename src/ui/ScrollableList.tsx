@@ -1,6 +1,6 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import type { ReactNode, Ref } from "react";
-import { useTokens } from "@/theme/useTokens";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 
 /**
  * Renders a plain scroll container for short or moderate content.
@@ -23,7 +23,7 @@ export function ScrollableList(props: {
   readonly height?: number;
   readonly viewportCulling?: boolean;
 }): ReactNode {
-  const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
 
   return (
     <scrollbox
@@ -35,7 +35,7 @@ export function ScrollableList(props: {
       flexShrink={1}
       focusable={false}
       viewportCulling={props.viewportCulling ?? false}
-      scrollbarOptions={{ trackOptions: { foregroundColor: tokens.scrollbar } }}
+      scrollbarOptions={scrollbarOptions}
     >
       {props.children}
     </scrollbox>

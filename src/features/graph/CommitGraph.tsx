@@ -32,6 +32,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { LoadingRow } from "@/ui/LoadingRow";
 import { Panel } from "@/ui/Panel";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 
 /**
  * Renders the complete Commit panel: frame, header, search field, and row body.
@@ -64,6 +65,7 @@ import { Panel } from "@/ui/Panel";
  */
 export function CommitGraph(): ReactNode {
   const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
   const graph = useCommitGraph();
   const { width, height, onSizeChange } = useScrollViewportSize(graph.scrollRef);
   const searchMode = graph.search.isOpen && graph.search.isResultsMode;
@@ -121,7 +123,7 @@ export function CommitGraph(): ReactNode {
           scrollX={false}
           paddingLeft={GRAPH_CONTENT_PADDING_X}
           paddingRight={GRAPH_CONTENT_PADDING_X}
-          scrollbarOptions={{ trackOptions: { foregroundColor: tokens.scrollbar } }}
+          scrollbarOptions={scrollbarOptions}
           // The explicit one-column width reserves the scrollbar column inside the panel frame, the
           // same way the diff panel does.
           verticalScrollbarOptions={{ width: GRAPH_SCROLLBAR_WIDTH }}

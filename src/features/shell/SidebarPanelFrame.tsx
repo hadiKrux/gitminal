@@ -6,6 +6,7 @@ import { Panel } from "@/ui/Panel";
 import { PANEL_SCROLLBAR_WIDTH } from "@/ui/Panel.constants";
 import { PanelScrollProvider } from "@/ui/PanelScrollContext";
 import type { PanelScrollValue } from "@/ui/PanelScrollContext.types";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 
 /**
  * Renders one focusable sidebar panel frame with its scroll container.
@@ -16,6 +17,8 @@ import type { PanelScrollValue } from "@/ui/PanelScrollContext.types";
  * The drawable width subtracts the vertical scrollbar column from the supplied inner width, so a
  * panel can keep the active row visible and budget row text against the width that is actually
  * paintable even while the scrollbar is shown, without rendering a second scroll container.
+ * Scrollbar color, one-column width, and vertical-only scrolling match the Commit panel; sidebar
+ * bodies retain ownership of their row and filter padding.
  *
  * @param props - Panel data, inner content width before the scrollbar column, flex sizing, and an optional collapsed-layout switcher.
  * @returns The panel frame.
@@ -26,6 +29,7 @@ export function SidebarPanelFrame(props: {
   flexGrow?: number;
   switcher?: ReactNode;
 }): ReactNode {
+  const scrollbarOptions = useScrollbarOptions();
   const region = useFocusRegion(props.panel.regionId);
   const scrollRef = useRef<ScrollBoxRenderable | null>(null);
   const scrollValue = useMemo<PanelScrollValue>(
@@ -48,7 +52,18 @@ export function SidebarPanelFrame(props: {
       minHeight={3}
     >
       {props.switcher}
-      <scrollbox ref={scrollRef} flexGrow={1} focusable={false} viewportCulling>
+      <scrollbox
+        ref={scrollRef}
+        flexGrow={1}
+        flexShrink={1}
+        focusable={false}
+        viewportCulling
+        scrollY
+        scrollX={false}
+        scrollbarOptions={scrollbarOptions}
+        verticalScrollbarOptions={{ width: PANEL_SCROLLBAR_WIDTH }}
+        horizontalScrollbarOptions={{ visible: false }}
+      >
         <PanelScrollProvider value={scrollValue}>{props.panel.content}</PanelScrollProvider>
       </scrollbox>
     </Panel>

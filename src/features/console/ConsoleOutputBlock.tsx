@@ -4,6 +4,7 @@ import { CONSOLE_OUTPUT_MAX_ROWS } from "@/domain/console/console.constants";
 import type { ConsoleOutputBlock as ConsoleOutputBlockData } from "@/domain/console/console.types";
 import { ICONS } from "@/theme/icons";
 import { useTokens } from "@/theme/useTokens";
+import { useScrollbarOptions } from "@/ui/useScrollbarOptions";
 
 /**
  * Renders one labelled output block with its omitted-lines marker.
@@ -21,6 +22,7 @@ export function ConsoleOutputBlock(props: {
   readonly block: ConsoleOutputBlockData;
 }): ReactNode {
   const tokens = useTokens();
+  const scrollbarOptions = useScrollbarOptions();
   const height = readBlockHeight(props.block);
   const parts = splitBlockAtMarker(props.block);
 
@@ -29,7 +31,13 @@ export function ConsoleOutputBlock(props: {
       <text fg={tokens.muted} wrapMode="none">
         {props.label}
       </text>
-      <scrollbox height={height} flexShrink={0} focusable={false} viewportCulling>
+      <scrollbox
+        height={height}
+        flexShrink={0}
+        focusable={false}
+        viewportCulling
+        scrollbarOptions={scrollbarOptions}
+      >
         <text fg={tokens.text} wrapMode="word">
           {parts.head}
         </text>
