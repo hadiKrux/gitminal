@@ -8,8 +8,9 @@ import {
   resetActionRegistry,
   resolveActionHandler,
 } from "@/app/hooks/useAction";
+import { readActionAvailability, resetActionAvailability } from "@/app/hooks/useActionAvailability";
 import { useHotkeys } from "@/app/hooks/useHotkeys";
-import { resetInputEscapeClear } from "@/app/hooks/useInputEscapeClear";
+import { clearFocusedInput, resetInputEscapeClear } from "@/app/hooks/useInputEscapeClear";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import { DEFAULT_CONFIG } from "@/domain/config/config.defaults";
@@ -19,17 +20,19 @@ import { buildListRemoteBranchesArgs } from "@/domain/git/git.remote-branches";
 import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
 import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
 import { CommitGraph } from "@/features/graph/CommitGraph";
-import { commitRowId } from "@/features/graph/CommitRow";
 import {
   GRAPH_CONTENT_PADDING_X,
+  GRAPH_PENDING_ROW_ID,
   GRAPH_LOAD_ERROR_MESSAGE,
   GRAPH_RETRY_ID,
+  GRAPH_LOAD_OLDER_ID,
+  GRAPH_ROW_HEIGHT,
   GRAPH_SCROLL_ID,
-  GRAPH_SCROLL_STEP_ROWS,
   GRAPH_SEARCH_INPUT_ID,
   GRAPH_WALK_ERROR_MESSAGE,
   GRAPH_WALK_RETRY_ID,
 } from "@/features/graph/graph.constants";
+import { graphRowRenderableId, searchResultRowId } from "@/features/graph/graph.rows";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
 import { ICONS } from "@/theme/icons";
@@ -337,6 +340,7 @@ async function renderGraph(
 }
 
 beforeEach(() => {
+  resetActionAvailability();
   resetActionRegistry();
   resetInputModes();
   resetInputEscapeClear();
@@ -362,7 +366,7 @@ interface CoexistingFailureFixture {
  * re-reads the window from an external-tip fixture that excludes the selected history commit, so its
  * restoration walk fails and records the retryable walk notice. In the older-page variant the
  * provider selection is moved directly to the newest loaded row, which no cursor dispatch overwrites,
- * so moving the cursor to the last row preserves the walk notice while the near-bottom effect
+ * so moving the cursor to the last row preserves the walk notice while the explicit graph load action
  * requests the older page that fails. A page failure then takes over the error surface.
  *
  * @param input - Terminal size, graph-slot size, and whether to fail the next older page.
@@ -435,6 +439,10 @@ async function renderCoexistingFailures(input: {
     });
     await act(async () => {
       resolveActionHandler("nav.last", "graph")?.();
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      resolveActionHandler("graph.loadOlder", "graph")?.();
       await setup.renderOnce();
     });
     await waitFor(
@@ -511,8 +519,34 @@ function readOccurrences(frame: string, text: string): number {
   return frame.split(text).length - 1;
 }
 
+/**
+ * Reports whether one graph row is fully inside the graph scrollbox viewport.
+ *
+ * @param setup - Renderer setup.
+ * @param rowId - Renderable id of the row.
+ * @returns True when the row is mounted and both of its lines are inside the viewport.
+ */
+function isRowInsideViewport(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  rowId: string,
+): boolean {
+  const scrollbox = setup.renderer.root.findDescendantById(GRAPH_SCROLL_ID) as
+    | ScrollBoxRenderable
+    | undefined;
+  const row = setup.renderer.root.findDescendantById(rowId);
+
+  if (scrollbox === undefined || row === undefined) {
+    return false;
+  }
+
+  return (
+    row.y >= scrollbox.viewport.y &&
+    row.y + row.height <= scrollbox.viewport.y + scrollbox.viewport.height
+  );
+}
+
 describe("CommitGraph", () => {
-  it("renders loaded rows, the pending row, and the end-of-history marker", async () => {
+  it("renders loaded rows and the pending row", async () => {
     const fake = createGraphClient(async () => fakeGitResult(page(2, "row").output));
     const setup = await renderGraph(fake);
 
@@ -524,7 +558,6 @@ describe("CommitGraph", () => {
     expect(frame).toContain("Commit Changes");
     expect(frame).toContain("row commit 0");
     expect(frame).toContain("row commit 1");
-    expect(frame).toContain("Beginning of history");
 
     await act(async () => {
       await setup.dispose();
@@ -581,7 +614,7 @@ describe("CommitGraph", () => {
     const scrollbox = setup.renderer.root.findDescendantById(
       GRAPH_SCROLL_ID,
     ) as ScrollBoxRenderable;
-    const row = setup.renderer.root.findDescendantById(commitRowId(rows.oids[0] ?? ""));
+    const row = setup.renderer.root.findDescendantById(graphRowRenderableId(rows.oids[0] ?? ""));
 
     expect(row?.x).toBe(scrollbox.x + GRAPH_CONTENT_PADDING_X);
     expect(row?.width).toBe(scrollbox.viewport.width - GRAPH_CONTENT_PADDING_X * 2);
@@ -591,24 +624,242 @@ describe("CommitGraph", () => {
     });
   });
 
-  it("mounts only the visible window plus overscan", async () => {
+  it("mounts every loaded row and sizes the scrollbar from the loaded rows", async () => {
     const rows = page(30, "wide");
     const fake = createGraphClient(async () => fakeGitResult(rows.output));
     const setup = await renderGraph(fake, 40, { height: 12 });
 
     await waitFor(setup, () => setup.captureCharFrame().includes("wide commit 0"));
 
-    expect(setup.renderer.root.findDescendantById(commitRowId(rows.oids[0] ?? ""))).toBeDefined();
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+    const contentHeight = (rows.oids.length + 1) * GRAPH_ROW_HEIGHT;
+
+    for (const oid of rows.oids) {
+      expect(setup.renderer.root.findDescendantById(graphRowRenderableId(oid))).toBeDefined();
+    }
+
     expect(
-      setup.renderer.root.findDescendantById(commitRowId(rows.oids[29] ?? "")),
-    ).toBeUndefined();
+      setup.renderer.root.findDescendantById(graphRowRenderableId(GRAPH_PENDING_ROW_ID)),
+    ).toBeDefined();
+    await waitFor(setup, () => scrollbox.scrollHeight === contentHeight);
+
+    expect(scrollbox.scrollHeight).toBe(contentHeight);
 
     await act(async () => {
       await setup.dispose();
     });
   });
 
-  it("keeps the last selected row, the page error, and the end marker visible at 80x24", async () => {
+  it("keeps the selected row inside the viewport on keyboard navigation", async () => {
+    const rows = page(30, "keyboard");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 40, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("keyboard commit 0"));
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    expect(scrollbox.scrollTop).toBe(0);
+
+    await act(async () => {
+      resolveActionHandler("nav.last", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(
+      setup,
+      () =>
+        latest?.selection.kind === "commit" && latest.selection.oid === (rows.oids[29] as string),
+    );
+    await waitFor(setup, () =>
+      isRowInsideViewport(setup, graphRowRenderableId(rows.oids[29] ?? "")),
+    );
+
+    const row = setup.renderer.root.findDescendantById(graphRowRenderableId(rows.oids[29] ?? ""));
+
+    expect(scrollbox.scrollTop).toBe(scrollbox.scrollHeight - scrollbox.viewport.height);
+    expect(row?.y).toBeGreaterThanOrEqual(scrollbox.viewport.y);
+    expect((row?.y ?? 0) + (row?.height ?? 0)).toBeLessThanOrEqual(
+      scrollbox.viewport.y + scrollbox.viewport.height,
+    );
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("scrolls the viewport on the wheel without moving the selection", async () => {
+    const rows = page(30, "wheelstep");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 40, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("wheelstep commit 0"));
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+    const selectionBefore = latest?.selection;
+
+    for (let step = 0; step < 4; step += 1) {
+      await act(async () => {
+        await setup.mockMouse.scroll(20, 8, "down");
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+
+    await waitFor(setup, () => scrollbox.scrollTop > 0);
+
+    expect(scrollbox.scrollTop).toBeGreaterThan(0);
+    expect(latest?.selection).toEqual(selectionBefore);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("re-anchors the cursor to the visible rows after a native scroll", async () => {
+    const rows = page(30, "anchor");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 40, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("anchor commit 0"));
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    for (let step = 0; step < 6; step += 1) {
+      await act(async () => {
+        await setup.mockMouse.scroll(20, 8, "down");
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+
+    await waitFor(setup, () => scrollbox.scrollTop > 0);
+
+    const scrolledTop = scrollbox.scrollTop;
+    const firstVisible = Math.floor(scrolledTop / GRAPH_ROW_HEIGHT);
+    const anchorOid = rows.oids[firstVisible - 1] as string;
+
+    await act(async () => {
+      resolveActionHandler("nav.down", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    await waitFor(
+      setup,
+      () => latest?.selection.kind === "commit" && latest.selection.oid === anchorOid,
+    );
+
+    expect(latest?.selection).toEqual({ kind: "commit", oid: anchorOid });
+    expect(Math.abs(scrollbox.scrollTop - scrolledTop)).toBeLessThanOrEqual(GRAPH_ROW_HEIGHT);
+    await waitFor(setup, () => isRowInsideViewport(setup, graphRowRenderableId(anchorOid)));
+
+    await act(async () => {
+      resolveActionHandler("nav.down", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    await waitFor(
+      setup,
+      () =>
+        latest?.selection.kind === "commit" &&
+        latest.selection.oid === (rows.oids[firstVisible] as string),
+    );
+
+    expect(latest?.selection).toEqual({
+      kind: "commit",
+      oid: rows.oids[firstVisible] as string,
+    });
+    expect(Math.abs(scrollbox.scrollTop - scrolledTop)).toBeLessThanOrEqual(GRAPH_ROW_HEIGHT);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("anchors an up move to the nearest visible edge after a native scroll", async () => {
+    const rows = page(30, "anchorup");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 40, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("anchorup commit 0"));
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    for (let step = 0; step < 6; step += 1) {
+      await act(async () => {
+        await setup.mockMouse.scroll(20, 8, "down");
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+
+    await waitFor(setup, () => scrollbox.scrollTop > 0);
+
+    const scrolledTop = scrollbox.scrollTop;
+    const firstVisible = Math.floor(scrolledTop / GRAPH_ROW_HEIGHT);
+    const anchorOid = rows.oids[firstVisible - 1] as string;
+
+    await act(async () => {
+      resolveActionHandler("nav.up", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    await waitFor(
+      setup,
+      () => latest?.selection.kind === "commit" && latest.selection.oid === anchorOid,
+    );
+
+    expect(latest?.selection).toEqual({ kind: "commit", oid: anchorOid });
+    expect(Math.abs(scrollbox.scrollTop - scrolledTop)).toBeLessThanOrEqual(GRAPH_ROW_HEIGHT);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("truncates the load control label in the narrow graph slot", async () => {
+    const rows = page(2, "narrowload");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(
+      fake,
+      2,
+      { width: 80, height: 24 },
+      <SlotGraphHost width={20} height={20} />,
+    );
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("Load older"));
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+    const button = setup.renderer.root.findDescendantById(GRAPH_LOAD_OLDER_ID);
+    const line =
+      setup
+        .captureCharFrame()
+        .split("\n")
+        .find((row) => row.includes("Load older")) ?? "";
+
+    expect(line).toContain("...");
+    expect(button?.width ?? 0).toBeLessThanOrEqual(scrollbox.viewport.width);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps the last selected row and the page error visible at 80x24", async () => {
     const rows = page(30, "tall");
     let fail = false;
     const fake = createGraphClient(async () =>
@@ -632,15 +883,15 @@ describe("CommitGraph", () => {
     });
     await waitFor(setup, () => setup.captureCharFrame().includes(GRAPH_LOAD_ERROR_MESSAGE));
 
-    // One more frame lets the measured viewport pick up the taller footer.
+    // One more frame lets the measured viewport pick up the taller footer and the height reveal.
     await act(async () => {
       await setup.renderOnce();
     });
+    await waitFor(setup, () => setup.captureCharFrame().includes("tall commit 29"));
 
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("tall commit 29");
-    expect(frame).toContain("Beginning of history");
     expect(frame).toContain(GRAPH_LOAD_ERROR_MESSAGE);
     expect(frame).toContain("fatal: unable to read history");
     expect(frame).toContain("Retry");
@@ -666,15 +917,14 @@ describe("CommitGraph", () => {
       resolveActionHandler("nav.last", "graph")?.();
       await setup.renderOnce();
     });
-    await waitFor(
-      setup,
-      () => setup.renderer.root.findDescendantById(commitRowId(rows.oids[29] ?? "")) !== undefined,
+    await waitFor(setup, () =>
+      isRowInsideViewport(setup, graphRowRenderableId(rows.oids[29] ?? "")),
     );
 
-    const frame = setup.captureCharFrame();
-
-    expect(frame).toContain("Beginning of");
-    expect(setup.renderer.root.findDescendantById(commitRowId(rows.oids[29] ?? ""))).toBeDefined();
+    expect(isRowInsideViewport(setup, graphRowRenderableId(rows.oids[29] ?? ""))).toBe(true);
+    expect(
+      setup.renderer.root.findDescendantById(graphRowRenderableId(rows.oids[29] ?? "")),
+    ).toBeDefined();
 
     await act(async () => {
       await setup.dispose();
@@ -693,6 +943,11 @@ describe("CommitGraph", () => {
 
     await waitFor(setup, () => setup.captureCharFrame().includes("p commit 0"));
 
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+    const capacity = Math.max(1, Math.floor(scrollbox.viewport.height / GRAPH_ROW_HEIGHT));
+
     await act(async () => {
       resolveActionHandler("nav.down", "graph")?.();
       await setup.renderOnce();
@@ -704,17 +959,18 @@ describe("CommitGraph", () => {
     await waitFor(
       setup,
       () =>
-        latest?.selection.kind === "commit" && latest.selection.oid === (rows.oids[7] as string),
+        latest?.selection.kind === "commit" &&
+        latest.selection.oid === (rows.oids[capacity] as string),
     );
 
-    expect(latest?.selection).toEqual({ kind: "commit", oid: rows.oids[7] as string });
+    expect(latest?.selection).toEqual({ kind: "commit", oid: rows.oids[capacity] as string });
 
     await act(async () => {
       await setup.dispose();
     });
   });
 
-  it("keeps the page Retry, the walk notice, and the end marker in the narrow graph frame", async () => {
+  it("keeps the page Retry and the walk notice in the narrow graph frame", async () => {
     const rows = page(3, "n");
     let fail = false;
     const fake = createGraphClient(async () =>
@@ -757,8 +1013,6 @@ describe("CommitGraph", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("Retry");
-    expect(frame).toContain("Beginning of");
-    expect(frame).toContain("history");
     expect(frame).toContain("n commit 2");
 
     await act(async () => {
@@ -849,7 +1103,7 @@ describe("CommitGraph", () => {
     });
   });
 
-  it("loads an older page at the bottom and then shows the end marker", async () => {
+  it("loads an older page from the explicit action and hides the load control", async () => {
     const first = page(10, "old");
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => {
@@ -867,9 +1121,11 @@ describe("CommitGraph", () => {
     const setup = await renderGraph(fake, 10, { height: 40 });
 
     await waitFor(setup, () => setup.captureCharFrame().includes("old commit 9"));
+    expect(setup.renderer.root.findDescendantById(GRAPH_LOAD_OLDER_ID)).toBeDefined();
+    expect(setup.captureCharFrame()).toContain("10+ commits");
 
     await act(async () => {
-      resolveActionHandler("nav.last", "graph")?.();
+      resolveActionHandler("graph.loadOlder", "graph")?.();
       await setup.renderOnce();
     });
 
@@ -882,9 +1138,345 @@ describe("CommitGraph", () => {
       await setup.renderOnce();
     });
 
-    await waitFor(setup, () => setup.captureCharFrame().includes("Beginning of history"));
+    await waitFor(
+      setup,
+      () =>
+        setup.renderer.root.findDescendantById(GRAPH_LOAD_OLDER_ID) === undefined &&
+        !setup.captureCharFrame().includes("Loading older commits..."),
+    );
 
-    expect(setup.captureCharFrame()).toContain("Beginning of history");
+    expect(setup.captureCharFrame()).not.toContain("Load older commits");
+    expect(setup.captureCharFrame()).toContain("10 commits");
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("loads the next page from the Load older commits button", async () => {
+    const first = page(10, "buttonpage");
+    let olderReads = 0;
+    const fake = createGraphClient(async ({ args }) => {
+      if (args.includes("--branches")) {
+        return fakeGitResult(first.output);
+      }
+
+      olderReads += 1;
+
+      return fakeGitResult(page(1, "buttonend").output);
+    });
+    const setup = await renderGraph(fake, 10, { height: 40 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("Load older commits"));
+
+    await act(async () => {
+      await click(setup, GRAPH_LOAD_OLDER_ID);
+      await setup.renderOnce();
+    });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("buttonend commit 0"));
+
+    expect(olderReads).toBe(1);
+    expect(setup.renderer.root.findDescendantById(GRAPH_LOAD_OLDER_ID)).toBeUndefined();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("does not page history when the cursor reaches the last loaded row", async () => {
+    const first = page(10, "nopage");
+    let olderReads = 0;
+    const fake = createGraphClient(async ({ args }) => {
+      if (args.includes("--branches")) {
+        return fakeGitResult(first.output);
+      }
+
+      olderReads += 1;
+
+      return fakeGitResult(page(1, "nopageend").output);
+    });
+    const setup = await renderGraph(fake, 10, { height: 40 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("nopage commit 9"));
+
+    await act(async () => {
+      resolveActionHandler("nav.last", "graph")?.();
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await setup.renderOnce();
+    });
+
+    expect(olderReads).toBe(0);
+    expect(setup.renderer.root.findDescendantById(GRAPH_LOAD_OLDER_ID)).toBeDefined();
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("blocks the load control while a graph window reload is in flight", async () => {
+    const first = page(10, "inflight");
+    let releaseScope: (() => void) | null = null;
+    let scopeReads = 0;
+    let olderReads = 0;
+    const fake = createGraphClient(async ({ args }) => {
+      if (args.includes("--branches")) {
+        scopeReads += 1;
+
+        if (scopeReads > 1) {
+          await new Promise<void>((resolve) => {
+            releaseScope = resolve;
+          });
+        }
+
+        return fakeGitResult(first.output);
+      }
+
+      olderReads += 1;
+
+      return fakeGitResult("");
+    });
+    const setup = await renderGraph(fake, 10, { height: 40 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("inflight commit 9"));
+
+    let reload: Promise<unknown> | undefined;
+
+    await act(async () => {
+      reload = latest?.refreshGraphWindow();
+      await setup.renderOnce();
+    });
+    await waitFor(setup, () => latest?.isGraphInFlight === true);
+
+    expect(readActionAvailability("graph", "graph.loadOlder")).toBe(false);
+
+    await act(async () => {
+      resolveActionHandler("graph.loadOlder", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    expect(olderReads).toBe(0);
+
+    await act(async () => {
+      releaseScope?.();
+      await reload;
+      await setup.renderOnce();
+    });
+    await waitFor(setup, () => latest?.isGraphInFlight === false);
+    await waitFor(setup, () => readActionAvailability("graph", "graph.loadOlder") === true);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("publishes load availability and keeps the load action inert in every blocked state", async () => {
+    const first = page(10, "gateload");
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let olderReads = 0;
+    const fake = createGraphClient(async ({ args }) => {
+      if (args.includes("--branches")) {
+        return fakeGitResult(first.output);
+      }
+
+      olderReads += 1;
+      await gate;
+
+      return fakeGitResult("");
+    });
+    const setup = await renderGraph(fake, 10, { height: 40 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("gateload commit 9"));
+    await waitFor(setup, () => readActionAvailability("graph", "graph.loadOlder") === true);
+
+    await act(async () => {
+      resolveActionHandler("graph.loadOlder", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(setup, () => setup.captureCharFrame().includes("Loading older commits..."));
+
+    expect(readActionAvailability("graph", "graph.loadOlder")).toBe(false);
+
+    await act(async () => {
+      resolveActionHandler("graph.loadOlder", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    expect(olderReads).toBe(1);
+
+    await act(async () => {
+      release();
+      await setup.renderOnce();
+    });
+    await waitFor(setup, () => readActionAvailability("graph", "graph.loadOlder") === false);
+
+    await act(async () => {
+      resolveActionHandler("graph.loadOlder", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    expect(olderReads).toBe(1);
+
+    await act(async () => {
+      resolveActionHandler("graph.search", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(setup, () => readActionAvailability("graph", "graph.loadOlder") === false);
+
+    await act(async () => {
+      resolveActionHandler("graph.loadOlder", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    expect(olderReads).toBe(1);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("leaves a wheel-scrolled viewport in place when an older page is appended", async () => {
+    const first = page(10, "stay");
+    let olderReads = 0;
+    const fake = createGraphClient(async ({ args }) => {
+      if (args.includes("--branches")) {
+        return fakeGitResult(first.output);
+      }
+
+      olderReads += 1;
+
+      return fakeGitResult(page(5, "staynew").output);
+    });
+    const setup = await renderGraph(fake, 10, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("stay commit 0"));
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    for (let step = 0; step < 4; step += 1) {
+      await act(async () => {
+        await setup.mockMouse.scroll(20, 8, "down");
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+
+    await waitFor(setup, () => scrollbox.scrollTop > 0);
+
+    const scrolledTop = scrollbox.scrollTop;
+    const selectionBefore = latest?.selection;
+
+    await act(async () => {
+      resolveActionHandler("graph.loadOlder", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(
+      setup,
+      () =>
+        setup.renderer.root.findDescendantById(graphRowRenderableId("staynew0004")) !== undefined,
+    );
+
+    expect(olderReads).toBe(1);
+    expect(Math.abs(scrollbox.scrollTop - scrolledTop)).toBeLessThanOrEqual(GRAPH_ROW_HEIGHT);
+    expect(latest?.selection).toEqual(selectionBefore);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("keeps a wheel-scrolled viewport in place when the status footer grows", async () => {
+    const rows = page(30, "staydown");
+    let fail = false;
+    const fake = createGraphClient(async () =>
+      fail ? fakeGitResult("", false, "fatal: unable to read history") : fakeGitResult(rows.output),
+    );
+    const setup = await renderGraph(fake, 40, { height: 24 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("staydown commit 0"));
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    for (let step = 0; step < 6; step += 1) {
+      await act(async () => {
+        await setup.mockMouse.scroll(20, 8, "down");
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+
+    await waitFor(setup, () => scrollbox.scrollTop > 0);
+
+    const scrolledTop = scrollbox.scrollTop;
+    const selectionBefore = latest?.selection;
+
+    fail = true;
+
+    await act(async () => {
+      await latest?.refreshGraphWindow();
+      await setup.renderOnce();
+    });
+    await waitFor(setup, () => setup.captureCharFrame().includes(GRAPH_LOAD_ERROR_MESSAGE));
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    expect(Math.abs(scrollbox.scrollTop - scrolledTop)).toBeLessThanOrEqual(GRAPH_ROW_HEIGHT);
+    expect(latest?.selection).toEqual(selectionBefore);
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("uses the rows above the list as the visible-range origin", async () => {
+    const rows = page(30, "originmiss");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 40, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("originmiss commit 0"));
+
+    await act(async () => {
+      await latest?.selectCommit("deadbee");
+      await setup.renderOnce();
+    });
+    await waitFor(setup, () =>
+      setup.captureCharFrame().includes("Commit is not within the loaded history"),
+    );
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    await act(async () => {
+      scrollbox.scrollTop = 6;
+      await setup.renderOnce();
+    });
+
+    await act(async () => {
+      resolveActionHandler("nav.down", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    await waitFor(
+      setup,
+      () =>
+        latest?.selection.kind === "commit" && latest.selection.oid === (rows.oids[1] as string),
+    );
+
+    expect(latest?.selection).toEqual({ kind: "commit", oid: rows.oids[1] as string });
 
     await act(async () => {
       await setup.dispose();
@@ -893,17 +1485,22 @@ describe("CommitGraph", () => {
 
   it("keeps loaded rows usable and shows distinct details when an older page fails", async () => {
     const first = page(2, "keep");
-    const fake = createGraphClient(async ({ args }) =>
-      args.includes("--branches")
-        ? fakeGitResult(first.output)
-        : fakeGitResult("", false, "fatal: unable to read history"),
-    );
+    let olderReads = 0;
+    const fake = createGraphClient(async ({ args }) => {
+      if (args.includes("--branches")) {
+        return fakeGitResult(first.output);
+      }
+
+      olderReads += 1;
+
+      return fakeGitResult("", false, "fatal: unable to read history");
+    });
     const setup = await renderGraph(fake, 2, { height: 40 });
 
     await waitFor(setup, () => setup.captureCharFrame().includes("keep commit 1"));
 
     await act(async () => {
-      resolveActionHandler("nav.last", "graph")?.();
+      resolveActionHandler("graph.loadOlder", "graph")?.();
       await setup.renderOnce();
     });
 
@@ -913,12 +1510,23 @@ describe("CommitGraph", () => {
     );
 
     expect(setup.renderer.root.findDescendantById(GRAPH_RETRY_ID)).toBeDefined();
-    expect(setup.renderer.root.findDescendantById(commitRowId(first.oids[0] ?? ""))).toBeDefined();
+    expect(
+      setup.renderer.root.findDescendantById(graphRowRenderableId(first.oids[0] ?? "")),
+    ).toBeDefined();
+    await waitFor(setup, () => setup.captureCharFrame().includes(GRAPH_LOAD_ERROR_MESSAGE));
 
     const frame = setup.captureCharFrame();
 
     expect(readOccurrences(frame, GRAPH_LOAD_ERROR_MESSAGE)).toBe(1);
     expect(frame).toContain("fatal: unable to read history");
+    expect(readActionAvailability("graph", "graph.loadOlder")).toBe(false);
+
+    await act(async () => {
+      resolveActionHandler("graph.loadOlder", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    expect(olderReads).toBe(1);
 
     await act(async () => {
       await setup.dispose();
@@ -1140,7 +1748,9 @@ describe("CommitGraph", () => {
     });
 
     expect(latest?.selection).toEqual({ kind: "commit", oid: rows.oids[0] as string });
-    expect(setup.renderer.root.findDescendantById(commitRowId(rows.oids[0] ?? ""))).toBeDefined();
+    expect(
+      setup.renderer.root.findDescendantById(graphRowRenderableId(rows.oids[0] ?? "")),
+    ).toBeDefined();
     expect(setup.captureCharFrame()).toContain("keep commit 0");
 
     await act(async () => {
@@ -1259,7 +1869,7 @@ describe("CommitGraph", () => {
     await waitFor(setup, () => setup.captureCharFrame().includes("multi commit 1"));
 
     await act(async () => {
-      resolveActionHandler("nav.last", "graph")?.();
+      resolveActionHandler("graph.loadOlder", "graph")?.();
       await setup.renderOnce();
     });
     await waitFor(setup, () => setup.captureCharFrame().includes("multi commit 3"));
@@ -1376,14 +1986,14 @@ describe("CommitGraph", () => {
     expect(readOccurrences(frame, "main commit 0")).toBe(1);
 
     await act(async () => {
-      resolveActionHandler("nav.last", "graph")?.();
+      resolveActionHandler("graph.loadOlder", "graph")?.();
       await setup.renderOnce();
     });
     await waitFor(setup, () => setup.captureCharFrame().includes("main commit 2"));
 
     const olderFrame = setup.captureCharFrame();
 
-    expect(olderFrame).toContain("Beginning of history");
+    expect(setup.renderer.root.findDescendantById(GRAPH_LOAD_OLDER_ID)).toBeUndefined();
     expect(readOccurrences(olderFrame, "main commit 0")).toBe(1);
     expect(readOccurrences(olderFrame, "main commit 1")).toBe(1);
     expect(readOccurrences(olderFrame, "main commit 2")).toBe(1);
@@ -1577,7 +2187,7 @@ describe("CommitGraph", () => {
     );
 
     expect(latest?.selection).toEqual({ kind: "commit", oid: "hist0019" });
-    expect(setup.renderer.root.findDescendantById(commitRowId("hist0019"))).toBeDefined();
+    expect(setup.renderer.root.findDescendantById(graphRowRenderableId("hist0019"))).toBeDefined();
     expect(setup.captureCharFrame()).toContain("hist commit 19");
 
     await act(async () => {
@@ -2010,7 +2620,7 @@ describe("CommitGraph", () => {
     await waitFor(setup, () => setup.captureCharFrame().includes("keep commit 1"));
 
     await act(async () => {
-      resolveActionHandler("nav.last", "graph")?.();
+      resolveActionHandler("graph.loadOlder", "graph")?.();
       await setup.renderOnce();
     });
     await waitFor(setup, () => setup.captureCharFrame().includes("Loading older commits..."));
@@ -2029,11 +2639,7 @@ describe("CommitGraph", () => {
     expect(setup.captureCharFrame()).not.toContain("stale commit 0");
 
     await act(async () => {
-      resolveActionHandler("nav.first", "graph")?.();
-      await setup.renderOnce();
-    });
-    await act(async () => {
-      resolveActionHandler("nav.last", "graph")?.();
+      resolveActionHandler("graph.loadOlder", "graph")?.();
       await setup.renderOnce();
     });
 
@@ -2160,12 +2766,12 @@ describe("CommitGraph", () => {
     });
   });
 
-  it("moves the search-result cursor by a bounded wheel step without native scrolling", async () => {
-    const rows = page(10, "find");
+  it("scrolls the search results on the wheel without moving the result cursor", async () => {
+    const rows = page(30, "find");
     const fake = createGraphClient(async () => fakeGitResult(rows.output));
-    const setup = await renderGraph(fake, 10, { height: 30 });
+    const setup = await renderGraph(fake, 40, { height: 14 });
 
-    await waitFor(setup, () => setup.captureCharFrame().includes("find commit 2"));
+    await waitFor(setup, () => setup.captureCharFrame().includes("find commit 0"));
 
     await act(async () => {
       resolveActionHandler("graph.search", "graph")?.();
@@ -2183,80 +2789,14 @@ describe("CommitGraph", () => {
     await waitFor(
       setup,
       () =>
-        setup.renderer.root.findDescendantById(`graph-search-row:${rows.oids[0] ?? ""}`) !==
-        undefined,
+        setup.renderer.root.findDescendantById(searchResultRowId(rows.oids[0] ?? "")) !== undefined,
     );
 
     const scrollbox = setup.renderer.root.findDescendantById(
       GRAPH_SCROLL_ID,
     ) as ScrollBoxRenderable;
-    const scrollTop = scrollbox.scrollTop;
 
-    await act(async () => {
-      await setup.mockMouse.scroll(20, 8, "down");
-    });
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    expect(scrollbox.scrollTop).toBe(scrollTop);
-
-    await act(async () => {
-      resolveActionHandler("nav.activate", "graph")?.();
-      await setup.renderOnce();
-    });
-
-    expect(latest?.selection).toEqual({
-      kind: "commit",
-      oid: rows.oids[GRAPH_SCROLL_STEP_ROWS] as string,
-    });
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("defers the wheel selection until the scroll settles", async () => {
-    const rows = page(10, "wheel");
-    const fake = createGraphClient(async () => fakeGitResult(rows.output));
-    const setup = await renderGraph(fake, 10, { height: 30 });
-
-    await waitFor(setup, () => setup.captureCharFrame().includes("wheel commit 2"));
-
-    await act(async () => {
-      await setup.mockMouse.scroll(20, 8, "down");
-    });
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    expect(latest?.selection).toEqual({ kind: "pending" });
-
-    await waitFor(
-      setup,
-      () =>
-        latest?.selection.kind === "commit" &&
-        latest.selection.oid === rows.oids[GRAPH_SCROLL_STEP_ROWS - 1],
-    );
-
-    expect(latest?.selection).toEqual({
-      kind: "commit",
-      oid: rows.oids[GRAPH_SCROLL_STEP_ROWS - 1] as string,
-    });
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("dispatches only the settled row for a burst of wheel events", async () => {
-    const rows = page(20, "burst");
-    const fake = createGraphClient(async () => fakeGitResult(rows.output));
-    const setup = await renderGraph(fake, 20, { height: 30 });
-
-    await waitFor(setup, () => setup.captureCharFrame().includes("burst commit 2"));
-
-    for (let scroll = 0; scroll < 2; scroll += 1) {
+    for (let step = 0; step < 4; step += 1) {
       await act(async () => {
         await setup.mockMouse.scroll(20, 8, "down");
       });
@@ -2265,18 +2805,18 @@ describe("CommitGraph", () => {
       });
     }
 
-    expect(latest?.selection).toEqual({ kind: "pending" });
+    await waitFor(setup, () => scrollbox.scrollTop > 0);
 
-    await waitFor(
-      setup,
-      () =>
-        latest?.selection.kind === "commit" &&
-        latest.selection.oid === rows.oids[GRAPH_SCROLL_STEP_ROWS * 2 - 1],
-    );
+    expect(scrollbox.scrollTop).toBeGreaterThan(0);
+
+    await act(async () => {
+      resolveActionHandler("nav.activate", "graph")?.();
+      await setup.renderOnce();
+    });
 
     expect(latest?.selection).toEqual({
       kind: "commit",
-      oid: rows.oids[GRAPH_SCROLL_STEP_ROWS * 2 - 1] as string,
+      oid: rows.oids[0] as string,
     });
 
     await act(async () => {
@@ -2284,27 +2824,267 @@ describe("CommitGraph", () => {
     });
   });
 
-  it("drops the pending wheel row when another surface selects a value", async () => {
-    const rows = page(10, "external");
+  it("reveals the selected search result through the same scrollbox", async () => {
+    const rows = page(30, "matches");
     const fake = createGraphClient(async () => fakeGitResult(rows.output));
-    const setup = await renderGraph(fake, 10, { height: 30 });
+    const setup = await renderGraph(fake, 40, { height: 14 });
 
-    await waitFor(setup, () => setup.captureCharFrame().includes("external commit 2"));
+    await waitFor(setup, () => setup.captureCharFrame().includes("matches commit 0"));
 
     await act(async () => {
-      await setup.mockMouse.scroll(20, 8, "down");
+      resolveActionHandler("graph.search", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(
+      setup,
+      () => setup.renderer.root.findDescendantById(GRAPH_SEARCH_INPUT_ID) !== undefined,
+    );
+
+    await act(async () => {
+      await setup.mockInput.typeText("matches");
+    });
+    await waitFor(
+      setup,
+      () =>
+        setup.renderer.root.findDescendantById(searchResultRowId(rows.oids[29] ?? "")) !==
+        undefined,
+    );
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    expect(scrollbox.scrollTop).toBe(0);
+
+    await act(async () => {
+      resolveActionHandler("nav.last", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(setup, () => isRowInsideViewport(setup, searchResultRowId(rows.oids[29] ?? "")));
+
+    const row = setup.renderer.root.findDescendantById(searchResultRowId(rows.oids[29] ?? ""));
+
+    expect(scrollbox.scrollTop).toBeGreaterThan(0);
+    expect(row?.y).toBeGreaterThanOrEqual(scrollbox.viewport.y);
+    expect((row?.y ?? 0) + (row?.height ?? 0)).toBeLessThanOrEqual(
+      scrollbox.viewport.y + scrollbox.viewport.height,
+    );
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("re-anchors the search result cursor to the visible results after a native scroll", async () => {
+    const rows = page(30, "searchanchor");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 40, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("searchanchor commit 0"));
+
+    await act(async () => {
+      resolveActionHandler("graph.search", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(
+      setup,
+      () => setup.renderer.root.findDescendantById(GRAPH_SEARCH_INPUT_ID) !== undefined,
+    );
+
+    await act(async () => {
+      await setup.mockInput.typeText("searchanchor");
+    });
+    await waitFor(
+      setup,
+      () =>
+        setup.renderer.root.findDescendantById(searchResultRowId(rows.oids[0] ?? "")) !== undefined,
+    );
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    for (let step = 0; step < 6; step += 1) {
+      await act(async () => {
+        await setup.mockMouse.scroll(20, 8, "down");
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+
+    await waitFor(setup, () => scrollbox.scrollTop > 0);
+
+    const scrolledTop = scrollbox.scrollTop;
+    const firstVisible = Math.floor(scrolledTop / GRAPH_ROW_HEIGHT);
+
+    await act(async () => {
+      resolveActionHandler("nav.down", "graph")?.();
+      await setup.renderOnce();
     });
     await act(async () => {
-      latest?.setSelection({ kind: "stash", objectName: "stash@{0}" });
+      resolveActionHandler("nav.activate", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    await waitFor(
+      setup,
+      () =>
+        latest?.selection.kind === "commit" &&
+        latest.selection.oid === (rows.oids[firstVisible] as string),
+    );
+
+    expect(latest?.selection).toEqual({
+      kind: "commit",
+      oid: rows.oids[firstVisible] as string,
+    });
+    await waitFor(
+      setup,
+      () => setup.renderer.root.findDescendantById(GRAPH_SEARCH_INPUT_ID) === undefined,
+    );
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("reveals an off-screen confirmed search result after the body switches back to the graph", async () => {
+    const rows = page(30, "confirm");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 40, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("confirm commit 0"));
+
+    await act(async () => {
+      resolveActionHandler("graph.search", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(
+      setup,
+      () => setup.renderer.root.findDescendantById(GRAPH_SEARCH_INPUT_ID) !== undefined,
+    );
+
+    await act(async () => {
+      await setup.mockInput.typeText("confirm");
+    });
+    await waitFor(
+      setup,
+      () =>
+        setup.renderer.root.findDescendantById(searchResultRowId(rows.oids[0] ?? "")) !== undefined,
+    );
+
+    await act(async () => {
+      resolveActionHandler("nav.last", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(
+      setup,
+      () => isRowInsideViewport(setup, searchResultRowId(rows.oids[29] ?? "")) === true,
+    );
+
+    const scrollbox = setup.renderer.root.findDescendantById(
+      GRAPH_SCROLL_ID,
+    ) as ScrollBoxRenderable;
+
+    let steps = 0;
+
+    while (scrollbox.scrollTop > 0 && steps < 200) {
+      await act(async () => {
+        await setup.mockMouse.scroll(20, 8, "up");
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+      steps += 1;
+    }
+
+    expect(steps).toBeLessThan(200);
+    expect(scrollbox.scrollTop).toBe(0);
+    expect(isRowInsideViewport(setup, searchResultRowId(rows.oids[29] ?? ""))).toBe(false);
+
+    await act(async () => {
+      resolveActionHandler("nav.activate", "graph")?.();
+      await setup.renderOnce();
+    });
+
+    await waitFor(
+      setup,
+      () =>
+        latest?.selection.kind === "commit" && latest.selection.oid === (rows.oids[29] as string),
+    );
+    await waitFor(
+      setup,
+      () => setup.renderer.root.findDescendantById(GRAPH_SEARCH_INPUT_ID) === undefined,
+    );
+    await waitFor(setup, () =>
+      isRowInsideViewport(setup, graphRowRenderableId(rows.oids[29] ?? "")),
+    );
+
+    expect(isRowInsideViewport(setup, graphRowRenderableId(rows.oids[29] ?? ""))).toBe(true);
+    expect(latest?.selection).toEqual({ kind: "commit", oid: rows.oids[29] as string });
+
+    await act(async () => {
+      await setup.dispose();
+    });
+  });
+
+  it("restores the pre-search selection and reveals it when search is cancelled", async () => {
+    const rows = page(30, "session");
+    const fake = createGraphClient(async () => fakeGitResult(rows.output));
+    const setup = await renderGraph(fake, 40, { height: 14 });
+
+    await waitFor(setup, () => setup.captureCharFrame().includes("session commit 0"));
+
+    for (let step = 0; step < 10; step += 1) {
+      await act(async () => {
+        resolveActionHandler("nav.down", "graph")?.();
+        await setup.renderOnce();
+      });
+    }
+
+    await waitFor(setup, () => latest?.selection.kind === "commit");
+
+    const selectedOid = latest?.selection.kind === "commit" ? latest.selection.oid : "";
+
+    await act(async () => {
+      resolveActionHandler("graph.search", "graph")?.();
+      await setup.renderOnce();
+    });
+    await waitFor(
+      setup,
+      () => setup.renderer.root.findDescendantById(GRAPH_SEARCH_INPUT_ID) !== undefined,
+    );
+
+    await act(async () => {
+      await setup.mockInput.typeText("session");
+    });
+    await waitFor(
+      setup,
+      () =>
+        setup.renderer.root.findDescendantById(searchResultRowId(rows.oids[0] ?? "")) !== undefined,
+    );
+
+    await act(async () => {
+      resolveActionHandler("nav.last", "graph")?.();
       await setup.renderOnce();
     });
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(clearFocusedInput(GRAPH_SEARCH_INPUT_ID)).toBe(true);
       await setup.renderOnce();
     });
+    await waitFor(
+      setup,
+      () => setup.renderer.root.findDescendantById(GRAPH_SEARCH_INPUT_ID) === undefined,
+    );
+    await waitFor(
+      setup,
+      () => latest?.selection.kind === "commit" && latest.selection.oid === selectedOid,
+    );
+    await waitFor(setup, () => isRowInsideViewport(setup, graphRowRenderableId(selectedOid)));
 
-    expect(latest?.selection).toEqual({ kind: "stash", objectName: "stash@{0}" });
+    expect(isRowInsideViewport(setup, graphRowRenderableId(selectedOid))).toBe(true);
+    expect(latest?.selection).toEqual({ kind: "commit", oid: selectedOid });
 
     await act(async () => {
       await setup.dispose();

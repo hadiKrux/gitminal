@@ -109,8 +109,6 @@ export interface SearchSnapshot {
   readonly selection: UseCommitSearchInput["selection"];
   /** Graph cursor before search. */
   readonly cursorId: string | null;
-  /** Scroll offset before search. */
-  readonly scrollTop: number;
   /** Provider generation when search opened. */
   readonly generation: number;
 }
@@ -141,12 +139,42 @@ export interface GraphWalkError {
   readonly retryable: boolean;
 }
 
-/** Half-open row range mounted for one render. */
-export interface VisibleWindow {
-  /** First mounted row index. */
-  readonly start: number;
-  /** Exclusive end index. */
-  readonly end: number;
+/** Inputs for the explicit older-page control availability. */
+export interface GraphLoadOlderAvailability {
+  /** True while search owns the graph surface. */
+  readonly searchOpen: boolean;
+  /** True when history is exhausted. */
+  readonly isDone: boolean;
+  /** True while an older page is loading. */
+  readonly isLoadingOlder: boolean;
+  /** True while a graph-window reload owns the read. */
+  readonly isGraphInFlight: boolean;
+  /** Current page error, or null. */
+  readonly pageError: string | null;
+  /** Number of loaded graph rows. */
+  readonly rowCount: number;
+}
+
+/** Inclusive range of two-line graph rows visible at one native scroll offset. */
+export interface GraphVisibleRows {
+  /** Index of the first visible row. */
+  readonly first: number;
+  /** Index of the last visible row, which may exceed the loaded row count. */
+  readonly last: number;
+}
+
+/**
+ * Row identity and position the graph asks its own scrollbox to reveal.
+ *
+ * The graph mounts every loaded row, so the selected row is revealed through
+ * `useScrollSelectedRow` and the scrollbox's own `scrollChildIntoView` instead of a hand-rolled
+ * mounted slice.
+ */
+export interface GraphRevealTarget {
+  /** Renderable id of the row to reveal, or null when the body has no row. */
+  readonly childId: string | null;
+  /** Position of that row in the rendered body, which changes when rows are inserted above it. */
+  readonly revision: number;
 }
 
 /** Inputs accepted by `useCommitSearch`. */
@@ -223,8 +251,6 @@ export interface CommitSearchHandle {
   readonly handleResultClick: (index: number) => void;
   /** Moves the result cursor by one page. */
   readonly pageBy: (direction: "up" | "down") => void;
-  /** Moves the result cursor by a bounded row delta for one mouse-wheel event. */
-  readonly scrollBy: (delta: number) => void;
   /**
    * Handles one list navigation action while search owns the cursor.
    *
@@ -258,6 +284,8 @@ export interface CommitGraphHandle {
   readonly isEmpty: boolean;
   /** True when history is exhausted. */
   readonly isDone: boolean;
+  /** True when an older page can be requested from the explicit load control. */
+  readonly canLoadOlder: boolean;
   /** Loaded commit count. */
   readonly loadedCount: number;
   /** Human-readable scope label. */
@@ -272,8 +300,8 @@ export interface CommitGraphHandle {
   readonly retry: () => void;
   /** Retries the failed window reload that owns a retryable walk notice. */
   readonly retryWalk: () => void;
-  /** Moves the active cursor by a bounded row delta for one mouse-wheel event. */
-  readonly scrollBy: (delta: number) => void;
+  /** Asks the paginator for the next older page. */
+  readonly loadOlder: () => void;
   /** Selects a clicked normal row and confirms a double click. */
   readonly handleRowClick: (index: number) => void;
 }

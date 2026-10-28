@@ -72,7 +72,6 @@ describe("GraphStatusFooter", () => {
         isLoadingOlder={false}
         walkError={{ message: GRAPH_WALK_ERROR_MESSAGE, retryable: true }}
         pageError={GRAPH_LOAD_ERROR_MESSAGE}
-        isDone
         width={60}
         onRetry={() => {}}
         onWalkRetry={() => {}}
@@ -82,7 +81,6 @@ describe("GraphStatusFooter", () => {
 
     expect(frame).toContain(GRAPH_WALK_ERROR_MESSAGE);
     expect(frame).toContain(GRAPH_LOAD_ERROR_MESSAGE);
-    expect(frame).toContain("Beginning of history");
     expect(frame).toContain("Retry");
     expect(setup.renderer.root.findDescendantById(GRAPH_WALK_RETRY_ID)).toBeDefined();
     expect(setup.renderer.root.findDescendantById(GRAPH_RETRY_ID)).toBeDefined();
@@ -99,7 +97,6 @@ describe("GraphStatusFooter", () => {
         isLoadingOlder={false}
         walkError={{ message: GRAPH_WALK_ERROR_MESSAGE, retryable: true }}
         pageError="fatal: unable to read history because the object store is corrupt"
-        isDone
         width={18}
         onRetry={() => {}}
         onWalkRetry={() => {}}
@@ -110,8 +107,6 @@ describe("GraphStatusFooter", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("Retry");
-    expect(frame).toContain("Beginning of");
-    expect(frame).toContain("history");
     expect(frame).toContain(GRAPH_WALK_ERROR_MESSAGE.slice(0, 6));
 
     await act(async () => {
@@ -128,7 +123,6 @@ describe("GraphStatusFooter", () => {
         isLoadingOlder={false}
         walkError={null}
         pageError={details}
-        isDone
         width={15}
         onRetry={() => {}}
         onWalkRetry={() => {}}
@@ -162,7 +156,6 @@ describe("GraphStatusFooter", () => {
         isLoadingOlder={false}
         walkError={{ message: GRAPH_WALK_ERROR_MESSAGE, retryable: true }}
         pageError={GRAPH_LOAD_ERROR_MESSAGE}
-        isDone={false}
         width={40}
         onRetry={() => {
           pageRetries += 1;

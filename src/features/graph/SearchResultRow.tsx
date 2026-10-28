@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { formatCommitDate, shortenAuthor, shortenOid } from "@/features/graph/graph.format";
 import { classifyDecorations, fitRefBadges, flattenRefBadges } from "@/features/graph/graph.refs";
+import { searchResultRowId } from "@/features/graph/graph.rows";
 import { highlightTerms } from "@/features/graph/graph.snippet";
 import type { SearchResultView } from "@/features/graph/graph.types";
 import { truncateText } from "@/lib/text";
@@ -17,7 +18,9 @@ const ROW_MARKER_WIDTH = 1;
  * The row hides graph lanes and the Pending Changes row. It shows the short hash, the subject with
  * matched terms highlighted, the affected file count, ref badges, author, and date, plus one body
  * snippet when the match came from the body. Matching terms remain readable without color because
- * the snippet keeps the literal text around them.
+ * the snippet keeps the literal text around them. The row carries the stable
+ * `graph-search-row:<oid>` renderable id, so the search result cursor is revealed through the same
+ * scrollbox path as a graph row.
  *
  * @param props - Prepared result, the measured row width, parsed search terms, selection and focus
  * flags, and the mouse handler.
@@ -47,7 +50,7 @@ export function SearchResultRow(props: {
 
   return (
     <ListRow
-      id={`graph-search-row:${props.view.id}`}
+      id={searchResultRowId(props.view.id)}
       selected={props.selected}
       focused={props.focused}
       onMouseDown={props.onMouseDown}

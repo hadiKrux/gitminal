@@ -17,7 +17,9 @@ const DOUBLE_CLICK_THRESHOLD_MS = 400;
  * `nav.activate` in the region scope, plus `nav.first` and `nav.last` only when the region binds
  * them. It never registers `focus.*` or `app.refresh`, never calls `focus()`, and never activates
  * an empty list. When the list shrinks, the index clamps; when the active item disappears, the
- * cursor falls back to the same position in the new list. An empty list leaves the stored cursor in
+ * cursor falls back to the same position in the new list. A caller that owns a free-scrolling
+ * viewport may supply `resolveMoveIndex` so an up or down move re-anchors a cursor that scrolled out
+ * of view instead of revealing the stale row. An empty list leaves the stored cursor in
  * place, so the selection returns when rows arrive after a load; it is never cleared on the caller's
  * behalf. A double click reports the clicked row index to the caller, so activation targets the row
  * the user clicked even when no render separates the two mouse events.
@@ -77,16 +79,20 @@ export function useListCursor(options: UseListCursorOptions): ListCursorHandle {
       return;
     }
 
-    setIndex((current) => clampIndex(current - 1, options.items.length));
-  }, [options.delegateAction, options.items.length]);
+    setIndex((current) =>
+      clampIndex(options.resolveMoveIndex?.("up", current) ?? current - 1, options.items.length),
+    );
+  }, [options.delegateAction, options.items.length, options.resolveMoveIndex]);
 
   const moveDown = useCallback((): void => {
     if (options.delegateAction?.("down") === true) {
       return;
     }
 
-    setIndex((current) => clampIndex(current + 1, options.items.length));
-  }, [options.delegateAction, options.items.length]);
+    setIndex((current) =>
+      clampIndex(options.resolveMoveIndex?.("down", current) ?? current + 1, options.items.length),
+    );
+  }, [options.delegateAction, options.items.length, options.resolveMoveIndex]);
 
   const moveFirst = useCallback((): void => {
     if (options.delegateAction?.("first") === true) {

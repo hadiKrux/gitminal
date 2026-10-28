@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
-import { act, type ReactNode } from "react";
+import { act, type ReactNode, useRef } from "react";
 import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
 import type { SearchResultView } from "@/features/graph/graph.types";
 import { useSearchSelection } from "@/features/graph/useSearchSelection";
@@ -28,8 +29,11 @@ const RESULT = { id: "abc123" } as unknown as SearchResultView;
 
 /** Renders the hook with scripted collaborators. */
 function Probe(): ReactNode {
+  const scrollRef = useRef<ScrollBoxRenderable | null>(null);
+
   latest = useSearchSelection({
     results: [RESULT],
+    scrollRef,
     isOpen: true,
     isResultsMode: true,
     isLoading: false,

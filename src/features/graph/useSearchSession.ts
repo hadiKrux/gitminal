@@ -1,5 +1,4 @@
-import type { ScrollBoxRenderable } from "@opentui/core";
-import { type RefObject, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { registerInputMode } from "@/app/hooks/inputMode.registry";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { registerInputEscapeClear } from "@/app/hooks/useInputEscapeClear";
@@ -15,11 +14,14 @@ import type { SearchSnapshot } from "@/features/graph/graph.types";
 /**
  * Owns the search surface lifetime: opening, closing, snapshot restore, and auto-cancel.
  *
- * The snapshot captures the provider selection, graph cursor, scroll offset, and generation on open.
- * One Esc restores it, while confirming a result writes the new cursor and keeps it. Losing graph
- * focus, changing the scope, a generation move, or another overlay opening cancels the search and
- * restores the snapshot. Opening is refused in an empty repository with the "No commits to search"
- * status, and an open search closes itself if the repository becomes empty.
+ * The snapshot captures the provider selection, graph cursor, and generation on open. The viewport
+ * offset is deliberately not part of the snapshot: mouse wheel scrolling is a free viewport action,
+ * so a saved offset can point at rows where the restored cursor is not visible. One Esc restores the
+ * selection and cursor, and the graph's reveal brings that row into view. Confirming a result writes
+ * the chosen cursor instead. Losing graph focus, changing the scope, a generation move, or another
+ * overlay opening cancels the search and restores the snapshot. Opening is refused in an empty
+ * repository with the "No commits to search" status, and an open search closes itself if the
+ * repository becomes empty.
  *
  * @param input - Surface flags, graph focus access, snapshot sources, and the two reset callbacks.
  * @returns The open state plus the open, close, and cancel entry points.
@@ -35,7 +37,6 @@ export function useSearchSession(input: {
   readonly selection: RepositorySelection;
   readonly readCursor: () => string | null;
   readonly writeCursor: (id: string | null) => void;
-  readonly scrollRef: RefObject<ScrollBoxRenderable | null>;
   readonly setBoundedMiss: (visible: boolean) => void;
   readonly setSelection: (selection: RepositorySelection) => void;
   readonly resetResults: () => void;
@@ -50,7 +51,6 @@ export function useSearchSession(input: {
     readCursor,
     resetResults,
     resetSelection,
-    scrollRef,
     selection,
     setBoundedMiss,
     setIsOpen,
@@ -88,10 +88,6 @@ export function useSearchSession(input: {
         setSelection(snapshot.selection);
         writeCursor(snapshot.cursorId);
 
-        if (scrollRef.current !== null) {
-          scrollRef.current.scrollTop = snapshot.scrollTop;
-        }
-
         if (mode === "cancel") {
           setBoundedMiss(false);
         }
@@ -103,7 +99,6 @@ export function useSearchSession(input: {
       focusGraph,
       resetResults,
       resetSelection,
-      scrollRef,
       setBoundedMiss,
       setIsOpen,
       setSelection,
@@ -133,7 +128,6 @@ export function useSearchSession(input: {
     snapshotRef.current = {
       selection,
       cursorId: readCursor(),
-      scrollTop: scrollRef.current?.scrollTop ?? 0,
       generation,
     };
     resetResults();
@@ -148,7 +142,6 @@ export function useSearchSession(input: {
     readCursor,
     resetResults,
     resetSelection,
-    scrollRef,
     selection,
     setBoundedMiss,
     setIsOpen,

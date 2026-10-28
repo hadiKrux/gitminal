@@ -5,8 +5,9 @@ import {
   GRAPH_PENDING_LABEL,
   GRAPH_PENDING_LINE_CELL,
   GRAPH_PENDING_NODE_CELL,
-  GRAPH_PENDING_ROW_RENDERABLE_ID,
+  GRAPH_PENDING_ROW_ID,
 } from "@/features/graph/graph.constants";
+import { graphRowRenderableId } from "@/features/graph/graph.rows";
 import { useTokens } from "@/theme/useTokens";
 import { ListRow } from "@/ui/ListRow";
 
@@ -20,8 +21,9 @@ import { ListRow } from "@/ui/ListRow";
  * When the loaded window has commits, the row is the top of the tree: it draws a commit symbol in
  * the first lane and continues that lane on its second line, so the graph reads as one shape down
  * to the newest commit. It always occupies exactly one lane, so its text sits right after that lane
- * and lines up with a linear commit row. The row suppresses the `ListRow` selection marker, so the
- * dark selected fill and the focused region border identify the cursor row without a leading glyph.
+ * and lines up with a linear commit row. The row carries the stable `graph-row:pending` renderable
+ * id the graph scrollbox reveals, and it suppresses the `ListRow` selection marker, so the dark
+ * selected fill and the focused region border identify the cursor row without a leading glyph.
  *
  * @param props - Unstaged count, whether a commit follows, selection and focus flags, and the mouse
  * handler.
@@ -44,7 +46,7 @@ export function PendingChangesRow(props: {
 
   return (
     <ListRow
-      id={GRAPH_PENDING_ROW_RENDERABLE_ID}
+      id={graphRowRenderableId(GRAPH_PENDING_ROW_ID)}
       selected={props.selected}
       focused={props.focused}
       showMarker={false}

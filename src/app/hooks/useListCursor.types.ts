@@ -18,6 +18,19 @@ export interface UseListCursorOptions {
   /** Registers `nav.first` and `nav.last` only when the region binds them. Defaults to true. */
   readonly enableFirstLast?: boolean;
   /**
+   * Resolves the requested next row index for one up or down move.
+   *
+   * The default moves one row from the current index. A caller that owns a free-scrolling viewport
+   * supplies this so a cursor a native scroll left outside the visible rows re-anchors to what the
+   * user can see instead of pulling the viewport back to the stale row. The hook clamps the returned
+   * index to the list bounds.
+   *
+   * @param direction - Direction of the move.
+   * @param currentIndex - Active row index before the move.
+   * @returns The requested next index.
+   */
+  readonly resolveMoveIndex?: (direction: "up" | "down", currentIndex: number) => number;
+  /**
    * Intercepts one navigation action before the list cursor handles it.
    *
    * This is how a search overlay keeps its own result cursor while the shared list hook remains the

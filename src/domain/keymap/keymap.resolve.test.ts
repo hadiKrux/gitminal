@@ -352,9 +352,18 @@ describe("resolveKeymap diff viewport scrolling", () => {
     const keymap = resolveKeymap({ platform: "linux" });
     const keys = [...new Set(DIFF_SCROLL_DEFAULTS.flatMap(([, defaults]) => defaults))];
 
+    expect(actionForKey(keymap, "graph", "shift+l")).toBe("graph.loadOlder");
+
     for (const context of DIFF_SCROLL_ABSENT_CONTEXTS) {
       for (const key of keys) {
-        expect(actionForKey(keymap, context, key), `${context}:${key}`).toBeUndefined();
+        const binding = actionForKey(keymap, context, key);
+        const label = `${context}:${key}`;
+
+        if (binding === "graph.loadOlder") {
+          continue;
+        }
+
+        expect(binding, label).toBeUndefined();
       }
     }
   });

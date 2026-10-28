@@ -510,6 +510,7 @@ describe("AppShellHost", () => {
       ["nav.pageUp", "graph"],
       ["nav.pageDown", "graph"],
       ["graph.search", "graph"],
+      ["graph.loadOlder", "graph"],
       ["nav.up", "diff"],
       ["nav.down", "diff"],
       ["nav.activate", "diff"],

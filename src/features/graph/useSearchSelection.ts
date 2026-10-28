@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import type { EnsureLoadedResult } from "@/domain/graph/graph.types";
 import {
   GRAPH_DOUBLE_CLICK_MS,
-  GRAPH_NEAR_BOTTOM_ROWS,
+  GRAPH_SEARCH_NEAR_BOTTOM_ROWS,
   GRAPH_SEARCH_PAGE_STEP,
   GRAPH_WALK_ERROR_MESSAGE,
 } from "@/features/graph/graph.constants";
 import type { GraphWalkError, SearchResultView } from "@/features/graph/graph.types";
+import { readSearchMoveAnchor, readSearchMoveIndex } from "@/features/graph/search.reveal";
 import { clampIndex } from "@/lib/list";
 
 /**
@@ -14,7 +16,9 @@ import { clampIndex } from "@/lib/list";
  *
  * The cursor stays in range when a smaller page replaces a larger one, asks for another page near the
  * bottom, and resolves Enter and double click through the same bounded commit selection the graph
- * navigator uses. A confirmed result closes the surface with success; a genuine bounded miss
+ * navigator uses. Because the wheel scrolls the result list natively without moving the cursor, an up
+ * or down move re-anchors to the visible result edge when the cursor scrolled out of view; a page
+ * move starts from the same anchor. A confirmed result closes the surface with success; a genuine bounded miss
  * (`notFound` or `exceeded`) closes it with the miss row visible; a walk cancelled by a refresh
  * closes it neutrally without a false miss, and a page read error closes it neutrally while the
  * distinct walk-error row shows the failed walk.
@@ -24,6 +28,7 @@ import { clampIndex } from "@/lib/list";
  */
 export function useSearchSelection(input: {
   readonly results: readonly SearchResultView[];
+  readonly scrollRef: RefObject<ScrollBoxRenderable | null>;
   readonly isOpen: boolean;
   readonly isResultsMode: boolean;
   readonly isLoading: boolean;
@@ -45,6 +50,7 @@ export function useSearchSelection(input: {
     isResultsMode,
     loadMore,
     results,
+    scrollRef,
     selectCommit,
     setBoundedMiss,
     setWalkError,
@@ -110,7 +116,7 @@ export function useSearchSelection(input: {
 
       setSelectedIndex(clamped);
 
-      if (clamped >= results.length - GRAPH_NEAR_BOTTOM_ROWS) {
+      if (clamped >= results.length - GRAPH_SEARCH_NEAR_BOTTOM_ROWS) {
         void loadMore();
       }
     },
@@ -143,22 +149,15 @@ export function useSearchSelection(input: {
     [confirmAt, results.length],
   );
 
-  /** Moves the result cursor by one page. */
+  /** Moves the result cursor by one page from the visible result edge. */
   const pageBy = useCallback(
     (direction: "up" | "down"): void => {
       const delta = direction === "up" ? -GRAPH_SEARCH_PAGE_STEP : GRAPH_SEARCH_PAGE_STEP;
+      const anchor = readSearchMoveAnchor({ scrollRef, results, currentIndex: selectedIndex });
 
-      moveCursor(selectedIndex + delta);
+      moveCursor(anchor + delta);
     },
-    [moveCursor, selectedIndex],
-  );
-
-  /** Moves the result cursor by a bounded wheel delta. */
-  const scrollBy = useCallback(
-    (delta: number): void => {
-      moveCursor(selectedIndex + delta);
-    },
-    [moveCursor, selectedIndex],
+    [moveCursor, results, scrollRef, selectedIndex],
   );
 
   /** Handles one list navigation action while search owns the cursor. */
@@ -174,10 +173,16 @@ export function useSearchSelection(input: {
 
       switch (action) {
         case "up":
-          moveCursor(selectedIndex - 1);
-          return true;
         case "down":
-          moveCursor(selectedIndex + 1);
+          moveCursor(
+            readSearchMoveIndex({
+              scrollRef,
+              results,
+              currentIndex: selectedIndex,
+              direction: action,
+            }),
+          );
+
           return true;
         case "first":
           moveCursor(0);
@@ -190,7 +195,7 @@ export function useSearchSelection(input: {
           return true;
       }
     },
-    [isOpen, isResultsMode, moveCursor, results.length, selectedIndex, submit],
+    [isOpen, isResultsMode, moveCursor, results, scrollRef, selectedIndex, submit],
   );
 
   useEffect(() => {
@@ -202,7 +207,7 @@ export function useSearchSelection(input: {
       return;
     }
 
-    if (selectedIndex >= results.length - GRAPH_NEAR_BOTTOM_ROWS) {
+    if (selectedIndex >= results.length - GRAPH_SEARCH_NEAR_BOTTOM_ROWS) {
       void loadMore();
     }
   }, [done, isLoading, isOpen, isResultsMode, loadMore, results.length, selectedIndex]);
@@ -213,7 +218,6 @@ export function useSearchSelection(input: {
     submit,
     handleResultClick,
     pageBy,
-    scrollBy,
     delegateAction,
   };
 }

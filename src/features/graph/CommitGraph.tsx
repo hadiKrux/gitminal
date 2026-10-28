@@ -3,84 +3,82 @@ import { useScrollViewportSize } from "@/app/hooks/useScrollViewportSize";
 import { parseSearchTerms } from "@/domain/graph/graph.search";
 import { CommitRow } from "@/features/graph/CommitRow";
 import { CommitSearchInput } from "@/features/graph/CommitSearchInput";
-import { GraphStatusFooter, readPageErrorDetails } from "@/features/graph/GraphStatusFooter";
+import { GraphStatusFooter } from "@/features/graph/GraphStatusFooter";
 import {
   GRAPH_BOUNDED_MISS_MESSAGE,
   GRAPH_CONTENT_PADDING_X,
   GRAPH_EMPTY_HINT,
   GRAPH_EMPTY_MESSAGE,
   GRAPH_INITIAL_LOADING_LABEL,
-  GRAPH_OVERSCAN_ROWS,
   GRAPH_PARENT_LOADING_LABEL,
   GRAPH_RETRY_ID,
+  GRAPH_LOAD_OLDER_ID,
+  GRAPH_LOAD_OLDER_LABEL,
+  GRAPH_SCROLLBAR_WIDTH,
   GRAPH_SCROLL_ID,
   GRAPH_SEARCH_ERROR_MESSAGE,
   GRAPH_SEARCH_LOADING_LABEL,
 } from "@/features/graph/graph.constants";
-import type { VisibleWindow } from "@/features/graph/graph.types";
-import {
-  computeVisibleWindow,
-  readScrollRowDelta,
-  readStatusFooterLines,
-  readTerminalRowCapacity,
-  readViewportRowCapacity,
-} from "@/features/graph/graph.window";
+import { readGraphRevealTarget, readSearchRevealTarget } from "@/features/graph/graph.rows";
 import { PendingChangesRow } from "@/features/graph/PendingChangesRow";
 import { SearchResultRow } from "@/features/graph/SearchResultRow";
 import { useCommitGraph } from "@/features/graph/useCommitGraph";
+import { useGraphReveal } from "@/features/graph/useGraphReveal";
+import { truncateText } from "@/lib/text";
 import { useTokens } from "@/theme/useTokens";
+import { Button } from "@/ui/Button";
+import { BUTTON_HORIZONTAL_PADDING } from "@/ui/Button.constants";
 import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { LoadingRow } from "@/ui/LoadingRow";
 import { Panel } from "@/ui/Panel";
-import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 
 /**
- * Renders the complete Commit panel: frame, header, search field, and virtualized row body.
+ * Renders the complete Commit panel: frame, header, search field, and row body.
  *
  * The component owns its `Panel` and `<scrollbox viewportCulling>` frame, so the composition root
- * can mount it directly in the main area. Only the visible window plus a small overscan is mounted;
- * the active cursor drives the window, the mounted slice always keeps the cursor inside the measured
- * scrollbox viewport, and appending an older page never moves the selection. The trailing loading,
- * walk-error, page-error, and end-of-history rows sit in a fixed footer below the scrollbox so they
- * stay visible when the loaded window fills the panel, and that footer is bounded so it cannot grow
- * without limit at the minimum width. Search replaces the graph body with a flat result list while
- * the Pending Changes row and lanes are hidden. The scrollbox viewport measures its own content width
- * and height, so every row budgets against the cells it actually gets, excluding the scrollbar, and
- * the row capacity follows the real viewport rather than the terminal. The scrollbox carries one cell
- * of horizontal padding on each side, so the row budget subtracts that padding and the rows never
- * reach the panel border or the scrollbar. Each row starts its text right after its own lane grid,
- * so the tree stays connected and a branch row is indented by its lane count. The terminal height is
- * only the first-frame estimate before layout publishes the viewport. A bounded wheel handler moves
- * the cursor through the mounted window and keeps native scroll from applying twice.
+ * can mount it directly in the main area. Every loaded row is mounted with its stable renderable id,
+ * exactly like the diff panel, so the native scrollbar and scroll offset describe the whole loaded
+ * page window; that window is already bounded by the paginator, so there is no second mounted slice.
+ * `useGraphReveal` reveals the selected graph row, or the selected search result, through the
+ * scrollbox's own `scrollChildIntoView`, which is the same reveal path the diff panel uses. The
+ * trailing loading, walk-error, and page-error rows stay in the fixed footer below the scrollbox, so
+ * they remain visible when the loaded rows fill the panel. The reveal also runs when the measured
+ * viewport height changes and the selected row was visible before the change, so a growing footer
+ * cannot clip the selected row without pulling a freely scrolled viewport back.
+ *
+ * Search replaces the graph body with a flat result list while the Pending Changes row and lanes are
+ * hidden, and its result cursor is revealed through the same scrollbox. The scrollbox keeps its
+ * vertical scrollbar, reserves one column for it, and disables horizontal scrolling because every row
+ * is width-budgeted from the measured viewport. It carries one cell of horizontal padding on each
+ * side, so the row budget subtracts that padding and no row reaches the panel border or the
+ * scrollbar. Each row starts its text right after its own lane grid, so the tree stays connected and
+ * a branch row is indented by its lane count. Mouse wheel and trackpad scrolling use OpenTUI's
+ * native viewport scrolling and never move the selection, matching the diff and sidebar lists. The
+ * last loaded row is followed by a Load older commits button when another page exists; the same
+ * read is bound to the graph `graph.loadOlder` action, so history is never paged automatically by
+ * scrolling or by moving the cursor near the end. The button unmounts while a page is in flight and
+ * the fixed footer carries the loading marker instead, so the load control never appears twice.
  *
  * @returns The commit graph panel.
  */
 export function CommitGraph(): ReactNode {
   const tokens = useTokens();
-  const dimensions = useTerminalDimensions();
   const graph = useCommitGraph();
   const { width, height, onSizeChange } = useScrollViewportSize(graph.scrollRef);
   const searchMode = graph.search.isOpen && graph.search.isResultsMode;
-  const pageErrorDetails = graph.error === null ? undefined : readPageErrorDetails(graph.error);
-  const footerLines = searchMode
-    ? 0
-    : readStatusFooterLines({
-        isLoadingOlder: graph.isLoadingOlder,
-        hasWalkError: graph.walkError !== null,
-        hasPageError: graph.error !== null,
-        hasPageErrorDetails: pageErrorDetails !== undefined,
-        isDone: graph.isDone,
-      });
-  const capacity =
-    height > 0
-      ? readViewportRowCapacity(height)
-      : readTerminalRowCapacity(dimensions.height, footerLines);
   const rowWidth = Math.max(1, width - GRAPH_CONTENT_PADDING_X * 2);
-  const itemCount = searchMode ? graph.search.results.length : graph.rows.length;
-  const selectedIndex = searchMode ? graph.search.selectedIndex : graph.activeIndex;
-  const window = computeVisibleWindow(itemCount, selectedIndex, capacity, GRAPH_OVERSCAN_ROWS);
-  const header = readHeader(graph);
+  const reveal = searchMode
+    ? readSearchRevealTarget(graph.search.results, graph.search.selectedIndex)
+    : readGraphRevealTarget(graph.rows, graph.selectedRowId);
+
+  useGraphReveal({
+    scrollRef: graph.scrollRef,
+    target: reveal,
+    bodyKey: searchMode ? "search" : "graph",
+    viewportHeight: height,
+    firstRowId: searchMode ? null : (graph.rows[0]?.id ?? null),
+  });
 
   return (
     <Panel
@@ -95,7 +93,7 @@ export function CommitGraph(): ReactNode {
       <box flexDirection="column" flexGrow={1} minHeight={0}>
         <box flexDirection="row" flexShrink={0} height={1} paddingLeft={1}>
           <text fg={tokens.muted} wrapMode="none" flexShrink={1}>
-            {header}
+            {readHeader(graph)}
           </text>
           {graph.search.statusText === null ? null : (
             <text fg={tokens.accent} wrapMode="none" flexShrink={1}>
@@ -119,34 +117,30 @@ export function CommitGraph(): ReactNode {
           flexShrink={1}
           focusable={false}
           viewportCulling
+          scrollY
+          scrollX={false}
           paddingLeft={GRAPH_CONTENT_PADDING_X}
           paddingRight={GRAPH_CONTENT_PADDING_X}
-          onMouseScroll={(event) => {
-            const scroll = event.scroll;
-
-            if (
-              scroll === undefined ||
-              (scroll.direction !== "up" && scroll.direction !== "down")
-            ) {
-              return;
-            }
-
-            event.preventDefault();
-            graph.scrollBy(readScrollRowDelta(scroll.direction, scroll.delta));
-          }}
+          scrollbarOptions={{ trackOptions: { foregroundColor: tokens.scrollbar } }}
+          // The explicit one-column width reserves the scrollbar column inside the panel frame, the
+          // same way the diff panel does.
+          verticalScrollbarOptions={{ width: GRAPH_SCROLLBAR_WIDTH }}
+          // Graph rows are width-budgeted to the viewport, so there is nothing to scroll horizontally.
+          horizontalScrollbarOptions={{ visible: false }}
         >
-          {searchMode ? (
-            <SearchBody graph={graph} window={window} width={rowWidth} />
-          ) : (
-            <GraphBody graph={graph} window={window} width={rowWidth} />
-          )}
+          <box flexDirection="column" flexShrink={0}>
+            {searchMode ? (
+              <SearchBody graph={graph} width={rowWidth} />
+            ) : (
+              <GraphBody graph={graph} width={rowWidth} />
+            )}
+          </box>
         </scrollbox>
         {searchMode ? null : (
           <GraphStatusFooter
             isLoadingOlder={graph.isLoadingOlder}
             walkError={graph.walkError}
             pageError={graph.error}
-            isDone={graph.isDone}
             width={width}
             onRetry={graph.retry}
             onWalkRetry={graph.retryWalk}
@@ -160,20 +154,19 @@ export function CommitGraph(): ReactNode {
 /**
  * Renders the normal graph body.
  *
- * Every row draws its own lane grid and starts its text right after it, so a branch row is indented
- * by its lane count while a linear row starts after a single lane.
+ * Every loaded row is mounted, in display order: the Pending Changes row, then the commits. Each row
+ * draws its own lane grid and starts its text right after it, so a branch row is indented by its lane
+ * count while a linear row starts after a single lane.
  *
- * @param props - Graph handle, mounted row range, and measured row width.
- * @returns Pending, commit, loading, error, empty, and end-of-history rows.
+ * @param props - Graph handle and the measured row width.
+ * @returns Pending, commit, loading, error, empty, and bounded-miss rows.
  */
 function GraphBody(props: {
   readonly graph: ReturnType<typeof useCommitGraph>;
-  readonly window: VisibleWindow;
   readonly width: number;
 }): ReactNode {
   const tokens = useTokens();
   const graph = props.graph;
-  const visible = graph.rows.slice(props.window.start, props.window.end);
 
   return (
     <>
@@ -186,9 +179,7 @@ function GraphBody(props: {
           </text>
         </box>
       ) : null}
-      {visible.map((row, offset) => {
-        const index = props.window.start + offset;
-
+      {graph.rows.map((row, index) => {
         if (row.kind === "pending") {
           return (
             <PendingChangesRow
@@ -217,6 +208,18 @@ function GraphBody(props: {
           />
         );
       })}
+      {graph.canLoadOlder ? (
+        <box flexDirection="row" flexShrink={0} paddingLeft={1}>
+          <Button
+            id={GRAPH_LOAD_OLDER_ID}
+            label={truncateText(
+              GRAPH_LOAD_OLDER_LABEL,
+              Math.max(1, props.width - 1 - BUTTON_HORIZONTAL_PADDING * 2),
+            )}
+            onPress={graph.loadOlder}
+          />
+        </box>
+      ) : null}
       {graph.isEmpty ? <EmptyState message={GRAPH_EMPTY_MESSAGE} hint={GRAPH_EMPTY_HINT} /> : null}
     </>
   );
@@ -225,18 +228,19 @@ function GraphBody(props: {
 /**
  * Renders the flat search result body.
  *
- * @param props - Graph handle carrying search state, the mounted result range, and the measured row
- * width.
+ * Every loaded result page is mounted, so the same scrollbar and reveal path as the graph body apply
+ * to the search result cursor.
+ *
+ * @param props - Graph handle carrying search state and the measured row width.
  * @returns Search loading, error, empty, and result rows.
  */
 function SearchBody(props: {
   readonly graph: ReturnType<typeof useCommitGraph>;
-  readonly window: VisibleWindow;
   readonly width: number;
 }): ReactNode {
   const graph = props.graph;
   const search = graph.search;
-  const visible = search.results.slice(props.window.start, props.window.end);
+  const terms = parseSearchTerms(search.query);
 
   return (
     <>
@@ -252,23 +256,19 @@ function SearchBody(props: {
         <LoadingRow label={GRAPH_SEARCH_LOADING_LABEL} />
       ) : null}
       {search.emptyMessage === null ? null : <EmptyState message={search.emptyMessage} />}
-      {visible.map((result, offset) => {
-        const index = props.window.start + offset;
-
-        return (
-          <SearchResultRow
-            key={result.id}
-            view={result}
-            width={props.width}
-            terms={parseSearchTerms(search.query)}
-            selected={index === search.selectedIndex}
-            focused={graph.region.focused}
-            onMouseDown={() => {
-              search.handleResultClick(index);
-            }}
-          />
-        );
-      })}
+      {search.results.map((result, index) => (
+        <SearchResultRow
+          key={result.id}
+          view={result}
+          width={props.width}
+          terms={terms}
+          selected={index === search.selectedIndex}
+          focused={graph.region.focused}
+          onMouseDown={() => {
+            search.handleResultClick(index);
+          }}
+        />
+      ))}
       {search.isLoading && search.results.length > 0 ? (
         <LoadingRow label={GRAPH_SEARCH_LOADING_LABEL} />
       ) : null}

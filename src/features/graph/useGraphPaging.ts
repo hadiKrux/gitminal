@@ -121,9 +121,13 @@ export function useGraphPaging(input: {
     windowReloadFailedRef.current = false;
     setIsLoadingOlder(true);
     setPageError(null);
-    applyOutcome(await paginator.loadOlder());
-    flowRef.current.olderLoading = false;
-    setIsLoadingOlder(false);
+
+    try {
+      applyOutcome(await paginator.loadOlder());
+    } finally {
+      flowRef.current.olderLoading = false;
+      setIsLoadingOlder(false);
+    }
   }, [applyOutcome, paginator, setIsLoadingOlder, setPageError]);
 
   useScopeTipsReload({

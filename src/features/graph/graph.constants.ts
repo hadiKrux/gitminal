@@ -16,11 +16,17 @@ export const GRAPH_SEARCH_INPUT_ID = "graph-search";
 /** Quiet interval before a typed commit query is dispatched. */
 export const GRAPH_SEARCH_DEBOUNCE_MS = 180;
 
-/** Rows mounted beyond each edge of the visible window. */
-export const GRAPH_OVERSCAN_ROWS = 4;
-
 /** Cells of horizontal padding inside the graph scrollbox on each side. */
 export const GRAPH_CONTENT_PADDING_X = 1;
+
+/**
+ * Columns reserved for the graph scrollbox vertical scrollbar.
+ *
+ * Every loaded row is mounted, so the scrollbar describes the whole loaded page window. The explicit
+ * column width keeps the bar inside the panel frame instead of letting the auto-sized bar sit one
+ * cell past the scrollbox right edge, matching the diff panel.
+ */
+export const GRAPH_SCROLLBAR_WIDTH = 1;
 
 /** Cells one graph lane occupies: the glyph plus its horizontal connector. */
 export const GRAPH_LANE_CELL_WIDTH = 2;
@@ -45,8 +51,8 @@ export const GRAPH_PENDING_LINE_CELL: GraphLaneCell = Object.freeze({
   lane: 0,
 });
 
-/** Rows from the bottom that trigger an older-page load. */
-export const GRAPH_NEAR_BOTTOM_ROWS = 6;
+/** Search result rows from the bottom that trigger another result page. */
+export const GRAPH_SEARCH_NEAR_BOTTOM_ROWS = 6;
 
 /** Lines each graph row occupies: subject and metadata. */
 export const GRAPH_ROW_HEIGHT = 2;
@@ -78,9 +84,6 @@ export const GRAPH_PARENT_LOADING_LABEL = "Loading parent commit...";
 /** Text shown when a commit is outside the bounded loaded history. */
 export const GRAPH_BOUNDED_MISS_MESSAGE = "Commit is not within the loaded history";
 
-/** Text shown when history is exhausted. */
-export const GRAPH_END_OF_HISTORY_MESSAGE = "Beginning of history";
-
 /** Text shown for a repository with no commits. */
 export const GRAPH_EMPTY_MESSAGE = "No commits yet";
 
@@ -111,17 +114,11 @@ export const GRAPH_SEARCH_LOADING_LABEL = "Loading matching commits...";
 /** Rows moved by PageUp and PageDown in the flat search result list. */
 export const GRAPH_SEARCH_PAGE_STEP = 10;
 
-/** Quiet interval before a wheel-driven commit selection is dispatched. */
-export const GRAPH_SELECTION_DEBOUNCE_MS = 180;
+/** Stable renderable id of the Load older commits button. */
+export const GRAPH_LOAD_OLDER_ID = "graph-load-older";
 
-/** Rows one mouse-wheel notch moves the graph cursor. */
-export const GRAPH_SCROLL_STEP_ROWS = 3;
-
-/** Largest number of wheel notches applied from one mouse event. */
-export const GRAPH_SCROLL_MAX_STEPS = 3;
-
-/** Stable renderable id of the Pending Changes row. */
-export const GRAPH_PENDING_ROW_RENDERABLE_ID = "graph-row:pending";
+/** Visible label of the Load older commits button and its graph action. */
+export const GRAPH_LOAD_OLDER_LABEL = "Load older commits";
 
 /** Left indent in cells for one graph footer row. */
 export const GRAPH_FOOTER_ROW_INDENT = 1;

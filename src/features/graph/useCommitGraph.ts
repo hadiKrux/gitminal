@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useConfig } from "@/app/hooks/useConfig";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useRepository } from "@/app/hooks/useRepository";
@@ -14,7 +14,7 @@ import type {
 import { GRAPH_REGION_ID } from "@/features/graph/graph.constants";
 import { formatScopeLabel } from "@/features/graph/graph.format";
 import { buildCommitRows, buildDisplayRows } from "@/features/graph/graph.rows";
-import type { CommitGraphHandle } from "@/features/graph/graph.types";
+import type { CommitGraphHandle, GraphLoadOlderAvailability } from "@/features/graph/graph.types";
 import { useCommitSearch } from "@/features/graph/useCommitSearch";
 import { useGraphNavigation } from "@/features/graph/useGraphNavigation";
 import { useGraphPaging } from "@/features/graph/useGraphPaging";
@@ -118,16 +118,32 @@ export function useCommitGraph(): CommitGraphHandle {
     selection: repository.selection,
     selectTarget,
     lastSelectionIndexRef,
-    requestOlderPage: paging.requestOlderPage,
-    searchOpen: search.isOpen,
     windowState: window.windowState,
-    isLoadingInitial: window.isLoadingInitial,
-    isLoadingOlder: window.isLoadingOlder,
-    pageError: window.pageError,
+    scrollRef,
     searchDelegateActionRef,
   });
+  const isDone = readGraphIsDone(window.windowState);
+  const canLoadOlder = readGraphLoadOlderAvailability({
+    searchOpen: search.isOpen,
+    isDone,
+    isLoadingOlder: window.isLoadingOlder,
+    isGraphInFlight: repository.isGraphInFlight,
+    pageError: window.pageError,
+    rowCount: window.windowState.rows.length,
+  });
+  const { requestOlderPage } = paging;
+  const loadOlder = useCallback((): void => {
+    void requestOlderPage();
+  }, [requestOlderPage]);
 
-  useGraphNavigation({ cursor: selection.cursor, search, scrollRef });
+  useGraphNavigation({
+    cursor: selection.cursor,
+    search,
+    scrollRef,
+    canLoadOlder,
+    loadOlder,
+    firstRowId: rows[0]?.id ?? null,
+  });
   useGraphFocusRefresh(region.focused, search.isOpen, repository.refreshStatus);
 
   return {
@@ -141,7 +157,8 @@ export function useCommitGraph(): CommitGraphHandle {
     walkError: window.walkError,
     error: window.pageError,
     isEmpty,
-    isDone: readGraphIsDone(window.windowState),
+    isDone,
+    canLoadOlder,
     loadedCount: window.windowState.rows.length,
     scopeLabel: formatScopeLabel(scopeKey),
     selectedRowId: selection.selectedRowId,
@@ -149,7 +166,7 @@ export function useCommitGraph(): CommitGraphHandle {
     search,
     retry: paging.retry,
     retryWalk: paging.retryWalk,
-    scrollBy: search.isOpen && search.isResultsMode ? search.scrollBy : selection.scrollBy,
+    loadOlder,
     handleRowClick: selection.handleRowClick,
   };
 }
@@ -197,7 +214,7 @@ function readGraphIsEmpty(
  * Reports whether history is exhausted with at least one loaded row.
  *
  * @param windowState - Loaded graph window.
- * @returns True when the end-of-history marker should render.
+ * @returns True when history is exhausted with at least one loaded row.
  */
 function readGraphIsDone(windowState: GraphWindowState): boolean {
   return windowState.done && windowState.rows.length > 0;
@@ -232,4 +249,25 @@ function useGraphFocusRefresh(
 
     void refreshStatus();
   }, [focused, refreshStatus, searchOpen]);
+}
+
+/**
+ * Decides whether the explicit older-page control is available.
+ *
+ * Exhausted history, a loading page, an in-flight window reload, an unresolved page error, search
+ * ownership, and an empty window all block the control, so the button, the action handler, and the
+ * footer availability publish one answer.
+ *
+ * @param input - Current paging, error, search, and loaded-row state.
+ * @returns True when the graph can request another older page.
+ */
+function readGraphLoadOlderAvailability(input: GraphLoadOlderAvailability): boolean {
+  return (
+    !input.searchOpen &&
+    !input.isDone &&
+    !input.isLoadingOlder &&
+    !input.isGraphInFlight &&
+    input.pageError === null &&
+    input.rowCount > 0
+  );
 }

@@ -1,64 +1,14 @@
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { describe, expect, it } from "bun:test";
+import { GRAPH_ROW_HEIGHT } from "@/features/graph/graph.constants";
+import { graphRowRenderableId } from "@/features/graph/graph.rows";
 import {
-  GRAPH_ROW_HEIGHT,
-  GRAPH_SCROLL_MAX_STEPS,
-  GRAPH_SCROLL_STEP_ROWS,
-} from "@/features/graph/graph.constants";
-import {
-  computeVisibleWindow,
-  moveIndexByRows,
-  readScrollRowDelta,
-  readStatusFooterLines,
+  readGraphMoveAnchor,
+  readGraphRowOriginLines,
+  readGraphVisibleRows,
   readTerminalRowCapacity,
   readViewportRowCapacity,
 } from "@/features/graph/graph.window";
-
-describe("graph wheel movement", () => {
-  it("moves a bounded step in the wheel direction", () => {
-    expect(readScrollRowDelta("down", 1)).toBe(GRAPH_SCROLL_STEP_ROWS);
-    expect(readScrollRowDelta("up", 1)).toBe(-GRAPH_SCROLL_STEP_ROWS);
-  });
-
-  it("caps a large delta and ignores a horizontal wheel", () => {
-    expect(readScrollRowDelta("down", 100)).toBe(GRAPH_SCROLL_STEP_ROWS * GRAPH_SCROLL_MAX_STEPS);
-    expect(readScrollRowDelta("left", 1)).toBe(0);
-    expect(readScrollRowDelta("right", 1)).toBe(0);
-  });
-
-  it("treats a missing or zero magnitude as one notch", () => {
-    expect(readScrollRowDelta("down", 0)).toBe(GRAPH_SCROLL_STEP_ROWS);
-  });
-
-  it("clamps the moved cursor into the list", () => {
-    expect(moveIndexByRows(0, 10, 3)).toBe(3);
-    expect(moveIndexByRows(1, 10, -5)).toBe(0);
-    expect(moveIndexByRows(8, 10, 9)).toBe(9);
-    expect(moveIndexByRows(4, 0, 3)).toBe(0);
-  });
-});
-
-describe("graph visible window", () => {
-  it("keeps the selected row inside the first visible rows at the end of the list", () => {
-    const window = computeVisibleWindow(30, 29, 7, 4);
-
-    expect(window.start).toBe(23);
-    expect(window.end).toBe(30);
-    expect(29 - window.start).toBeLessThan(7);
-  });
-
-  it("keeps the selected row visible in the middle and at the start", () => {
-    const middle = computeVisibleWindow(30, 15, 7, 4);
-    const start = computeVisibleWindow(30, 0, 7, 4);
-
-    expect(15 - middle.start).toBeLessThan(7);
-    expect(middle.start).toBe(9);
-    expect(start).toEqual({ start: 0, end: 11 });
-  });
-
-  it("returns an empty window for an empty list", () => {
-    expect(computeVisibleWindow(0, 5, 7, 4)).toEqual({ start: 0, end: 0 });
-  });
-});
 
 describe("graph row capacity", () => {
   it("derives the row count from the measured viewport height", () => {
@@ -68,64 +18,79 @@ describe("graph row capacity", () => {
     expect(readViewportRowCapacity(0)).toBe(1);
   });
 
-  it("reserves panel chrome and footer lines only in the first-frame estimate", () => {
+  it("reserves the panel chrome only in the first-frame estimate", () => {
     expect(readTerminalRowCapacity(24)).toBe(10);
-    expect(readTerminalRowCapacity(24, 7)).toBe(6);
   });
 });
 
-describe("graph status footer lines", () => {
-  it("counts only the rows the current state renders", () => {
-    expect(
-      readStatusFooterLines({
-        isLoadingOlder: false,
-        hasWalkError: false,
-        hasPageError: false,
-        hasPageErrorDetails: false,
-        isDone: false,
-      }),
-    ).toBe(0);
-
-    expect(
-      readStatusFooterLines({
-        isLoadingOlder: true,
-        hasWalkError: false,
-        hasPageError: false,
-        hasPageErrorDetails: false,
-        isDone: true,
-      }),
-    ).toBe(3);
+describe("graph visible row range", () => {
+  it("maps a native scroll offset to the rows the viewport shows", () => {
+    expect(readGraphVisibleRows(0, 10)).toEqual({ first: 0, last: 4 });
+    expect(readGraphVisibleRows(6, 10)).toEqual({ first: 3, last: 7 });
+    expect(readGraphVisibleRows(1, 10)).toEqual({ first: 0, last: 4 });
+    expect(readGraphVisibleRows(0, 0)).toEqual({ first: 0, last: 0 });
+    expect(readGraphVisibleRows(Number.NaN, 10)).toEqual({ first: 0, last: 4 });
+    expect(readGraphVisibleRows(6, 10, 2)).toEqual({ first: 2, last: 6 });
   });
 
-  it("pins the bounded single-line and wrapped footer heights", () => {
-    expect(
-      readStatusFooterLines({
-        isLoadingOlder: false,
-        hasWalkError: true,
-        hasPageError: true,
-        hasPageErrorDetails: false,
-        isDone: true,
-      }),
-    ).toBe(5);
+  it("anchors an out-of-view cursor to the nearest visible edge", () => {
+    const visible = { first: 3, last: 7 };
 
-    expect(
-      readStatusFooterLines({
-        isLoadingOlder: false,
-        hasWalkError: false,
-        hasPageError: true,
-        hasPageErrorDetails: true,
-        isDone: false,
-      }),
-    ).toBe(3);
+    expect(readGraphMoveAnchor(0, visible)).toBe(3);
+    expect(readGraphMoveAnchor(9, visible)).toBe(7);
+    expect(readGraphMoveAnchor(5, visible)).toBe(5);
+    expect(readGraphMoveAnchor(3, visible)).toBe(3);
+    expect(readGraphMoveAnchor(7, visible)).toBe(7);
+  });
+});
 
-    expect(
-      readStatusFooterLines({
-        isLoadingOlder: true,
-        hasWalkError: true,
-        hasPageError: true,
-        hasPageErrorDetails: true,
-        isDone: true,
-      }),
-    ).toBe(7);
+/**
+ * Builds a scrollbox stub for the origin reader.
+ *
+ * @param input - Viewport geometry, native offset, and laid-out rows.
+ * @returns A scrollbox-shaped object the helper can read.
+ */
+function fakeOriginBox(input: {
+  readonly viewport: { readonly y: number; readonly height: number };
+  readonly scrollTop: number;
+  readonly rows: readonly { readonly id: string; readonly y: number; readonly height: number }[];
+}): ScrollBoxRenderable {
+  return {
+    scrollTop: input.scrollTop,
+    viewport: input.viewport,
+    content: {
+      findDescendantById: (id: string) => input.rows.find((row) => row.id === id),
+    },
+  } as unknown as ScrollBoxRenderable;
+}
+
+describe("graph row origin", () => {
+  it("converts the first row's laid-out position back into content lines", () => {
+    const box = fakeOriginBox({
+      viewport: { y: 2, height: 10 },
+      scrollTop: 3,
+      rows: [{ id: graphRowRenderableId("pending"), y: 5, height: 2 }],
+    });
+
+    expect(readGraphRowOriginLines(box, "pending")).toBe(6);
+  });
+
+  it("falls back to zero without a row, before layout, or above the content", () => {
+    const missing = fakeOriginBox({ viewport: { y: 2, height: 10 }, scrollTop: 3, rows: [] });
+    const unlaid = fakeOriginBox({
+      viewport: { y: 2, height: 10 },
+      scrollTop: 3,
+      rows: [{ id: graphRowRenderableId("pending"), y: 5, height: 0 }],
+    });
+    const above = fakeOriginBox({
+      viewport: { y: 5, height: 10 },
+      scrollTop: 0,
+      rows: [{ id: graphRowRenderableId("pending"), y: 1, height: 2 }],
+    });
+
+    expect(readGraphRowOriginLines(missing, "pending")).toBe(0);
+    expect(readGraphRowOriginLines(missing, null)).toBe(0);
+    expect(readGraphRowOriginLines(unlaid, "pending")).toBe(0);
+    expect(readGraphRowOriginLines(above, "pending")).toBe(0);
   });
 });

@@ -399,6 +399,14 @@ export const ACTION_CATALOGUE = [
     description: "Focus the commit graph search field.",
   },
   {
+    id: "graph.loadOlder",
+    contexts: ["graph"],
+    defaults: ["L"],
+    label: "Load older commits",
+    category: "graph",
+    description: "Load the next page of commit history.",
+  },
+  {
     id: "help.search",
     contexts: ["overlay"],
     defaults: ["/"],

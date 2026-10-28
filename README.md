@@ -238,6 +238,7 @@ Defaults are scoped to the focused context: global keys work everywhere (forms a
 | Collapse | `nav.collapse` | `left`, `h` |
 | Filter list | `list.filter` | `/` |
 | Search commits | `graph.search` | `/`, `ctrl+f`, `mod+f` |
+| Load older commits | `graph.loadOlder` | `L` |
 | Search help | `help.search` | `/` |
 
 ### Branches, remotes, tags, stashes, and worktrees

@@ -3,6 +3,7 @@ import { GraphLanes } from "@/features/graph/GraphLanes";
 import { GRAPH_LANE_CELL_WIDTH } from "@/features/graph/graph.constants";
 import { formatCommitDate, shortenAuthor } from "@/features/graph/graph.format";
 import { classifyDecorations, fitRefBadges, flattenRefBadges } from "@/features/graph/graph.refs";
+import { graphRowRenderableId } from "@/features/graph/graph.rows";
 import type {
   CommitRowView,
   FittedRefBadges,
@@ -18,16 +19,6 @@ import { TruncatedText } from "@/ui/TruncatedText";
 const MIN_TAGGED_BADGE_BUDGET = 6;
 
 /**
- * Builds the stable renderable id of one commit row.
- *
- * @param oid - Full commit OID.
- * @returns The row id used by tests and the scroll container.
- */
-export function commitRowId(oid: string): string {
-  return `graph-row:${oid}`;
-}
-
-/**
  * Renders one commit row with lanes, subject, ref badges, file count, author, and date.
  *
  * The lane prefix and node come from the page-level `assignGraphLanes` pass. Both lines of the row
@@ -41,8 +32,9 @@ export function commitRowId(oid: string): string {
  * never moves. The metadata line keeps tag badges ahead of the author and date; when a tagged row is
  * tight, the date is omitted before badge priority is lost.
  *
- * The row suppresses the `ListRow` selection marker so the lane prefix starts at the leading edge,
- * matching the mockup; the dark selected fill and the focused region border identify the cursor row.
+ * The row carries the stable `graph-row:<oid>` renderable id the graph scrollbox reveals, and it
+ * suppresses the `ListRow` selection marker so the lane prefix starts at the leading edge, matching
+ * the mockup; the dark selected fill and the focused region border identify the cursor row.
  *
  * @param props - Prepared commit view, the measured row width, selection and focus flags, and the
  * mouse handler.
@@ -65,7 +57,7 @@ export function CommitRow(props: {
 
   return (
     <ListRow
-      id={commitRowId(props.view.id)}
+      id={graphRowRenderableId(props.view.id)}
       selected={props.selected}
       focused={props.focused}
       showMarker={false}

@@ -64,7 +64,6 @@ export function useCommitSearch(input: UseCommitSearchInput): CommitSearchHandle
     selection,
     readCursor,
     writeCursor,
-    scrollRef,
     setBoundedMiss,
     setSelection,
     resetResults: results.reset,
@@ -72,6 +71,7 @@ export function useCommitSearch(input: UseCommitSearchInput): CommitSearchHandle
   });
   const selectionState = useSearchSelection({
     results: results.results,
+    scrollRef,
     isOpen,
     isResultsMode,
     isLoading: results.isLoading,
@@ -114,7 +114,6 @@ export function useCommitSearch(input: UseCommitSearchInput): CommitSearchHandle
     retry: results.retry,
     handleResultClick: selectionState.handleResultClick,
     pageBy: selectionState.pageBy,
-    scrollBy: selectionState.scrollBy,
     delegateAction: selectionState.delegateAction,
   };
 }

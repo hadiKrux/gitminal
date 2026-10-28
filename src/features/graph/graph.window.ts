@@ -1,11 +1,7 @@
-import {
-  GRAPH_CHROME_ROWS,
-  GRAPH_ROW_HEIGHT,
-  GRAPH_SCROLL_MAX_STEPS,
-  GRAPH_SCROLL_STEP_ROWS,
-} from "@/features/graph/graph.constants";
-import type { VisibleWindow } from "@/features/graph/graph.types";
-import { clampIndex } from "@/lib/list";
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { GRAPH_CHROME_ROWS, GRAPH_ROW_HEIGHT } from "@/features/graph/graph.constants";
+import { graphRowRenderableId } from "@/features/graph/graph.rows";
+import type { GraphVisibleRows } from "@/features/graph/graph.types";
 
 /**
  * Reads how many two-line rows fit in a scrollbox viewport.
@@ -26,118 +22,136 @@ export function readViewportRowCapacity(viewportHeight: number): number {
 /**
  * Reads the first-frame row estimate before the scrollbox publishes its viewport.
  *
- * Panel borders, the header line, the optional search field, and the bounded status footer are
- * reserved from the terminal height. The measured viewport supersedes this estimate as soon as the
- * layout settles, so it is deliberately an over-estimate rather than a second source of truth.
+ * Panel borders, the header line, and the optional search field are reserved from the terminal
+ * height. The measured viewport supersedes this estimate as soon as the layout settles, so it is
+ * deliberately an over-estimate rather than a second source of truth. The only row-count consumer
+ * left is the `nav.pageUp`/`nav.pageDown` step, which reads it before the first layout pass.
  *
  * @param terminalHeight - Terminal height in cells.
- * @param reservedLines - Bounded status footer lines, or zero when no footer renders.
  * @returns The estimated number of fully visible rows.
  */
-export function readTerminalRowCapacity(terminalHeight: number, reservedLines: number = 0): number {
-  return readViewportRowCapacity(terminalHeight - GRAPH_CHROME_ROWS - reservedLines);
+export function readTerminalRowCapacity(terminalHeight: number): number {
+  return readViewportRowCapacity(terminalHeight - GRAPH_CHROME_ROWS);
 }
 
 /**
- * Computes the contiguous row range mounted for one render.
+ * Computes the two-line graph rows visible at one native scroll offset.
  *
- * The visible window is centered on the selected row and clamped to the list. The selected row is
- * always kept inside the first `capacity` rows of the returned slice, including at the end of the
- * loaded list, because the scrollbox is anchored at the top and is never scrolled programmatically.
- * Overscan is then added above and below, but the upper overscan is trimmed when it would push the
- * selection past the visible rows and the lower overscan is capped by the list end.
+ * The graph mounts every loaded row and rows line up on whole lines, so the first visible row starts
+ * at or above the viewport top. A partially visible edge row counts as visible, and the last index
+ * may exceed the loaded row count; callers clamp it through the cursor. The trailing one-line load
+ * control is counted as part of the last row near the very bottom, which can shift the reported range
+ * by one index there and is why callers clamp. An odd origin, such as a one-line loading row or a
+ * wrapped bounded-miss notice, can also shift the bottom edge by one row; the caller's clamp and the
+ * reveal correct it. A zero or non-finite viewport height before layout reports a single row, which
+ * keeps a move from anchoring to an empty range.
  *
- * @param total - Number of rows in the list.
- * @param selectedIndex - Selected row index.
- * @param capacity - Fully visible rows.
- * @param overscan - Extra rows mounted beyond each edge.
- * @returns The half-open mounted range.
+ * @param scrollTop - Native scroll offset in lines.
+ * @param viewportHeight - Measured scrollbox viewport height in lines.
+ * @param originLines - Content lines mounted above the first graph row, such as the loading and
+ * bounded-miss rows.
+ * @returns The first and last visible row indexes.
  */
-export function computeVisibleWindow(
-  total: number,
-  selectedIndex: number,
-  capacity: number,
-  overscan: number,
-): VisibleWindow {
-  if (total <= 0) {
-    return { start: 0, end: 0 };
-  }
+export function readGraphVisibleRows(
+  scrollTop: number,
+  viewportHeight: number,
+  originLines: number = 0,
+): GraphVisibleRows {
+  const top = Number.isFinite(scrollTop) ? Math.max(0, Math.floor(scrollTop)) : 0;
+  const height = Number.isFinite(viewportHeight) ? Math.max(0, Math.floor(viewportHeight)) : 0;
+  const origin = Number.isFinite(originLines) ? Math.max(0, Math.floor(originLines)) : 0;
+  const first = Math.max(0, Math.floor((top - origin) / GRAPH_ROW_HEIGHT));
+  const count = Math.max(1, Math.floor(height / GRAPH_ROW_HEIGHT));
 
-  const rows = Math.max(1, Math.floor(capacity));
-  const extra = Math.max(0, Math.floor(overscan));
-  const selected = clampIndex(selectedIndex, total);
-  const centeredStart = selected - Math.floor(rows / 2);
-  const baseStart = Math.min(Math.max(0, centeredStart), Math.max(0, total - rows));
-  const start = Math.max(0, baseStart - extra, selected - rows + 1);
-  const end = Math.min(total, baseStart + rows + extra);
-
-  return { start, end };
+  return { first, last: first + count - 1 };
 }
 
 /**
- * Counts the bounded lines the fixed graph status footer occupies for the current state.
+ * Reads how many content lines are mounted above the first graph row.
  *
- * Every footer row is single-line or capped, so this is a true maximum instead of a wide-panel guess:
- * the loading and walk rows take one line, a compact page error takes its message, an optional
- * details line, and the Retry row, and the end marker wraps to at most two lines. The footer sits
- * outside the scrollbox, so its real height is already excluded from the measured viewport; this
- * count is only used to reserve space in the first-frame terminal estimate.
+ * The body renders an initial-loading row, a parent-loading row, and the bounded-miss notice before
+ * the pending and commit rows, so `scrollTop` alone does not identify the first visible graph row.
+ * The first row's laid-out position is converted back into content lines; before layout it falls
+ * back to zero.
  *
- * @param input - Footer row presence flags.
- * @returns The bounded footer line count.
+ * @param box - Graph scrollbox that owns the body.
+ * @param firstRowId - Stable id of the first graph row, or null before rows load.
+ * @returns The number of content lines above the first graph row.
  */
-export function readStatusFooterLines(input: {
-  readonly isLoadingOlder: boolean;
-  readonly hasWalkError: boolean;
-  readonly hasPageError: boolean;
-  readonly hasPageErrorDetails: boolean;
-  readonly isDone: boolean;
-}): number {
-  const loadingLines = input.isLoadingOlder ? 1 : 0;
-  const walkLines = input.hasWalkError ? 1 : 0;
-  const pageErrorLines = input.hasPageError ? (input.hasPageErrorDetails ? 3 : 2) : 0;
-  const endLines = input.isDone ? 2 : 0;
-
-  return loadingLines + walkLines + pageErrorLines + endLines;
-}
-
-/**
- * Reads the bounded row delta for one wheel event.
- *
- * The visible window mounts only the visible slice, so native scrolling has no unmounted rows to
- * travel through. The wheel moves the cursor by a small fixed step instead. The direction decides
- * the sign, the delta magnitude is capped, and a horizontal wheel has no row delta. Callers pass
- * the result to `moveIndexByRows`.
- *
- * @param direction - Wheel direction from the OpenTUI scroll payload.
- * @param delta - Wheel delta magnitude from the same payload.
- * @returns Signed rows to move, or zero for a horizontal wheel.
- */
-export function readScrollRowDelta(
-  direction: "up" | "down" | "left" | "right",
-  delta: number,
+export function readGraphRowOriginLines(
+  box: ScrollBoxRenderable,
+  firstRowId: string | null,
 ): number {
-  if (direction !== "up" && direction !== "down") {
+  if (firstRowId === null) {
     return 0;
   }
 
-  const steps = Math.min(Math.max(1, Math.trunc(Math.abs(delta)) || 1), GRAPH_SCROLL_MAX_STEPS);
+  const row = box.content.findDescendantById(graphRowRenderableId(firstRowId));
 
-  return (direction === "down" ? 1 : -1) * steps * GRAPH_SCROLL_STEP_ROWS;
+  if (row === undefined || row.height <= 0) {
+    return 0;
+  }
+
+  return Math.max(0, row.y - box.viewport.y + box.scrollTop);
 }
 
 /**
- * Moves one cursor index by a bounded row delta and clamps it into the list.
+ * Anchors one keyboard move to the rows the user can see.
  *
- * @param index - Current cursor index.
- * @param total - Number of rows in the list.
- * @param delta - Signed rows to move.
- * @returns The clamped cursor index, or zero for an empty list.
+ * A cursor inside the visible range stays where it is. A cursor outside it, which happens when the
+ * wheel scrolled the viewport away without moving the selection, anchors to the nearest visible edge
+ * instead. The anchor follows the cursor's position, not the move direction: pressing up while the
+ * cursor is above the viewport must not move the cursor down to the bottom visible row. Returning the
+ * anchor rather than the moved index lets page moves and row moves share the same rule.
+ *
+ * @param currentIndex - Active cursor index before the move.
+ * @param visible - Visible row range of the body.
+ * @returns The row index the move should start from.
  */
-export function moveIndexByRows(index: number, total: number, delta: number): number {
-  if (total <= 0) {
-    return 0;
+export function readGraphMoveAnchor(currentIndex: number, visible: GraphVisibleRows): number {
+  if (currentIndex < visible.first) {
+    return visible.first;
   }
 
-  return clampIndex(index + delta, total);
+  if (currentIndex > visible.last) {
+    return visible.last;
+  }
+
+  return currentIndex;
+}
+
+/**
+ * Resolves one keyboard move from the visible row range.
+ *
+ * A cursor inside the visible range advances one row. A cursor outside anchors to the nearest visible
+ * edge without stepping, so the key that re-enters the viewport selects the edge row and does not
+ * jump past it. Row moves and search moves share this rule.
+ *
+ * @param currentIndex - Active cursor index before the move.
+ * @param direction - Direction of the move.
+ * @param visible - Visible row range of the body.
+ * @returns The requested next index.
+ */
+export function resolveMoveIndex(
+  currentIndex: number,
+  direction: "up" | "down",
+  visible: GraphVisibleRows,
+): number {
+  const anchor = readGraphMoveAnchor(currentIndex, visible);
+
+  return anchor === currentIndex ? stepIndex(currentIndex, direction) : anchor;
+}
+
+/**
+ * Applies one row step in a move direction.
+ *
+ * Only the cursor clamps the result, so a move past either end stays a plain index the caller can
+ * hand to a clamping selector. This keeps every fallback in the graph and search move paths identical.
+ *
+ * @param index - Index to step from.
+ * @param direction - Direction of the move.
+ * @returns The index one row up or down.
+ */
+export function stepIndex(index: number, direction: "up" | "down"): number {
+  return index + (direction === "up" ? -1 : 1);
 }
