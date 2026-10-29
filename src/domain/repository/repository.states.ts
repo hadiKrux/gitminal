@@ -144,10 +144,7 @@ const NO_UPSTREAM_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /** Actions whose scope is the upstream refs of local branches. */
-const LOCAL_UPSTREAM_SCOPE_ACTIONS: ReadonlySet<string> = new Set([
-  "remote.fetch",
-  "remote.fetchPrune",
-]);
+const LOCAL_UPSTREAM_SCOPE_ACTIONS: ReadonlySet<string> = new Set(["remote.fetchPrune"]);
 
 /** Actions blocked when the configured upstream is confirmed gone. */
 const UPSTREAM_GONE_ACTIONS: ReadonlySet<string> = new Set([

@@ -1,14 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import type { InputRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
-import { resetActionRegistry, resolveActionHandler } from "@/app/hooks/useAction";
+import { resetActionRegistry } from "@/app/hooks/useAction";
 import { buildListRemoteBranchesArgs } from "@/domain/git/git.remote-branches";
 import type { GitClient } from "@/domain/git/git.types";
-import { REMOTES_FILTER_INPUT_ID } from "@/features/remotes/RemoteFilter.constants";
 import { RemotesPanel } from "@/features/remotes/RemotesPanel";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
+import { ICONS } from "@/theme/icons";
 
 /** Committer date shared by the remote-branch fixture. */
 const FIXTURE_DATE = "2026-01-02T03:04:05+00:00";
@@ -74,13 +73,26 @@ async function waitForText(
  * @param output - Output for the remote-branch read, or null to fail the read.
  * @returns The client used by the provider.
  */
-function createPanelClient(output: string | null): GitClient {
+function createPanelClient(
+  output: string | null,
+  remotes: readonly string[] = ["origin"],
+): GitClient {
   const fake = createFakeGitClient();
   const branchReadKey = buildListRemoteBranchesArgs().join(" ");
 
   return {
     gitPath: fake.client.gitPath,
     invoke: async (options) => {
+      if (options.args.join(" ") === "remote -v") {
+        return fakeGitResult(
+          remotes
+            .map(
+              (remote) =>
+                `${remote}\tgit@example.com:${remote}.git (fetch)\n${remote}\tgit@example.com:${remote}.git (push)`,
+            )
+            .join("\n"),
+        );
+      }
       if (options.args.join(" ") === branchReadKey) {
         return output === null
           ? fakeGitResult("", false, "fatal: cannot read remote refs")
@@ -116,42 +128,6 @@ function createNoRemotesClient(): GitClient {
   };
 }
 
-/**
- * Reads the filter input renderable.
- *
- * @param setup - Renderer setup.
- * @returns The native input.
- */
-function readFilter(setup: Awaited<ReturnType<typeof testRender>>): InputRenderable {
-  const input = setup.renderer.root.findDescendantById(REMOTES_FILTER_INPUT_ID) as
-    | InputRenderable
-    | undefined;
-
-  if (input === undefined) {
-    throw new Error("remotes filter input is missing");
-  }
-
-  return input;
-}
-
-/**
- * Renders the panel body with a filter supplied through the field.
- *
- * @param setup - Renderer setup.
- * @param value - Filter text to type.
- */
-async function typeFilter(
-  setup: Awaited<ReturnType<typeof testRender>>,
-  value: string,
-): Promise<void> {
-  await act(async () => {
-    readFilter(setup).insertText(value);
-  });
-  await act(async () => {
-    await setup.renderOnce();
-  });
-}
-
 beforeEach(() => {
   resetActionRegistry();
 });
@@ -161,7 +137,7 @@ afterEach(() => {
 });
 
 describe("RemotesPanel", () => {
-  it("renders the filter, the group header, and the branch rows without a second title", async () => {
+  it("renders the remote header and unqualified branch labels without a second title", async () => {
     const setup = await renderPanel(createPanelClient(REMOTE_BRANCHES_OUTPUT));
 
     await waitForText(setup, "Feature/Login");
@@ -172,66 +148,37 @@ describe("RemotesPanel", () => {
     expect(frame).toContain("origin (2)");
     expect(frame).toContain("Feature/Login");
     expect(frame).toContain("main");
-    expect(frame).toContain("origin/main");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("shows the no-match empty state for a filter with no rows", async () => {
-    const setup = await renderPanel(createPanelClient(REMOTE_BRANCHES_OUTPUT));
-
-    await waitForText(setup, "Feature/Login");
-    await typeFilter(setup, "zzz");
-
-    await waitForText(setup, "No remote branches match zzz");
-
-    const frame = setup.captureCharFrame();
-
-    expect(frame).toContain("No remote branches match zzz");
-    expect(frame).toContain("Esc clears the filter");
-    expect(frame).not.toContain("Feature/Login");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("filters case-insensitively against the full remote branch name", async () => {
-    const setup = await renderPanel(createPanelClient(REMOTE_BRANCHES_OUTPUT));
-
-    await waitForText(setup, "Feature/Login");
-    await typeFilter(setup, "FEATURE");
-
-    await waitForText(setup, "origin (1)");
-
-    const frame = setup.captureCharFrame();
-
-    expect(frame).toContain("Feature/Login");
     expect(frame).not.toContain("origin/main");
+    expect(frame).not.toContain("origin/Feature/Login");
+    expect(setup.renderer.root.findDescendantById("remote-row-origin-main")).toBeDefined();
 
     await act(async () => {
       await setup.dispose();
     });
   });
 
-  it("focuses the filter field through list.filter", async () => {
-    const setup = await renderPanel(createPanelClient(REMOTE_BRANCHES_OUTPUT));
-
-    await waitForText(setup, "Feature/Login");
-    await act(async () => {
-      resolveActionHandler("list.filter", "remotes")?.();
-    });
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    expect(setup.renderer.currentFocusedRenderable?.id).toBe(REMOTES_FILTER_INPUT_ID);
-
-    await act(async () => {
-      await setup.dispose();
-    });
+  it("keeps identical branch labels under distinct remote headers with qualified row identities", async () => {
+    const output = [
+      `refs/remotes/origin/main\0aaa111\0${FIXTURE_DATE}\0origin commit\0`,
+      `refs/remotes/upstream/main\0bbb222\0${FIXTURE_DATE}\0upstream commit\0`,
+    ].join("\n");
+    const setup = await renderPanel(createPanelClient(output, ["origin", "upstream"]));
+    try {
+      await waitForText(setup, "upstream (1)");
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("origin (1)");
+      expect(frame).not.toContain("origin/main");
+      expect(frame).not.toContain("upstream/main");
+      expect(frame.match(/ main/g)).toHaveLength(2);
+      expect(frame).toContain(`${ICONS.remoteLocalTracker} main`);
+      expect(frame.split(ICONS.remoteLocalTracker)).toHaveLength(2);
+      expect(setup.renderer.root.findDescendantById("remote-row-origin-main")).toBeDefined();
+      expect(setup.renderer.root.findDescendantById("remote-row-upstream-main")).toBeDefined();
+    } finally {
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
   });
 
   it("shows the read error with Retry when the remote-branch read fails", async () => {

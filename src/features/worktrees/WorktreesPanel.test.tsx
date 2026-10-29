@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, spyOn } from "bun:test";
-import type { InputRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import { resetCommandOrchestration } from "@/app/hooks/commandRunner.state";
@@ -21,7 +20,6 @@ import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
 import { buildListWorktreesArgs } from "@/domain/git/git.worktrees";
 import type { RepositorySelection } from "@/domain/repository/repository.types";
 import { WorktreesPanel } from "@/features/worktrees/WorktreesPanel";
-import { WORKTREE_FILTER_INPUT_ID } from "@/features/worktrees/WorktreesPanel.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
 import { ICONS } from "@/theme/icons";
@@ -297,29 +295,6 @@ async function runAction(actionId: string, scope: "worktrees" | "overlay"): Prom
   });
 }
 
-/**
- * Types a value into the panel filter.
- *
- * @param setup - Renderer setup.
- * @param value - Filter text.
- */
-async function typeFilter(
-  setup: Awaited<ReturnType<typeof testRender>>,
-  value: string,
-): Promise<void> {
-  await act(async () => {
-    const input = setup.renderer.root.findDescendantById(
-      WORKTREE_FILTER_INPUT_ID,
-    ) as InputRenderable | null;
-
-    input?.focus();
-    input?.insertText(value);
-  });
-  await act(async () => {
-    await setup.renderOnce();
-  });
-}
-
 beforeEach(() => {
   resetActionRegistry();
   resetCommandOrchestration();
@@ -395,28 +370,6 @@ describe("WorktreesPanel rows", () => {
     });
   });
 
-  it("narrows the list with a case-insensitive local filter and reports no matches", async () => {
-    const { client } = createClient();
-    const setup = await renderPanel(client, (frame) => frame.includes("feature-branch"));
-
-    await typeFilter(setup, "DETACHED");
-
-    let frame = setup.captureCharFrame();
-
-    expect(frame).toContain("detached-worktree");
-    expect(frame).not.toContain("feature-branch");
-
-    await typeFilter(setup, "zzz");
-
-    frame = setup.captureCharFrame();
-
-    expect(frame).toContain("No worktrees match DETACHEDzzz");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
   it("shows the empty state with the create hint when there are no worktrees", async () => {
     const { client } = createClient({ emptyRepository: true });
     const setup = await renderPanel(client, (frame) => frame.includes("No worktrees"));
@@ -469,22 +422,6 @@ describe("WorktreesPanel actions", () => {
 
     expect(latestSelection).toEqual({ kind: "worktree", path: "/repo" });
     expect(latestRepository?.signals.cwd).toBe("/repo");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("focuses the filter field through list.filter", async () => {
-    const { client } = createClient();
-    const setup = await renderPanel(client, (frame) => frame.includes("feature-branch"));
-
-    await runAction("list.filter", "worktrees");
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    expect(setup.renderer.currentFocusedRenderable?.id).toBe(WORKTREE_FILTER_INPUT_ID);
 
     await act(async () => {
       await setup.dispose();

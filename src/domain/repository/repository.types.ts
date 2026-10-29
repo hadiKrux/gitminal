@@ -11,6 +11,12 @@ import type {
   WorktreeRecord,
 } from "@/domain/git/git.types";
 
+/** Remote branch view projected from its ref plus exact local upstream relationships. */
+export interface RemoteBranchRow extends RemoteBranchRecord {
+  /** True when at least one local branch configures this exact remote and branch as its upstream. */
+  readonly hasLocalTracker: boolean;
+}
+
 /** Upstream classification after a local or remote check. */
 export type UpstreamCheck = "none" | "checked" | "unknown";
 

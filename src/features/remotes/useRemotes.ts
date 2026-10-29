@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
+import { useFeatureSearch, useFeatureSearchReveal } from "@/app/hooks/useFeatureSearch";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
-import { useFocusState } from "@/app/hooks/useFocusState";
 import { useListCursor } from "@/app/hooks/useListCursor";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useScrollSelectedRow } from "@/app/hooks/useScrollSelectedRow";
@@ -9,32 +9,30 @@ import { selectRemoteFreshness } from "@/domain/repository/repository.selectors"
 import type { RemoteCheckRecord, RemoteFreshness } from "@/domain/repository/repository.types";
 import { useRemoteActions } from "@/features/remotes/useRemoteActions";
 import { useRemoteCreateLocal } from "@/features/remotes/useRemoteCreateLocal";
-import { useRemoteFilter } from "@/features/remotes/useRemoteFilter";
 import { useRemoteRows } from "@/features/remotes/useRemoteRows";
 import type { RemoteBranchTarget, VisibleRemoteGroup } from "@/features/remotes/useRemotes.types";
 
 /**
  * Owns the remotes panel state, rows, navigation, actions, and mutation dispatch.
  *
- * Rows come from `useRemoteRows`, so grouping, filtering, capping, and ordering are owned by the
+ * Rows come from `useRemoteRows`, so grouping, capping, and ordering are owned by the
  * selector and one focused hook. Freshness comes from `selectRemoteFreshness` over the provider's
  * per-remote successful check and fetch timestamps, so a ref commit date is never used.
  *
- * The hook registers exactly `remote.createLocal` and `list.filter` in the `remotes` scope through
- * `useRemoteActions`. `useListCursor` owns `nav.up`, `nav.down`, `nav.first`, `nav.last`, and
+ * The hook registers `remote.createLocal` through `useRemoteActions` and opens read-only feature
+ * search through `useFeatureSearch` for `list.filter` in the `remotes` scope. `useListCursor` owns `nav.up`, `nav.down`, `nav.first`, `nav.last`, and
  * `nav.activate`, plus double click detection. `nav.activate` is a deliberate no-op in v1. Entering
  * the region refreshes refs through `repository.refreshStatus()`.
  *
- * @returns Rows, filter state, cursor, freshness, actions, and the read state for the panel body.
+ * @returns Rows, search reveal state, cursor, freshness, actions, and the read state for the panel body.
  */
 export function useRemotes() {
   const repository = useRepository();
   const { setStatus } = useStatus();
   const region = useFocusRegion("remotes");
-  const { focusRenderable } = useFocusState();
   const { refreshStatus } = repository;
-  const filterState = useRemoteFilter();
-  const rows = useRemoteRows(repository.snapshot, filterState.filter);
+  const search = useFeatureSearch("remotes");
+  const rows = useRemoteRows(repository.snapshot, search.revealId);
   const createLocal = useRemoteCreateLocal({
     existingBranchNames: rows.existingBranchNames,
     setStatus,
@@ -48,12 +46,17 @@ export function useRemotes() {
       createLocal.openTarget(rows.items[index] ?? null);
     },
   });
+  useFeatureSearchReveal(
+    search,
+    rows.items,
+    cursor.selectId,
+    (id) => rows.items.find((row) => row.id === id)?.rowId ?? null,
+  );
   const activeItem = rows.items[cursor.index];
   const selectedBranch = toRemoteBranchTarget(activeItem);
   const actions = useRemoteActions({
     selectedBranch,
     openTarget: createLocal.openTarget,
-    focusRenderable,
     repository,
   });
 
@@ -62,8 +65,6 @@ export function useRemotes() {
   useRemoteFocusRefresh(region.focused, refreshStatus);
 
   return {
-    filter: filterState.filter,
-    setFilter: filterState.setFilter,
     groups: rows.groups,
     rowIndexById: rows.rowIndexById,
     activeRowId: activeItem?.rowId ?? null,

@@ -3,7 +3,7 @@ import type { KeybindingOverrides, KeymapPlatform } from "@/domain/keymap/keymap
 /** Commit graph scope accepted by `config.json`. */
 export type GraphScope = "all" | "local" | "current";
 
-/** Fetch scope accepted by `config.json`. */
+/** Upstream scope for Fetch --prune accepted by `config.json`. */
 export type RemoteFetchScope = "local" | "current";
 
 /**
@@ -54,7 +54,7 @@ export interface GitminalConfig {
   };
   /** Remote settings. */
   readonly remote: {
-    /** Fetch scope used by `remote.fetch`. */
+    /** Upstream scope used only by `remote.fetchPrune`; ordinary fetch always uses a named remote. */
     readonly fetchScope: RemoteFetchScope;
   };
   /** Action ID to binding overrides from the main configuration file. */

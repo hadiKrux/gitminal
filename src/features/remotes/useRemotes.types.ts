@@ -10,6 +10,8 @@ export interface RemoteBranchTarget {
 
 /** One selectable branch row derived from the grouped selector output. */
 export interface RemoteBranchItem extends RemoteBranchTarget {
+  /** Exact upstream relationship derived by the repository selector, never inferred from local names. */
+  readonly hasLocalTracker: boolean;
   /** Stable cursor identity, persisted by the focus provider. */
   readonly id: string;
   /** Stable renderable id used by scrolling and row tests. */
@@ -24,7 +26,7 @@ export interface VisibleRemoteGroup {
   /** Configured remote name. */
   readonly remote: string;
   /** Visible branches inside that remote, in display order. */
-  readonly branches: readonly { readonly branch: string }[];
+  readonly branches: readonly { readonly branch: string; readonly hasLocalTracker: boolean }[];
 }
 
 /** One grouped row rendered by the remotes panel. */

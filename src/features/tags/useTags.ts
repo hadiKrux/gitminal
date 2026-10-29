@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { publishActionAvailability } from "@/app/hooks/useActionAvailability";
+import { useFeatureSearch, useFeatureSearchReveal } from "@/app/hooks/useFeatureSearch";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
-import { useFocusState } from "@/app/hooks/useFocusState";
 import { useListCursor } from "@/app/hooks/useListCursor";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
@@ -11,6 +11,7 @@ import { PUSH_AUTO_CREATE_REMOTE } from "@/domain/git/git.remotes";
 import type { TagRowRecord } from "@/domain/git/git.types";
 import { selectTagRows } from "@/domain/repository/repository.selectors";
 import type { RepositorySnapshot } from "@/domain/repository/repository.types";
+import { tagRowId } from "@/features/tags/TagRow";
 import { useTagActions } from "@/features/tags/useTagActions";
 
 /** Maximum logical tag rows rendered at once; the rest are reported as truncated. */
@@ -29,7 +30,7 @@ const TAG_ROW_RENDER_CAP = 5000;
  * through the repository reader, and a focus flip refreshes local refs plus remote tag knowledge.
  *
  * @param input - Callbacks that open the create and delete modals owned by `TagsPanel`.
- * @returns Rows, filter state, cursor helpers, state flags, and availability helpers.
+ * @returns Rows, search reveal state, cursor helpers, state flags, and availability helpers.
  */
 export function useTags(input: {
   readonly openCreateTag: () => void;
@@ -37,10 +38,11 @@ export function useTags(input: {
 }) {
   const repository = useRepository();
   const { operation, setStatus } = useStatus();
-  const { focusRenderable } = useFocusState();
   const { focused } = useFocusRegion("tags");
-  const list = useTagList();
+  const search = useFeatureSearch("tags");
+  const list = useTagList(search.revealId);
   const navigation = useTagNavigation(list.rows, list.cursorItems);
+  useFeatureSearchReveal(search, list.cursorItems, navigation.selectId, tagRowId);
   const defaultRemote = useMemo(
     () => resolveDefaultRemote(repository.snapshot),
     [repository.snapshot],
@@ -64,7 +66,6 @@ export function useTags(input: {
     openCreateTag: input.openCreateTag,
     openDeleteTag: input.openDeleteTag,
     setStatus,
-    focusRenderable,
   });
 
   return {
@@ -72,8 +73,6 @@ export function useTags(input: {
     totalCount: list.totalCount,
     filteredCount: list.filteredCount,
     truncatedCount: list.truncatedCount,
-    filter: list.filter,
-    setFilter: list.setFilter,
     focused,
     loading:
       repository.snapshot === null && repository.state.primary === "loading" && error === null,
@@ -128,35 +127,32 @@ function readRowAvailability(
 }
 
 /**
- * Owns the filter and the selector-derived tag rows.
+ * Owns the capped selector-derived tag rows.
  *
- * @returns The filter state, ledger counts, visible rows, and cursor items.
+ * @param revealId - Accepted search identity used to extend the visible prefix beyond its soft cap.
+ * @returns The row ledger counts, visible rows, and cursor items.
  */
-function useTagList() {
+function useTagList(revealId: string | null) {
   const repository = useRepository();
-  const [filter, setFilter] = useState("");
   const rows = useMemo(
     () => selectTagRows(repository.snapshot, repository.remoteTagChecks),
     [repository.snapshot, repository.remoteTagChecks],
   );
-  const normalizedFilter = filter.trim().toLowerCase();
-  const filteredRows = useMemo(
+  const visibleRows = useMemo(
     () =>
-      normalizedFilter.length === 0
-        ? rows
-        : rows.filter((row) => row.name.toLowerCase().includes(normalizedFilter)),
-    [normalizedFilter, rows],
+      rows.slice(
+        0,
+        Math.max(TAG_ROW_RENDER_CAP, rows.findIndex((row) => row.name === revealId) + 1),
+      ),
+    [rows, revealId],
   );
-  const visibleRows = useMemo(() => filteredRows.slice(0, TAG_ROW_RENDER_CAP), [filteredRows]);
   const cursorItems = useMemo(() => visibleRows.map((row) => ({ id: row.name })), [visibleRows]);
 
   return {
-    filter,
-    setFilter,
     rows: visibleRows,
     totalCount: rows.length,
-    filteredCount: filteredRows.length,
-    truncatedCount: Math.max(0, filteredRows.length - visibleRows.length),
+    filteredCount: rows.length,
+    truncatedCount: Math.max(0, rows.length - visibleRows.length),
     cursorItems,
   };
 }
@@ -229,6 +225,7 @@ function useTagNavigation(
     activeIndex: cursor.index,
     activeRow: rows[cursor.index] ?? null,
     selectRow: cursor.select,
+    selectId: cursor.selectId,
     handleRowClick: cursor.handleRowClick,
   };
 }

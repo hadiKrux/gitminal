@@ -2,7 +2,6 @@ import { useCallback, useEffect } from "react";
 import { useAction } from "@/app/hooks/useAction";
 import { publishActionAvailability } from "@/app/hooks/useActionAvailability";
 import type { useRepository } from "@/app/hooks/useRepository";
-import { REMOTES_FILTER_INPUT_ID } from "@/features/remotes/RemoteFilter.constants";
 import type { RemoteBranchTarget } from "@/features/remotes/useRemotes.types";
 
 /**
@@ -10,19 +9,18 @@ import type { RemoteBranchTarget } from "@/features/remotes/useRemotes.types";
  *
  * `remote.createLocal` forwards the current selection to the create-local opener, which refuses a
  * missing target with the shared status text. Its footer availability is published from the same
- * selector, so a missing selection hides the action. `list.filter` focuses the filter field through
- * its stable renderable id. The hook also builds the panel Retry handler and the read-only probe.
+ * selector, so a missing selection hides the action. Search is owned separately by `useFeatureSearch`.
+ * The hook also builds the panel Retry handler and the read-only probe.
  *
- * @param input - Selected branch, target opener, focus helper, and repository context.
+ * @param input - Selected branch, target opener, and repository context.
  * @returns The Retry handler and the operation-in-progress flag.
  */
 export function useRemoteActions(input: {
   readonly selectedBranch: RemoteBranchTarget | null;
   readonly openTarget: (target: RemoteBranchTarget | null) => void;
-  readonly focusRenderable: (id: string) => void;
   readonly repository: ReturnType<typeof useRepository>;
 }) {
-  const { focusRenderable, openTarget, repository, selectedBranch } = input;
+  const { openTarget, repository, selectedBranch } = input;
   const selectedAvailability =
     selectedBranch === null
       ? null
@@ -36,10 +34,6 @@ export function useRemoteActions(input: {
 
   useAction("remote.createLocal", { scope: "remotes", targetKind: "remoteBranch" }, () => {
     openTarget(selectedBranch);
-  });
-
-  useAction("list.filter", { scope: "remotes" }, () => {
-    focusRenderable(REMOTES_FILTER_INPUT_ID);
   });
 
   useEffect(

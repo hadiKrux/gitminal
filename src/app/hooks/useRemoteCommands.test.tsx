@@ -59,6 +59,7 @@ function createFakeGit(): { client: GitClient; invocations: () => number } {
     "rev-parse --verify --quiet REBASE_HEAD": () => result("", false),
     "rev-parse --verify --quiet CHERRY_PICK_HEAD": () => result("", false),
     "remote -v": () => result("origin\tgit@example.com:repo.git (fetch)\n"),
+    "config --get-all remote.origin.fetch": () => result("+refs/heads/*:refs/remotes/origin/*\n"),
     "config user.name": () => result("Test User\n"),
     "config user.email": () => result("test@example.com\n"),
     "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main": () =>
@@ -76,7 +77,7 @@ function createFakeGit(): { client: GitClient; invocations: () => number } {
     "for-each-ref --format=%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref) refs/heads":
       () => result("main\torigin\trefs/heads/main\n"),
     "ls-remote --heads -- origin": () => result("abc123\trefs/heads/main\n"),
-    "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () => result(""),
+    "fetch --progress --no-prune --no-prune-tags -- origin": () => result(""),
   };
 
   return {

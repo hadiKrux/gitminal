@@ -18,10 +18,13 @@ import { useTerminalDimensions } from "@/ui/useTerminalDimensions";
 /**
  * Renders one remote-tracking branch row.
  *
- * The row is a single line: a one-cell indent, the `<remote>/<branch>` name, and an inline freshness
- * marker when the remote is not fresh. The indent aligns the name with the group header. The name is
+ * The row is a single line: a one-cell indent, the branch name without its remote prefix, and an
+ * inline freshness marker when the remote is not fresh. A leading `[L]` means at least one local branch
+ * tracks this exact remote/branch, regardless of its local name or checkout state. It is not a same-name
+ * existence marker. The remote group header supplies remote context;
+ * row identity and command targets remain remote-qualified. The indent aligns the name with the group header. The name is
  * truncated with `TruncatedText` using the drawable width of the surrounding panel, which already
- * excludes the border and the reserved scrollbar column, and the indent and freshness marker widths
+ * excludes the border and the reserved scrollbar column, and the indent, local-tracker, and freshness marker widths
  * are reserved first, so the freshness marker and its separator are never the clipped part. Outside
  * a panel frame the budget falls back to the terminal width minus the panel border and the scrollbar
  * column. The row does not use the `ListRow` selection marker: the dark selected fill already
@@ -38,6 +41,7 @@ export function RemoteRow(props: {
   readonly remote: string;
   readonly branch: string;
   readonly freshness: RemoteFreshness;
+  readonly hasLocalTracker?: boolean;
   readonly selected: boolean;
   readonly focused: boolean;
   readonly onMouseDown: () => void;
@@ -49,7 +53,7 @@ export function RemoteRow(props: {
     panelScroll?.drawableWidth ??
     Math.max(0, dimensions.width - PANEL_BORDER_WIDTH - PANEL_SCROLLBAR_WIDTH);
   const indicator = readFreshnessIndicator(props.freshness);
-  const nameBudget = readNameBudget(drawableWidth, indicator);
+  const nameBudget = readNameBudget(drawableWidth, indicator, props.hasLocalTracker === true);
 
   return (
     <ListRow
@@ -63,7 +67,14 @@ export function RemoteRow(props: {
         <text wrapMode="none" flexShrink={0}>
           {" "}
         </text>
-        <TruncatedText text={`${props.remote}/${props.branch}`} maxWidth={nameBudget} />
+        {props.hasLocalTracker === true ? (
+          <text
+            fg={tokens.muted}
+            wrapMode="none"
+            flexShrink={0}
+          >{`${ICONS.remoteLocalTracker} `}</text>
+        ) : null}
+        <TruncatedText text={props.branch} maxWidth={nameBudget} />
         {indicator === null ? null : (
           <text fg={tokens.warning} wrapMode="none" flexShrink={0}>
             {` ${indicator}`}
@@ -100,11 +111,22 @@ function readFreshnessIndicator(freshness: RemoteFreshness): string | null {
  *
  * @param drawableWidth - Drawable width of the surrounding panel in cells.
  * @param indicator - Freshness marker text, or null when the remote is fresh.
+ * @param hasLocalTracker - Whether to reserve the tracking marker and its separator.
  * @returns The name budget, never below the minimum name width.
  */
-function readNameBudget(drawableWidth: number, indicator: string | null): number {
+function readNameBudget(
+  drawableWidth: number,
+  indicator: string | null,
+  hasLocalTracker: boolean,
+): number {
   const rowWidth = Math.max(REMOTE_ROW_CONTENT_MIN_WIDTH, Math.max(1, drawableWidth));
   const markerWidth = indicator === null ? 0 : indicator.length + REMOTE_ROW_MARKER_SEPARATOR_WIDTH;
 
-  return Math.max(REMOTE_ROW_MIN_NAME_WIDTH, rowWidth - REMOTE_ROW_INDENT_WIDTH - markerWidth);
+  const trackerWidth = hasLocalTracker
+    ? ICONS.remoteLocalTracker.length + REMOTE_ROW_MARKER_SEPARATOR_WIDTH
+    : 0;
+  return Math.max(
+    REMOTE_ROW_MIN_NAME_WIDTH,
+    rowWidth - REMOTE_ROW_INDENT_WIDTH - markerWidth - trackerWidth,
+  );
 }

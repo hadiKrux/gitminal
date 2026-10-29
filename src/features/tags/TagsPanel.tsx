@@ -10,8 +10,6 @@ import { TagRow, tagRowId } from "@/features/tags/TagRow";
 import {
   CREATE_TAG_OVERLAY_ID,
   DELETE_TAG_OVERLAY_ID_PREFIX,
-  TAG_FILTER_INPUT_ID,
-  TAG_FILTER_PLACEHOLDER,
   TAGS_BUSY_MESSAGE,
   TAGS_EMPTY_HINT,
   TAGS_EMPTY_MESSAGE,
@@ -24,13 +22,12 @@ import { useTokens } from "@/theme/useTokens";
 import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { LoadingRow } from "@/ui/LoadingRow";
-import { SearchField } from "@/ui/SearchField";
 
 /**
  * Renders the Tags panel body.
  *
  * The shell already supplies the focusable panel frame, the border title with the count, and the
- * scroll container, so this component returns only the filter field, the tag rows, and the state
+ * scroll container, so this component returns only the tag rows, and the state
  * rows. Rows come from `useTags`, which reads `selectTagRows` and orders them version-descending.
  * The panel never recomputes scope or order, never calls git, and never registers a global action.
  * The active row id is passed to `useScrollSelectedRow`, so keyboard navigation keeps the selection
@@ -66,7 +63,6 @@ export function TagsPanel(): ReactNode {
     ),
   });
   const showEmpty = !tags.loading && tags.error === null && tags.totalCount === 0;
-  const showNoMatches = !tags.loading && tags.totalCount > 0 && tags.rows.length === 0;
 
   useScrollSelectedRow(
     tags.activeRow === null ? null : tagRowId(tags.activeRow.name),
@@ -75,14 +71,6 @@ export function TagsPanel(): ReactNode {
 
   return (
     <box flexDirection="column" flexGrow={1}>
-      <box paddingLeft={1} paddingRight={1} flexShrink={0}>
-        <SearchField
-          id={TAG_FILTER_INPUT_ID}
-          value={tags.filter}
-          placeholder={TAG_FILTER_PLACEHOLDER}
-          onInput={tags.setFilter}
-        />
-      </box>
       {tags.busy ? (
         <text fg={tokens.dim} wrapMode="none">
           {TAGS_BUSY_MESSAGE}
@@ -109,7 +97,6 @@ export function TagsPanel(): ReactNode {
         </text>
       )}
       {showEmpty ? <EmptyState message={TAGS_EMPTY_MESSAGE} hint={TAGS_EMPTY_HINT} /> : null}
-      {showNoMatches ? <EmptyState message={`No tags match ${tags.filter}`} /> : null}
     </box>
   );
 }

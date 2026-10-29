@@ -14,6 +14,7 @@ import { CONFIRM_LABELS } from "@/domain/commands/confirm.labels";
 import { PUSH_AUTO_CREATE_REMOTE } from "@/domain/git/git.remotes";
 import { resolveCommandTarget } from "@/features/top-bar/topBar.controls";
 import type { TopBarCommands, TopBarCommandsInput } from "@/features/top-bar/useTopBar.types";
+import type { ForceConfirmationCapture } from "./useTopBarCommands.types";
 
 /** Commands that open a confirmation before running. */
 const CONFIRMED_COMMANDS: ReadonlySet<string> = new Set([
@@ -28,19 +29,7 @@ const OVERWRITE_COMMAND = "remote.pushForceOverwrite";
 const STALE_CONFIRMATION_WARNING = "branch or upstream changed; open the confirmation again";
 
 /** Commands whose request carries the effective fetch scope and checked-out branch. */
-const FETCH_COMMANDS: ReadonlySet<string> = new Set(["remote.fetch", "remote.fetchPrune"]);
-
-/** Values captured when a force confirmation opens. */
-interface ForceConfirmationCapture {
-  /** Command id the confirmation authorises. */
-  readonly commandId: string;
-  /** Branch name shown and authorised by the confirmation. */
-  readonly branch: string;
-  /** Configured upstream ref shown by the confirmation, or null. */
-  readonly upstreamRef: string | null;
-  /** Explicit target captured with the confirmation. */
-  readonly target: CommandTarget;
-}
+const FETCH_COMMANDS: ReadonlySet<string> = new Set(["remote.fetchPrune"]);
 
 /**
  * Routes the top bar's remote commands through the orchestrator and the overlay provider.
@@ -185,7 +174,7 @@ export function useTopBarCommands(input: TopBarCommandsInput): TopBarCommands {
 /**
  * Builds the fetch form values a remote request carries.
  *
- * Only the two fetch commands read them. The scope comes from the effective configuration and the
+ * Only Fetch --prune reads them. The scope comes from the effective configuration and the
  * branch from the same projection the top bar renders, so a palette dispatch through this handler
  * produces a request identical to a top bar activation.
  *

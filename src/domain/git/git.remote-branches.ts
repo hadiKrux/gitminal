@@ -252,12 +252,12 @@ function findOwningRemote(refWithoutPrefix: string, remoteNames: readonly string
 /**
  * Groups remote branches by remote and sorts both levels.
  *
- * Groups are ordered by remote name and each group by branch name, so a snapshot produces the same
- * row order on every refresh. Records keep their parsed identity, so a caller can still route a
- * command with the exact remote and branch.
+ * Groups retain remote-name order. Within each group, tip commit committer dates sort newest first,
+ * with branch names as the deterministic tie-breaker. Missing or invalid dates sort last by name.
+ * This uses commit time, never branch creation or ref-update time. Parsed identities remain intact.
  *
  * @param records - Remote branch records, in any order.
- * @returns Groups sorted by remote, each with branches sorted by branch name.
+ * @returns Groups sorted by remote, each with branches sorted by descending tip commit date then name.
  */
 export function groupByRemote(
   records: readonly RemoteBranchRecord[],
@@ -275,8 +275,35 @@ export function groupByRemote(
     .sort(([left], [right]) => compareText(left, right))
     .map(([remote, branches]) => ({
       remote,
-      branches: [...branches].sort((left, right) => compareText(left.branch, right.branch)),
+      branches: [...branches].sort(compareRemoteBranchCommits),
     }));
+}
+
+/**
+ * Orders remote tips by their actual commit timestamp, using branch names for equal/unknown dates.
+ * @param left - First remote branch record.
+ * @param right - Second remote branch record in the same group.
+ * @returns Negative when the left branch belongs first, positive when right does, or zero on a tie.
+ */
+function compareRemoteBranchCommits(left: RemoteBranchRecord, right: RemoteBranchRecord): number {
+  const leftTime = readRemoteCommitTime(left.committerDate);
+  const rightTime = readRemoteCommitTime(right.committerDate);
+
+  if (leftTime !== rightTime) {
+    return leftTime > rightTime ? -1 : 1;
+  }
+
+  return compareText(left.branch, right.branch);
+}
+
+/**
+ * Normalizes an ISO commit date for chronological comparison across time zones.
+ * @param date - Parsed tip committer date, or null when git supplies none.
+ * @returns Epoch milliseconds, or negative infinity for a missing or invalid timestamp.
+ */
+function readRemoteCommitTime(date: string | null): number {
+  const timestamp = date === null ? Number.NaN : Date.parse(date);
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
 }
 
 /**

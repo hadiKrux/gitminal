@@ -10,6 +10,8 @@ import type { PaletteAvailabilitySource } from "@/features/palette/palette.targe
  * That keeps the capture testable without a mounted palette or any provider.
  */
 export interface PaletteEntryCaptureInput {
+  /** Existing remote names; absent for catalogue-only callers. */
+  readonly remotes?: readonly string[];
   /** Repository surface that answers the availability question. */
   readonly repository: PaletteAvailabilitySource;
   /** Resolved keymap the displayed shortcuts come from. */

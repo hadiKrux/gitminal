@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { RemoteFilter } from "@/features/remotes/RemoteFilter";
 import { RemoteRow } from "@/features/remotes/RemoteRow";
 import {
   REMOTES_EMPTY_HINT,
@@ -7,8 +6,6 @@ import {
   REMOTES_EMPTY_REPOSITORY_HINT,
   REMOTES_ERROR_MESSAGE,
   REMOTES_LOADING_LABEL,
-  REMOTES_NO_MATCH_HINT,
-  REMOTES_NO_MATCH_PREFIX,
   REMOTES_NO_REMOTES_MESSAGE,
   REMOTES_OPERATION_IN_PROGRESS,
   REMOTES_TRUNCATION_LABEL,
@@ -25,7 +22,7 @@ import { LoadingRow } from "@/ui/LoadingRow";
  * Renders the remotes panel body.
  *
  * The shell owns the focusable frame, the border title with the remote-branch count, and the scroll
- * container, so this component returns only the filter field, the grouped branch rows, and the state
+ * container, so this component returns only the grouped branch rows, and the state
  * rows. It renders no second title row. It never renders a second frame or scrollbox and never
  * registers an action; `useRemotes` owns the scoped registrations and the create-local-branch modal.
  *
@@ -37,9 +34,6 @@ export function RemotesPanel(): ReactNode {
 
   return (
     <box flexDirection="column" flexShrink={0}>
-      <box paddingLeft={1} paddingRight={1} flexShrink={0}>
-        <RemoteFilter value={remotes.filter} onChange={remotes.setFilter} />
-      </box>
       {remotes.hiddenCount === 0 ? null : (
         <text fg={tokens.dim} wrapMode="none">
           {`${REMOTES_TRUNCATION_LABEL} ${remotes.branchCount} of ${remotes.filteredCount} remote branches (${remotes.hiddenCount} hidden)`}
@@ -115,10 +109,6 @@ function renderUnavailableState(view: ReturnType<typeof useRemotes>): ReactNode 
  * @returns The empty or no-match message.
  */
 function renderEmptyGroups(view: ReturnType<typeof useRemotes>): ReactNode {
-  if (view.hasRemoteBranches && view.filter.trim().length > 0) {
-    return <EmptyState message={buildNoMatchMessage(view.filter)} hint={REMOTES_NO_MATCH_HINT} />;
-  }
-
   return (
     <EmptyState
       message={REMOTES_EMPTY_MESSAGE}
@@ -181,6 +171,7 @@ function renderGroup(
             id={id}
             remote={group.remote}
             branch={branch.branch}
+            hasLocalTracker={branch.hasLocalTracker}
             freshness={view.freshnessByRemote[group.remote] ?? "unknown"}
             selected={view.cursor.index === index}
             focused={view.focused}
@@ -190,14 +181,4 @@ function renderGroup(
       })}
     </box>
   );
-}
-
-/**
- * Builds the empty state message for a filter with no matches.
- *
- * @param filter - Raw filter string.
- * @returns The message naming the trimmed filter.
- */
-function buildNoMatchMessage(filter: string): string {
-  return `${REMOTES_NO_MATCH_PREFIX} ${filter.trim()}`;
 }

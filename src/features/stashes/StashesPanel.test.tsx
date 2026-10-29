@@ -227,6 +227,7 @@ describe("StashesPanel registration", () => {
       "stash.apply",
       "stash.pop",
       "stash.delete",
+      "list.filter",
     ];
 
     for (const actionId of expected) {

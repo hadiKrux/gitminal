@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useFeatureSearch, useFeatureSearchReveal } from "@/app/hooks/useFeatureSearch";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
-import { useFocusState } from "@/app/hooks/useFocusState";
 import { useListCursor } from "@/app/hooks/useListCursor";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
@@ -11,6 +11,7 @@ import { selectWorktreeRows } from "@/domain/repository/repository.selectors";
 import type { RepositorySelection } from "@/domain/repository/repository.types";
 import { useWorktreeActions } from "@/features/worktrees/useWorktreeActions";
 import { useWorktreeAvailability } from "@/features/worktrees/useWorktreeAvailability";
+import { worktreeRowId } from "@/features/worktrees/WorktreeRow";
 
 /** Region this hook owns. */
 const REGION_ID = "worktrees" as const;
@@ -27,13 +28,13 @@ const WORKTREE_ROW_RENDER_CAP = 500;
  * claim `g` and `G`. The hook registers exactly `worktree.create`, `worktree.delete`, and
  * `list.filter` in the `worktrees` scope; it never registers `nav.*`, `app.refresh`, or `focus.*`.
  *
- * The filter is local, case-insensitive over the branch name and the path, and stored in view state,
- * so a refresh never clears it. A focus flip refreshes the repository through `refreshStatus()`.
+ * Search is a read-only overlay opened by `useFeatureSearch`, which reveals the accepted path
+ * without activating it or switching repositories. A focus flip refreshes the repository through `refreshStatus()`.
  * Delete validates availability first and refuses to open its modal for the current worktree,
  * because the app never removes the worktree it is running in.
  *
  * @param input - Callbacks that open the create and delete modals owned by `WorktreesPanel`.
- * @returns Rows, filter state, cursor helpers, state flags, and availability text.
+ * @returns Rows, search reveal state, cursor helpers, state flags, and availability text.
  */
 export function useWorktrees(input: {
   readonly openCreateWorktree: () => void;
@@ -41,10 +42,11 @@ export function useWorktrees(input: {
 }) {
   const repository = useRepository();
   const { operation, setStatus } = useStatus();
-  const { focusRenderable } = useFocusState();
   const { focused } = useFocusRegion(REGION_ID);
-  const list = useWorktreeList();
+  const search = useFeatureSearch("worktrees");
+  const list = useWorktreeList(search.revealId);
   const navigation = useWorktreeNavigation(list.rows, list.cursorItems);
+  useFeatureSearchReveal(search, list.cursorItems, navigation.selectId, worktreeRowId);
   const activeRowRef = useRef<WorktreeRecord | null>(navigation.activeRow);
 
   activeRowRef.current = navigation.activeRow;
@@ -74,7 +76,6 @@ export function useWorktrees(input: {
     openDeleteWorktree: input.openDeleteWorktree,
     regionId: REGION_ID,
     setStatus,
-    focusRenderable,
   });
 
   const loading =
@@ -90,8 +91,6 @@ export function useWorktrees(input: {
     totalCount: list.totalCount,
     filteredCount: list.filteredCount,
     truncatedCount: list.truncatedCount,
-    filter: list.filter,
-    setFilter: list.setFilter,
     empty,
     emptyHint: "n New worktree",
     focused,
@@ -174,29 +173,30 @@ function readDeleteAvailability(
 }
 
 /**
- * Owns the filter and the selector-derived worktree rows.
+ * Owns the capped selector-derived worktree rows.
  *
- * @returns The filter state, counts, visible rows, and cursor items.
+ * @param revealId - Accepted path used to extend the visible prefix beyond its soft cap.
+ * @returns The row counts, visible rows, and cursor items.
  */
-function useWorktreeList() {
+function useWorktreeList(revealId: string | null) {
   const repository = useRepository();
-  const [filter, setFilter] = useState("");
   const rows = useMemo(() => selectWorktreeRows(repository.snapshot), [repository.snapshot]);
-  const filteredRows = useMemo(
-    () => rows.filter((row) => matchesWorktreeFilter(row, filter)),
-    [filter, rows],
+  const visibleRows = useMemo(
+    () =>
+      rows.slice(
+        0,
+        Math.max(WORKTREE_ROW_RENDER_CAP, rows.findIndex((row) => row.path === revealId) + 1),
+      ),
+    [rows, revealId],
   );
-  const visibleRows = useMemo(() => filteredRows.slice(0, WORKTREE_ROW_RENDER_CAP), [filteredRows]);
   const cursorItems = useMemo(() => visibleRows.map((row) => ({ id: row.path })), [visibleRows]);
 
   return {
-    filter,
-    setFilter,
     rows: visibleRows,
     allRows: rows,
     totalCount: rows.length,
-    filteredCount: filteredRows.length,
-    truncatedCount: Math.max(0, filteredRows.length - visibleRows.length),
+    filteredCount: rows.length,
+    truncatedCount: Math.max(0, rows.length - visibleRows.length),
     cursorItems,
   };
 }
@@ -269,6 +269,7 @@ function useWorktreeNavigation(
     activeIndex: cursor.index,
     activeRow: rows[cursor.index] ?? null,
     handleRowClick: cursor.handleRowClick,
+    selectId: cursor.selectId,
   };
 }
 
@@ -296,29 +297,6 @@ function useWorktreeFocusRefresh(focused: boolean): void {
 
     void refreshStatus();
   }, [focused, refreshStatus]);
-}
-
-/**
- * Reports whether a worktree row matches a filter.
- *
- * Matching is case-insensitive and covers the branch name and the absolute path. A detached
- * worktree has no branch name, so its path is the only searchable identity.
- *
- * @param row - Worktree row.
- * @param filter - Raw filter text.
- * @returns True when the row should be listed.
- */
-function matchesWorktreeFilter(row: WorktreeRecord, filter: string): boolean {
-  const normalized = filter.trim().toLowerCase();
-
-  if (normalized.length === 0) {
-    return true;
-  }
-
-  return (
-    (row.branch ?? "").toLowerCase().includes(normalized) ||
-    row.path.toLowerCase().includes(normalized)
-  );
 }
 
 /**

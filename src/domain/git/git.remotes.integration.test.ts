@@ -94,13 +94,16 @@ describe.skipIf(!gitAvailable)("remote branches against a real repository", () =
               })
             ).ok,
           ).toBeTrue();
-          expect(
-            (
-              await fixture.run(["remote", "add", "team", team.root], {
-                operationClass: "write",
-              })
-            ).ok,
-          ).toBeTrue();
+          // Intentionally construct a legacy overlapping configuration without remote add's
+          // newer subset-name validation; attribution must support already-configured remotes.
+          for (const [key, value] of [
+            ["remote.team.url", team.root],
+            ["remote.team.fetch", "+refs/heads/*:refs/remotes/team/*"],
+          ] as const) {
+            expect(
+              (await fixture.run(["config", key, value], { operationClass: "write" })).ok,
+            ).toBeTrue();
+          }
           expect(
             (
               await fixture.run(["push", "team/upstream", "refs/heads/main:refs/heads/main"], {

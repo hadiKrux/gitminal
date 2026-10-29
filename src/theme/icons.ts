@@ -49,6 +49,7 @@ export const ICONS = Object.freeze({
   tagScopeClose: "]",
   tagScopeAbsent: " ",
   tagLocal: "L",
+  remoteLocalTracker: "[L]",
   tagRemote: "R",
   tagUnpushed: "↑",
   tagUnknown: "?",

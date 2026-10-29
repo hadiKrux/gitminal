@@ -5,7 +5,6 @@ import type { useStatus } from "@/app/hooks/useStatus";
 import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import type { CommandAvailability } from "@/domain/commands/commands.types";
 import type { WorktreeRecord } from "@/domain/git/git.types";
-import { WORKTREE_FILTER_INPUT_ID } from "@/features/worktrees/WorktreesPanel.constants";
 
 /**
  * Owns the Worktrees region actions and their availability pre-checks.
@@ -15,7 +14,7 @@ import { WORKTREE_FILTER_INPUT_ID } from "@/features/worktrees/WorktreesPanel.co
  * next to the disabled Create action. Delete validates availability first, so the current worktree
  * and a target that disappeared from the last read never open a modal.
  *
- * @param input - Repository, active-row reader, modal openers, status writer, and focus helper.
+ * @param input - Active-row reader, modal openers, owning region, and status writer.
  * @returns The registered action callbacks.
  */
 export function useWorktreeActions(input: {
@@ -24,10 +23,9 @@ export function useWorktreeActions(input: {
   readonly openDeleteWorktree: (worktree: WorktreeRecord) => void;
   readonly regionId: "worktrees";
   readonly setStatus: ReturnType<typeof useStatus>["setStatus"];
-  readonly focusRenderable: (id: string) => void;
 }) {
   const repository = useRepository();
-  const { focusRenderable, openCreateWorktree, openDeleteWorktree, readActiveRow } = input;
+  const { openCreateWorktree, openDeleteWorktree, readActiveRow } = input;
   const { regionId, setStatus } = input;
 
   /** Shows an unavailable reason as a transient warning status. */
@@ -76,12 +74,6 @@ export function useWorktreeActions(input: {
     openDeleteWorktree(row);
   }, [openDeleteWorktree, readActiveRow, regionId, reportUnavailable, repository]);
 
-  /** Focuses the filter field through its stable renderable id. */
-  const focusFilter = useCallback((): void => {
-    focusRenderable(WORKTREE_FILTER_INPUT_ID);
-  }, [focusRenderable]);
-
   useAction("worktree.create", { scope: regionId, targetKind: "none" }, createWorktree);
   useAction("worktree.delete", { scope: regionId, targetKind: "worktree" }, deleteWorktree);
-  useAction("list.filter", { scope: regionId, targetKind: "none" }, focusFilter);
 }

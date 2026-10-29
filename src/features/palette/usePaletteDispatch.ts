@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { resolveActionHandler } from "@/app/hooks/useAction";
+import { useCommandRunner } from "@/app/hooks/useCommandRunner";
 import { useFocusState } from "@/app/hooks/useFocusState";
 import { useStatus } from "@/app/hooks/useStatus";
 import { describeCommandReason } from "@/domain/commands/commands.reasons";
@@ -15,23 +16,7 @@ import {
 } from "@/features/palette/palette.targets.constants";
 import type { UseCommandPaletteOptions } from "@/features/palette/useCommandPalette.types";
 import type { PaletteCapture } from "@/features/palette/usePaletteCapture";
-
-/** Handlers that run or refuse the highlighted command. */
-export interface PaletteDispatch {
-  /**
-   * Runs the highlighted command after revalidation.
-   *
-   * @param rows - Rendered rows.
-   * @param selectableIndex - Highlighted row index.
-   */
-  readonly activate: (rows: readonly PaletteRow[], selectableIndex: number) => void;
-  /**
-   * Activates the option value reported by the native select.
-   *
-   * @param value - Encoded option value.
-   */
-  readonly selectValue: (value: string) => void;
-}
+import type { PaletteDispatch } from "./usePaletteDispatch.types";
 
 /**
  * Owns the palette's target-explicit activation path.
@@ -44,7 +29,9 @@ export interface PaletteDispatch {
  * and reports the reason through `StatusProvider`. Only a command that survives all three checks
  * closes the palette and dispatches to exactly one owning-scope handler; the handler receives no
  * target and re-derives the same target from the live projection, which is why the captured target
- * is validated for equality first.
+ * is validated for equality first. Remote-specific Fetch entries are the explicit-argument exception:
+ * they revalidate the captured remote and send it directly to the existing command orchestrator,
+ * rather than dispatching the global shortcut handler whose remote is always origin.
  *
  * Dispatch is causal, not timed. The palette closes through `options.onClose(completion)` and the
  * overlay provider runs that completion once the captured background focus is restored, so a
@@ -64,6 +51,7 @@ export function usePaletteDispatch(
   options: UseCommandPaletteOptions,
 ): PaletteDispatch {
   const focus = useFocusState();
+  const { runCommand } = useCommandRunner();
   const { setStatus } = useStatus();
   const { entries, repository, targets } = capture;
 
@@ -103,6 +91,18 @@ export function usePaletteDispatch(
       }
 
       const descriptor = entry.descriptor;
+
+      if (entry.fetchRemote !== undefined) {
+        dispatchRemoteFetch({
+          remote: entry.fetchRemote,
+          descriptor,
+          repository,
+          onClose: options.onClose,
+          runCommand,
+          refuse,
+        });
+        return;
+      }
 
       if (PALETTE_SELF_COMMAND_IDS.has(descriptor.id)) {
         options.onClose();
@@ -146,7 +146,7 @@ export function usePaletteDispatch(
         handler();
       });
     },
-    [options, refuse, repository, targets],
+    [options, refuse, repository, targets, runCommand],
   );
 
   /** Runs the highlighted command after revalidation. */
@@ -188,3 +188,39 @@ export function usePaletteDispatch(
 
   return { activate, selectValue };
 }
+
+/**
+ * Revalidates one explicit remote and dispatches Fetch only after the palette restores focus.
+ * @param input - Captured remote, live availability, refusal writer, close boundary, and orchestrator.
+ */
+function dispatchRemoteFetch(input: {
+  readonly remote: string;
+  readonly descriptor: CommandDescriptor;
+  readonly repository: PaletteCapture["repository"];
+  readonly onClose: UseCommandPaletteOptions["onClose"];
+  readonly runCommand: ReturnType<typeof useCommandRunner>["runCommand"];
+  readonly refuse: (descriptor: CommandDescriptor, message: string) => void;
+}): void {
+  const { remote, descriptor, repository, onClose, runCommand, refuse } = input;
+  const availability = repository.getAvailability("remote.fetch", { kind: "none" }, "overlay", {
+    remote,
+  });
+
+  if (!availability.available) {
+    refuse(descriptor, describeCommandReason(availability.reason ?? "unknown-remote"));
+    return;
+  }
+
+  onClose(() => {
+    recordRecentCommand(descriptor.id);
+    void runCommand({
+      commandId: "remote.fetch",
+      target: { kind: "none" },
+      formValues: { remote },
+    }).catch(() => {
+      // The orchestrator already surfaced the failure; consume its rejected completion.
+    });
+  });
+}
+
+export type { PaletteDispatch } from "./usePaletteDispatch.types";

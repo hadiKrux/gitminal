@@ -23,7 +23,29 @@ export function capturePaletteEntries(
 ): readonly PaletteCommandEntry[] {
   return listCommandDescriptors()
     .filter((descriptor) => descriptor.paletteInvocable)
-    .map((descriptor) => {
+    .flatMap((descriptor) => {
+      if (descriptor.id === "remote.fetch" && input.remotes !== undefined) {
+        return input.remotes.map((remote) => ({
+          descriptor: {
+            ...descriptor,
+            id: `remote.fetch:${remote}`,
+            label: `Fetch ${remote}`,
+            description: `Fetch configured branches from ${remote} without pruning`,
+            keywords: [...descriptor.keywords, remote],
+          },
+          fetchRemote: remote,
+          target: { kind: "none" } as const,
+          availability: input.repository.getAvailability(
+            "remote.fetch",
+            { kind: "none" },
+            "overlay",
+            { remote },
+          ),
+          shortcuts: [],
+          shortcut: PALETTE_UNBOUND_LABEL,
+        }));
+      }
+
       const { target, availability } = captureCommandTarget({
         repository: input.repository,
         deriveTarget: input.deriveTarget,
@@ -31,13 +53,15 @@ export function capturePaletteEntries(
       });
       const shortcuts = readShortcuts(input.keymap, descriptor);
 
-      return {
-        descriptor,
-        target,
-        availability,
-        shortcuts,
-        shortcut: shortcuts[0] ?? PALETTE_UNBOUND_LABEL,
-      };
+      return [
+        {
+          descriptor,
+          target,
+          availability,
+          shortcuts,
+          shortcut: shortcuts[0] ?? PALETTE_UNBOUND_LABEL,
+        },
+      ];
     });
 }
 

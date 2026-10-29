@@ -14,24 +14,26 @@ const REMOTES_ROW_RENDER_CAP = 5000;
 const REMOTE_ROW_ID_PREFIX = "remote-row-";
 
 /**
- * Owns the filtered, capped, and grouped remote-branch rows.
+ * Owns the capped and grouped remote-branch rows, extending the cap for an accepted search result.
  *
- * Grouping and ordering come from `selectRemoteBranchGroups`; filtering is the only local transform
- * and only drops rows whose full `<remote>/<branch>` name does not contain the filter. The filtered
- * list is capped at 5000 rendered rows and the full filtered count is kept so the panel can report
- * the hidden rows.
+ * Grouping and ordering come from `selectRemoteBranchGroups`. The initial list is capped at 5000
+ * rows; an accepted search result extends that prefix so its sidebar row can be selected and revealed.
  *
  * @param snapshot - Current snapshot, or null before the first read.
- * @param filter - Raw filter string.
+ * @param revealId - Accepted full remote/branch identity, or null before any search reveal.
  * @returns The visible groups, row identity map, counts, and known local branch names.
  */
-export function useRemoteRows(snapshot: RepositorySnapshot | null, filter: string) {
-  const filteredGroups = useMemo(
-    () => readFilteredGroups(selectRemoteBranchGroups(snapshot), filter),
-    [snapshot, filter],
+export function useRemoteRows(snapshot: RepositorySnapshot | null, revealId: string | null = null) {
+  const orderedGroups = useMemo(() => selectRemoteBranchGroups(snapshot), [snapshot]);
+  const filteredItems = useMemo(() => readBranchItems(orderedGroups), [orderedGroups]);
+  const items = useMemo(
+    () =>
+      filteredItems.slice(
+        0,
+        Math.max(REMOTES_ROW_RENDER_CAP, filteredItems.findIndex((row) => row.id === revealId) + 1),
+      ),
+    [filteredItems, revealId],
   );
-  const filteredItems = useMemo(() => readBranchItems(filteredGroups), [filteredGroups]);
-  const items = useMemo(() => filteredItems.slice(0, REMOTES_ROW_RENDER_CAP), [filteredItems]);
   const groups = useMemo(() => readVisibleGroups(items), [items]);
   const rowIndexById = useMemo(() => readRowIndexes(items), [items]);
   const existingBranchNames = useMemo(
@@ -51,30 +53,6 @@ export function useRemoteRows(snapshot: RepositorySnapshot | null, filter: strin
 }
 
 /**
- * Reads the grouped rows filtered by the case-insensitive full remote branch name.
- *
- * @param groups - Selector output ordered by remote and branch.
- * @param filter - Raw filter string; surrounding space is ignored.
- * @returns The surviving groups, with empty groups dropped.
- */
-function readFilteredGroups(groups: RemoteBranchGroups, filter: string): RemoteBranchGroups {
-  const needle = filter.trim().toLowerCase();
-
-  if (needle.length === 0) {
-    return groups;
-  }
-
-  return groups
-    .map((group) => ({
-      remote: group.remote,
-      branches: group.branches.filter((branch) =>
-        `${group.remote}/${branch.branch}`.toLowerCase().includes(needle),
-      ),
-    }))
-    .filter((group) => group.branches.length > 0);
-}
-
-/**
  * Flattens the grouped rows into the selectable cursor items.
  *
  * @param groups - Filtered groups in display order.
@@ -87,6 +65,7 @@ function readBranchItems(groups: RemoteBranchGroups): readonly RemoteBranchItem[
       rowId: `${REMOTE_ROW_ID_PREFIX}${group.remote}-${branch.branch}`,
       remote: group.remote,
       branch: branch.branch,
+      hasLocalTracker: branch.hasLocalTracker,
     })),
   );
 }
@@ -106,13 +85,19 @@ function readVisibleGroups(items: readonly RemoteBranchItem[]): readonly Visible
     if (last?.remote === item.remote) {
       groups[groups.length - 1] = {
         remote: last.remote,
-        branches: [...last.branches, { branch: item.branch }],
+        branches: [
+          ...last.branches,
+          { branch: item.branch, hasLocalTracker: item.hasLocalTracker },
+        ],
       };
 
       continue;
     }
 
-    groups.push({ remote: item.remote, branches: [{ branch: item.branch }] });
+    groups.push({
+      remote: item.remote,
+      branches: [{ branch: item.branch, hasLocalTracker: item.hasLocalTracker }],
+    });
   }
 
   return groups;

@@ -391,19 +391,81 @@ describe("panel selectors", () => {
     expect(selectBranchRows(base).map((record) => record.name)).toEqual(["a", "b"]);
   });
 
-  it("groups remote branches by remote and then by branch", () => {
+  it("preserves remote grouping while projecting latest tip commits first", () => {
     const groups = selectRemoteBranchGroups(
       snapshot({
         remoteBranches: [
-          remoteBranch("upstream", "main"),
-          remoteBranch("origin", "topic"),
-          remoteBranch("origin", "main"),
+          { ...remoteBranch("upstream", "main"), committerDate: "2030-01-01T00:00:00Z" },
+          { ...remoteBranch("origin", "topic"), committerDate: "2026-10-22T08:00:00Z" },
+          { ...remoteBranch("origin", "main"), committerDate: "2026-10-21T08:00:00Z" },
         ],
       }),
     );
 
     expect(groups.map((group) => group.remote)).toEqual(["origin", "upstream"]);
-    expect(groups[0]?.branches.map((record) => record.branch)).toEqual(["main", "topic"]);
+    expect(groups[0]?.branches.map((record) => record.branch)).toEqual(["topic", "main"]);
+  });
+
+  it("marks exact local upstream relationships without inferring tracking from local names or checkout", () => {
+    const groups = selectRemoteBranchGroups(
+      snapshot({
+        branches: [
+          branch({
+            name: "local-alias",
+            head: false,
+            upstream: "origin/main",
+            upstreamRemote: "origin",
+            upstreamBranch: "main",
+            upstreamStatus: "tracked",
+          }),
+          branch({
+            name: "second-alias",
+            head: false,
+            worktreePath: "/other-worktree",
+            upstream: "origin/main",
+            upstreamRemote: "origin",
+            upstreamBranch: "main",
+            upstreamStatus: "tracked",
+          }),
+          branch({ name: "same-name", head: true }),
+          branch({
+            name: "nested-alias",
+            upstream: "team/up/main",
+            upstreamRemote: "team/up",
+            upstreamBranch: "main",
+            upstreamStatus: "tracked",
+          }),
+          branch({ name: "display-only", upstream: "upstream/main" }),
+          branch({ name: "missing-half", upstreamRemote: "upstream", upstreamBranch: null }),
+        ],
+        remoteBranches: [
+          { ...remoteBranch("origin", "main"), committerDate: "2020-01-01T00:00:00Z" },
+          { ...remoteBranch("origin", "same-name"), committerDate: "2030-01-01T00:00:00Z" },
+          remoteBranch("upstream", "main"),
+          remoteBranch("team/up", "main"),
+          remoteBranch("team", "up/main"),
+        ],
+      }),
+    );
+
+    expect(
+      groups.map((group) => [
+        group.remote,
+        group.branches.map((row) => [row.branch, row.hasLocalTracker]),
+      ]),
+    ).toEqual([
+      [
+        "origin",
+        [
+          ["same-name", false],
+          ["main", true],
+        ],
+      ],
+      ["team", [["up/main", false]]],
+      ["team/up", [["main", true]]],
+      ["upstream", [["main", false]]],
+    ]);
+    expect(groups[0]?.branches.filter((row) => row.hasLocalTracker)).toHaveLength(1);
   });
 
   it("merges tag scope and orders tags by version descending", () => {

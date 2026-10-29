@@ -67,7 +67,7 @@ const REQUIRED_ICON_GROUPS: Readonly<Record<string, readonly IconName[]>> = {
     "tagUnpushed",
     "tagUnknown",
   ],
-  "Remote actions": ["push", "pull"],
+  "Remote actions": ["push", "pull", "remoteLocalTracker"],
   "Operation status": [
     "success",
     "warning",
@@ -110,6 +110,10 @@ const REQUIRED_ICON_GROUPS: Readonly<Record<string, readonly IconName[]>> = {
 const REQUIRED_ICON_NAMES = Object.values(REQUIRED_ICON_GROUPS).flat();
 
 describe("ICONS", () => {
+  it("defines the reusable local-upstream-tracker marker", () => {
+    expect(ICONS.remoteLocalTracker).toBe("[L]");
+  });
+
   it("covers every documented group and key from architecture 6.1", () => {
     const names = new Set(Object.keys(ICONS));
 

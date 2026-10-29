@@ -8,7 +8,7 @@ export const REMOTE_ROW_CONTENT_MIN_WIDTH = 12;
 export const REMOTE_ROW_INDENT_WIDTH = 1;
 
 /** Smallest name budget kept before the inline freshness marker, in cells. */
-export const REMOTE_ROW_MIN_NAME_WIDTH = 6;
+export const REMOTE_ROW_MIN_NAME_WIDTH = 1;
 
 /** One-cell separator between the name and the inline freshness marker. */
 export const REMOTE_ROW_MARKER_SEPARATOR_WIDTH = 1;

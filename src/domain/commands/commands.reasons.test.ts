@@ -14,6 +14,12 @@ describe("describeCommandReason", () => {
     expect(describeCommandReason("loading")).toBe("loading repository");
   });
 
+  it("explains how to fix a fetch mapping that could modify local branches", () => {
+    expect(describeCommandReason("unsafe-fetch-refspec")).toBe(
+      "Fetch refused: configure remote fetch destinations under refs/remotes, not local branches",
+    );
+  });
+
   it("keeps the existing wording for the other reasons", () => {
     expect(describeCommandReason("unknown-remote")).toBe("The selected remote is not configured");
     expect(describeCommandReason("command-not-implemented")).toBe(

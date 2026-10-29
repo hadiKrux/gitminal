@@ -304,17 +304,16 @@ describe("getAvailability", () => {
     });
   });
 
-  it("blocks fetch when no local branch has an upstream", () => {
+  it("allows origin fetch without local upstreams but keeps prune scoped", () => {
     const signals = createSignals({ hasUpstreamBranches: false });
 
     expect(getAvailability("remote.fetch", createContext({ signals }))).toEqual({
-      available: false,
-      reason: "no-local-upstreams",
+      available: true,
     });
   });
 
-  it("applies the current fetch scope to both fetch commands", () => {
-    for (const commandId of ["remote.fetch", "remote.fetchPrune"]) {
+  it("applies the current fetch scope only to prune", () => {
+    for (const commandId of ["remote.fetchPrune"]) {
       expect(
         getAvailability(
           commandId,
@@ -350,10 +349,30 @@ describe("getAvailability", () => {
 
     expect(
       getAvailability(
-        "remote.fetch",
+        "remote.fetchPrune",
         createContext({ signals, fetchScope: "current", currentBranchHasUpstream: false }),
       ),
     ).toEqual({ available: false, reason: "no-current-upstream" });
+  });
+
+  it("requires origin for f but allows an explicitly configured upstream remote", () => {
+    const signals = createSignals({ remotes: ["upstream"], hasUpstreamBranches: false });
+    expect(getAvailability("remote.fetch", createContext({ signals }))).toEqual({
+      available: false,
+      reason: "unknown-remote",
+    });
+    expect(
+      getAvailability(
+        "remote.fetch",
+        createContext({ signals, formValues: { remote: "upstream" } }),
+      ),
+    ).toEqual({ available: true });
+    expect(
+      getAvailability(
+        "remote.fetch",
+        createContext({ signals, formValues: { remote: "missing" } }),
+      ),
+    ).toEqual({ available: false, reason: "unknown-remote" });
   });
 
   it("blocks a mutation while another operation is running", () => {

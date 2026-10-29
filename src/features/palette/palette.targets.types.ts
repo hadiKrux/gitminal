@@ -2,6 +2,7 @@ import type { CommandTargetHandle } from "@/app/hooks/useCommandTargets.types";
 import type {
   CommandAvailability,
   CommandDescriptor,
+  CommandFormValues,
   CommandRegion,
   CommandTarget,
 } from "@/domain/commands/commands.types";
@@ -36,6 +37,7 @@ export interface PaletteAvailabilitySource {
     commandId: string,
     target: CommandTarget,
     region: CommandRegion,
+    formValues?: CommandFormValues,
   ): CommandAvailability;
 }
 

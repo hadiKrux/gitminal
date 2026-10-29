@@ -8,8 +8,8 @@ import {
   resetActionRegistry,
   resolveActionHandler,
 } from "@/app/hooks/useAction";
-import { readActionAvailability, resetActionAvailability } from "@/app/hooks/useActionAvailability";
-import { clearFocusedInput, resetInputEscapeClear } from "@/app/hooks/useInputEscapeClear";
+import { resetActionAvailability } from "@/app/hooks/useActionAvailability";
+import { resetInputEscapeClear } from "@/app/hooks/useInputEscapeClear";
 import { useOverlay } from "@/app/hooks/useOverlay";
 import { useStatus } from "@/app/hooks/useStatus";
 import { registerCommandHandler, resetCommandRunner } from "@/domain/commands/commands.runner";
@@ -22,7 +22,6 @@ import {
   CREATE_LOCAL_OVERLAY_ID_PREFIX,
   CREATE_LOCAL_SUBMIT_ID,
 } from "@/features/remotes/CreateLocalBranchModal.constants";
-import { REMOTES_FILTER_INPUT_ID } from "@/features/remotes/RemoteFilter.constants";
 import { useRemotes } from "@/features/remotes/useRemotes";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
@@ -186,22 +185,6 @@ async function runAction(
 }
 
 /**
- * Sets the filter through the hook and flushes the render.
- *
- * @param setup - Renderer setup.
- * @param value - New filter string.
- */
-async function setFilter(
-  setup: Awaited<ReturnType<typeof testRender>>,
-  value: string,
-): Promise<void> {
-  await act(async () => {
-    latest?.setFilter(value);
-    await setup.renderOnce();
-  });
-}
-
-/**
  * Clicks a renderable by id.
  *
  * @param setup - Renderer setup.
@@ -334,86 +317,9 @@ describe("useRemotes registration", () => {
       await setup.dispose();
     });
   });
-
-  it("publishes create-local availability for the selected remote branch", async () => {
-    const setup = await renderRemotes();
-
-    expect(readActionAvailability("remotes", "remote.createLocal")).toBe(true);
-
-    await act(async () => {
-      latest?.setFilter("no-such-branch");
-      await setup.renderOnce();
-    });
-
-    expect(readActionAvailability("remotes", "remote.createLocal")).toBe(false);
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
 });
 
 describe("useRemotes filtering", () => {
-  it("matches the full remote branch name case-insensitively", async () => {
-    const setup = await renderRemotes();
-
-    expect(latest?.branchCount).toBe(3);
-    expect(latest?.groups.map((group) => group.remote)).toEqual(["origin"]);
-
-    await setFilter(setup, "FEATURE");
-
-    expect(latest?.groups).toHaveLength(1);
-    expect(latest?.groups[0]?.branches.map((branch) => branch.branch)).toEqual(["Feature/Login"]);
-    expect(latest?.branchCount).toBe(1);
-
-    await setFilter(setup, "origin/release");
-
-    expect(latest?.groups[0]?.branches.map((branch) => branch.branch)).toEqual(["release-1.0"]);
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("drops every row and the group when nothing matches", async () => {
-    const setup = await renderRemotes();
-
-    await setFilter(setup, "no-such-branch");
-
-    expect(latest?.groups).toEqual([]);
-    expect(latest?.branchCount).toBe(0);
-
-    await setFilter(setup, "");
-
-    expect(latest?.branchCount).toBe(3);
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("registers a first-Esc clear only while the filter is non-empty", async () => {
-    const setup = await renderRemotes();
-
-    await setFilter(setup, "main");
-
-    await act(async () => {
-      expect(clearFocusedInput(REMOTES_FILTER_INPUT_ID)).toBe(true);
-      await setup.renderOnce();
-    });
-
-    expect(latest?.filter).toBe("");
-
-    await act(async () => {
-      expect(clearFocusedInput(REMOTES_FILTER_INPUT_ID)).toBe(false);
-      await setup.renderOnce();
-    });
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
   it("caps the rendered rows and keeps the filtered count", async () => {
     const rows = Array.from(
       { length: 5001 },

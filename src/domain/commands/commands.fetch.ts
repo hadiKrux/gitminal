@@ -1,179 +1,121 @@
 import { createGitProgressParser } from "@/domain/git/git.progress";
-import {
-  buildFetchTrackingRefArgs,
-  buildUpstreamGroupsArgs,
-  isTruncatedOutput,
-} from "@/domain/git/git.remotes";
-import type { RemoteFetchGroup } from "@/domain/git/git.remotes.types";
-import type { GitInvocationResult } from "@/domain/git/git.types";
-import { readEmptyFetchScopeReason, readScopedUpstreamGroups } from "./commands.fetch.scope";
-import type { RemoteFetchRun } from "./commands.fetch.types";
+import { isSafeGitName, isTruncatedOutput } from "@/domain/git/git.remotes";
 import { invokeNetwork } from "./commands.invoke";
-import { createFailureStep, toCommandStep } from "./commands.steps";
-import type {
-  CommandExecutionOutcome,
-  CommandHandlerContext,
-  CommandRemoteResult,
-  CommandStepResult,
-} from "./commands.types";
+import { toCommandStep } from "./commands.steps";
+import type { CommandExecutionOutcome, CommandHandlerContext } from "./commands.types";
 
 /**
- * Executes the spec-conformant `remote.fetch` mutation.
- *
- * The request's effective scope decides the refs. `local`, the product default, fetches the upstream
- * refs of every local branch, while `current` fetches only the checked-out branch's upstream. Groups
- * are deduplicated by remote, so each remote is contacted once. Each explicit refspec is fetched
- * with `--progress` and the network operation class, so no invocation can hang and progress reaches
- * the status strip. One failed remote or ref does not stop the remaining groups. A scope with no
- * upstream refs is a blocked outcome: `no-current-upstream` for the current scope and
- * `no-local-upstreams` otherwise. A configured upstream whose remote ref is gone is a non-fatal
- * warning rather than a command failure. Each remote is reported through `remoteResults` so the app
- * layer records evidence only for remotes that were actually reached.
- *
- * @param context - Request, repository root, git client, signal, and progress callback.
- * @returns The ordered steps, per-remote results, warnings, and any cancellation, timeout, or
- * blocked flag.
+ * Fetches the named configured remote (origin by default) using its configured refspecs.
+ * Explicit no-prune flags override git configuration: ordinary fetch never removes refs or tags.
+ * No local branch is checked out or changed by this operation.
+ * @param context - Captured request and git execution boundary.
+ * @returns Invocation evidence, remote freshness, or a scope refusal.
  */
 export async function executeRemoteFetch(
   context: CommandHandlerContext,
 ): Promise<CommandExecutionOutcome> {
-  const upstreams = await context.client.invoke({
-    args: buildUpstreamGroupsArgs(),
+  const remote = context.request.formValues?.remote ?? "origin";
+
+  if (typeof remote !== "string" || !isSafeGitName(remote)) {
+    return { steps: [], blockedReason: "unknown-remote" };
+  }
+
+  const configured = await context.client.invoke({
+    args: ["remote"],
     cwd: context.cwd,
     signal: context.signal,
     operationClass: "read",
   });
 
-  if (!upstreams.ok || isTruncatedOutput(upstreams)) {
-    return { steps: [toCommandStep(upstreams)], failed: true };
+  if (!configured.ok || isTruncatedOutput(configured)) {
+    return { steps: [toCommandStep(configured)], failed: true };
   }
 
-  const groups = readScopedUpstreamGroups(upstreams.stdout, context.request.formValues);
-
-  if (groups.length === 0) {
-    return {
-      steps: [],
-      blockedReason: readEmptyFetchScopeReason(context.request.formValues),
-    };
+  if (!configured.stdout.split(/\r?\n/).includes(remote)) {
+    return { steps: [], blockedReason: "unknown-remote" };
   }
 
-  const steps: CommandStepResult[] = [];
-  const remoteResults: CommandRemoteResult[] = [];
-  const warnings: string[] = [];
+  const refusal = await readFetchRefspecRefusal(context, remote);
 
-  for (const group of groups) {
-    const run = await runFetchGroup(context, group);
-
-    steps.push(...run.steps);
-    warnings.push(...run.warnings);
-    remoteResults.push(run.remoteResult);
-
-    if (run.cancelled || run.timedOut) {
-      return {
-        steps,
-        remoteResults,
-        cancelled: run.cancelled,
-        timedOut: run.timedOut,
-        warnings,
-      };
-    }
+  if (refusal !== null) {
+    return refusal;
   }
 
-  return { steps, remoteResults, warnings };
-}
-
-/**
- * Fetches every ref in one remote group and derives that remote's result.
- *
- * @param context - Handler context carrying the root and signal.
- * @param group - Remote name and its distinct upstream refs.
- * @returns The steps, warnings, per-remote result, and termination flags for the group.
- */
-async function runFetchGroup(
-  context: CommandHandlerContext,
-  group: RemoteFetchGroup,
-): Promise<RemoteFetchRun> {
-  const steps: CommandStepResult[] = [];
-  const warnings: string[] = [];
-  let succeeded = true;
-
-  for (const descriptor of group.refs) {
-    const args = buildFetchTrackingRefArgs(descriptor.remote, descriptor.branch);
-
-    if (args === null) {
-      succeeded = false;
-      steps.push(createFailureStep(`fatal: invalid configured upstream "${descriptor.ref}"`));
-
-      continue;
-    }
-
-    const result = await fetchRef(context, args);
-    const missingUpstream = isMissingRemoteRef(result);
-
-    steps.push(toCommandStep(result, missingUpstream));
-
-    if (missingUpstream) {
-      warnings.push(`upstream not found for ${descriptor.ref}`);
-    } else if (!result.ok) {
-      succeeded = false;
-    }
-
-    if (result.cancelled || result.timedOut) {
-      return {
-        steps,
-        warnings,
-        remoteResult: { remote: group.remote, succeeded: false },
-        cancelled: result.cancelled,
-        timedOut: result.timedOut,
-      };
-    }
-  }
+  const result = await invokeNetwork(
+    context,
+    ["fetch", "--progress", "--no-prune", "--no-prune-tags", "--", remote],
+    createGitProgressParser(),
+  );
 
   return {
-    steps,
-    warnings,
-    remoteResult: { remote: group.remote, succeeded },
-    cancelled: false,
-    timedOut: false,
+    steps: [toCommandStep(result)],
+    remoteResults: [{ remote, succeeded: result.ok }],
+    failed: !result.ok,
+    cancelled: result.cancelled,
+    timedOut: result.timedOut,
   };
 }
 
 /**
- * Reports whether one fetch failed because the remote branch no longer exists.
- *
- * A normal scoped Fetch treats a configured upstream whose remote ref is gone as a supported state,
- * not a failure: the branch is marked `[?] upstream not found`, the command keeps the step and
- * reports success with a warning, and the error surface stays closed.
- *
- * @param result - Settled fetch invocation.
- * @returns True for the documented missing-remote-ref outcomes.
+ * Refuses configured refspecs that could update a local branch before contacting the remote.
+ * A missing fetch mapping is safe (git writes FETCH_HEAD only); unreadable configuration is not.
+ * @param context - Git execution boundary.
+ * @param remote - Existing configured remote name.
+ * @returns A refusal or read failure, or null when the configured destinations are safe.
  */
-function isMissingRemoteRef(result: GitInvocationResult): boolean {
-  if (result.ok) {
-    return false;
+async function readFetchRefspecRefusal(
+  context: CommandHandlerContext,
+  remote: string,
+): Promise<CommandExecutionOutcome | null> {
+  const config = await context.client.invoke({
+    args: ["config", "--get-all", `remote.${remote}.fetch`],
+    cwd: context.cwd,
+    signal: context.signal,
+    operationClass: "read",
+  });
+  const missingMapping =
+    config.exitCode === 1 &&
+    config.stderr.length === 0 &&
+    !config.cancelled &&
+    !config.timedOut &&
+    config.spawnError === null;
+
+  if ((!config.ok && !missingMapping) || isTruncatedOutput(config)) {
+    return { steps: [toCommandStep(config)], failed: true };
   }
 
-  return /couldn't find remote ref|could not find remote ref|remote ref does not exist/i.test(
-    result.stderr,
-  );
+  return config.stdout.split(/\r?\n/).some(canFetchIntoLocalHeads)
+    ? { steps: [], blockedReason: "unsafe-fetch-refspec" }
+    : null;
 }
 
 /**
- * Fetches one upstream ref with progress reporting.
- *
- * The destination is a remote-tracking ref with the forced-update prefix, which mirrors what a plain
- * `git fetch <remote>` does for `refs/remotes/**`. Without the prefix, an amended, rebased, or
- * force-pushed upstream is rejected as non-fast-forward and its tracking ref stays stale. A local
- * branch is never a destination. The invocation and its progress parser come from `invokeNetwork`,
- * the same helper the prune, pull, and push executors use.
- *
- * @param context - Handler context carrying the root, signal, and progress callback.
- * @param args - Validated fetch argument array.
- * @returns The settled invocation.
+ * Checks whether a refspec destination overlaps refs/heads, including mirror wildcard mappings.
+ * Unqualified destinations are refused because git may resolve them as local branch names.
+ * @param refspec - One configured fetch mapping, possibly forced or negative.
+ * @returns True when the destination could modify a local branch.
  */
-async function fetchRef(
-  context: CommandHandlerContext,
-  args: readonly string[],
-): Promise<GitInvocationResult> {
-  return await invokeNetwork(context, args, createGitProgressParser());
+function canFetchIntoLocalHeads(refspec: string): boolean {
+  const separator = refspec.indexOf(":");
+
+  if (separator < 0 || refspec.startsWith("^")) {
+    return false;
+  }
+
+  const destination = refspec.slice(separator + 1).trim();
+
+  if (destination.length === 0) {
+    return false;
+  }
+
+  if (!destination.startsWith("refs/")) {
+    return true;
+  }
+
+  if (!destination.includes("*")) {
+    return destination === "refs/heads" || destination.startsWith("refs/heads/");
+  }
+
+  const prefix = destination.split("*")[0] ?? destination;
+  return prefix.startsWith("refs/heads/") || "refs/heads/".startsWith(prefix);
 }

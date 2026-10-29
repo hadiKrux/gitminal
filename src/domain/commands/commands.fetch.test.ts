@@ -14,10 +14,6 @@ import type {
 } from "@/domain/commands/commands.types";
 import type { GitClient, GitInvocationResult, GitInvokeOptions } from "@/domain/git/git.types";
 
-/** Arguments that list every local branch upstream. */
-const GROUPS_ARGS =
-  "for-each-ref --format=%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref) refs/heads";
-
 /**
  * Builds one tab-separated upstream row.
  *
@@ -119,233 +115,126 @@ describe("fetch form values", () => {
     expect(readEmptyFetchScopeReason(detached)).toBe("no-current-upstream");
     expect(readScopedUpstreamGroups(stdout, buildFetchFormValues("local", ""))).toHaveLength(1);
   });
-
-  it("blocks a detached request before any fetch runs", async () => {
-    const progress: CommandProgress[] = [];
-    const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () => result(`${upstreamRow("main", "origin", "main")}\n`),
-      },
-      progress,
-      calls,
-      buildFetchFormValues("current", ""),
-    );
-
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps).toHaveLength(0);
-    expect(outcome.blockedReason).toBe("no-current-upstream");
-    expect(calls.filter((call) => call.args[0] === "fetch")).toHaveLength(0);
-  });
 });
-
 describe("executeRemoteFetch", () => {
-  it("fetches each upstream ref with --progress on the network class", async () => {
-    const progress: CommandProgress[] = [];
-    const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () =>
-          result(
-            `${upstreamRow("main", "origin", "main")}\n${upstreamRow("feature", "origin", "feature")}\n`,
-          ),
-        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": (options) => {
-          options.onStderr?.("Receiving objects: 42%\r\n");
-
-          return result("");
+  it.each(["origin", "upstream", "team/upstream"])(
+    "fetches configured refspecs of %s independently of local upstream scope",
+    async (remote) => {
+      const calls: GitInvokeOptions[] = [];
+      const context = createContext(
+        {
+          remote: () => result("origin\nupstream\nteam/upstream\n"),
+          [`config --get-all remote.${remote}.fetch`]: () =>
+            result(`+refs/heads/*:refs/remotes/${remote}/*\n`),
+          [`fetch --progress --no-prune --no-prune-tags -- ${remote}`]: () => result(""),
         },
-        "fetch --progress -- origin +refs/heads/feature:refs/remotes/origin/feature": () =>
-          result(""),
-      },
-      progress,
-      calls,
+        [],
+        calls,
+        { remote, fetchScope: "current", branch: "" },
+      );
+      const outcome = await executeRemoteFetch(context);
+      expect(outcome.failed).toBeFalse();
+      expect(outcome.remoteResults).toEqual([{ remote, succeeded: true }]);
+      expect(calls[2]?.operationClass).toBe("network");
+      expect(calls[2]?.args).toEqual([
+        "fetch",
+        "--progress",
+        "--no-prune",
+        "--no-prune-tags",
+        "--",
+        remote,
+      ]);
+    },
+  );
+
+  it.each([
+    "+refs/heads/*:refs/heads/*",
+    "+refs/*:refs/*",
+    "refs/heads/main:feature",
+    "refs/heads/main:refs/heads/other",
+    "+refs/heads/*:refs/h*",
+  ])("refuses local-head destination %s before contacting any remote", async (refspec) => {
+    const calls: GitInvokeOptions[] = [];
+    const outcome = await executeRemoteFetch(
+      createContext(
+        {
+          remote: () => result("origin\n"),
+          "config --get-all remote.origin.fetch": () => result(refspec),
+        },
+        [],
+        calls,
+      ),
     );
+    expect(outcome.blockedReason).toBe("unsafe-fetch-refspec");
+    expect(outcome.steps).toEqual([]);
+    expect(calls.some((call) => call.args[0] === "fetch")).toBeFalse();
+  });
 
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps).toHaveLength(2);
-    expect(outcome.steps[0]?.argv).toEqual([
-      "git",
-      "fetch",
-      "--progress",
-      "--",
-      "origin",
-      "+refs/heads/feature:refs/remotes/origin/feature",
-    ]);
-    expect(outcome.steps[0]?.argv[5]?.startsWith("+refs/heads/feature:")).toBeTrue();
-    expect(calls[1]?.operationClass).toBe("network");
-    expect(calls[2]?.operationClass).toBe("network");
+  it.each([
+    "",
+    "+refs/heads/release/*:refs/remotes/origin/release/*",
+    "refs/tags/*:refs/tags/*",
+    "refs/heads/main:refs/hea",
+    "^refs/heads/private/*",
+  ])("preserves safe configured mapping %s", async (refspec) => {
+    const outcome = await executeRemoteFetch(
+      createContext(
+        {
+          remote: () => result("origin\n"),
+          "config --get-all remote.origin.fetch": () => result(refspec),
+          "fetch --progress --no-prune --no-prune-tags -- origin": () => result(""),
+        },
+        [],
+        [],
+      ),
+    );
+    expect(outcome.failed).toBeFalse();
     expect(outcome.remoteResults).toEqual([{ remote: "origin", succeeded: true }]);
-    expect(progress).toEqual([{ phase: "Receiving objects", percent: 42 }]);
   });
 
-  it("fetches a slash-named remote under its full name", async () => {
-    const progress: CommandProgress[] = [];
+  it("fails closed when fetch configuration cannot be read completely", async () => {
     const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () => result(`${upstreamRow("main", "a/b", "main")}\n`),
-        "fetch --progress -- a/b +refs/heads/main:refs/remotes/a/b/main": () => result(""),
-      },
-      progress,
-      calls,
+    const outcome = await executeRemoteFetch(
+      createContext(
+        {
+          remote: () => result("origin\n"),
+          "config --get-all remote.origin.fetch": () => ({
+            ...result("+refs/heads/*:refs/remotes/origin/*"),
+            stdoutTruncated: true,
+          }),
+        },
+        [],
+        calls,
+      ),
     );
-
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps[0]?.argv).toEqual([
-      "git",
-      "fetch",
-      "--progress",
-      "--",
-      "a/b",
-      "+refs/heads/main:refs/remotes/a/b/main",
-    ]);
-    expect(outcome.remoteResults).toEqual([{ remote: "a/b", succeeded: true }]);
-  });
-
-  it("continues after one remote group fails", async () => {
-    const progress: CommandProgress[] = [];
-    const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () =>
-          result(
-            `${upstreamRow("main", "origin", "main")}\n${upstreamRow("upstream/main", "upstream", "main")}\n`,
-          ),
-        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () =>
-          result("", false, "fatal: could not resolve host"),
-        "fetch --progress -- upstream +refs/heads/main:refs/remotes/upstream/main": () =>
-          result(""),
-      },
-      progress,
-      calls,
-    );
-
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps).toHaveLength(2);
-    expect(outcome.steps[0]?.exitCode).toBe(1);
-    expect(outcome.steps[1]?.exitCode).toBe(0);
-    expect(outcome.warnings).toEqual([]);
-    expect(outcome.remoteResults).toEqual([
-      { remote: "origin", succeeded: false },
-      { remote: "upstream", succeeded: true },
-    ]);
-  });
-
-  it("treats a truncated upstream-scope read as a failed command", async () => {
-    const progress: CommandProgress[] = [];
-    const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () => ({
-          ...result(`${upstreamRow("main", "origin", "main")}\n`),
-          stdoutTruncated: true,
-        }),
-      },
-      progress,
-      calls,
-    );
-
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps).toHaveLength(1);
-    expect(outcome.steps[0]?.stdoutTruncated).toBeTrue();
     expect(outcome.failed).toBeTrue();
-    expect(outcome.remoteResults).toBeUndefined();
-    expect(calls.filter((call) => call.args[0] === "fetch")).toHaveLength(0);
+    expect(calls.some((call) => call.args[0] === "fetch")).toBeFalse();
   });
 
-  it("returns a blocked outcome when no local branch has an upstream", async () => {
-    const progress: CommandProgress[] = [];
+  it("defaults to origin and refuses absent remotes without fetching", async () => {
     const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () => result(""),
-      },
-      progress,
-      calls,
+    const outcome = await executeRemoteFetch(
+      createContext({ remote: () => result("upstream\n") }, [], calls),
     );
-
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps).toHaveLength(0);
-    expect(outcome.blockedReason).toBe("no-local-upstreams");
+    expect(outcome.blockedReason).toBe("unknown-remote");
     expect(calls).toHaveLength(1);
   });
 
-  it("fetches only the checked-out branch upstream in the current scope", async () => {
-    const progress: CommandProgress[] = [];
-    const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () =>
-          result(
-            `${upstreamRow("main", "origin", "main")}\n${upstreamRow("feature", "origin", "feature")}\n`,
-          ),
-        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () => result(""),
-      },
-      progress,
-      calls,
-      { fetchScope: "current", branch: "main" },
+  it("reports network failure without advancing freshness", async () => {
+    const outcome = await executeRemoteFetch(
+      createContext(
+        {
+          remote: () => result("origin\n"),
+          "config --get-all remote.origin.fetch": () =>
+            result("+refs/heads/*:refs/remotes/origin/*\n"),
+          "fetch --progress --no-prune --no-prune-tags -- origin": () =>
+            result("", false, "network failure"),
+        },
+        [],
+        [],
+      ),
     );
-
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps).toHaveLength(1);
-    expect(outcome.steps[0]?.argv).toContain("+refs/heads/main:refs/remotes/origin/main");
-    expect(calls.filter((call) => call.args[0] === "fetch")).toHaveLength(1);
-    expect(outcome.blockedReason).toBeUndefined();
-  });
-
-  it("blocks the current scope when its branch has no upstream", async () => {
-    const progress: CommandProgress[] = [];
-    const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () => result(`${upstreamRow("main", "origin", "main")}\n`),
-      },
-      progress,
-      calls,
-      { fetchScope: "current", branch: "feature" },
-    );
-
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps).toHaveLength(0);
-    expect(outcome.blockedReason).toBe("no-current-upstream");
-    expect(calls.filter((call) => call.args[0] === "fetch")).toHaveLength(0);
-  });
-
-  it("keeps a missing upstream ref non-fatal beside a healthy ref", async () => {
-    const progress: CommandProgress[] = [];
-    const calls: GitInvokeOptions[] = [];
-    const context = createContext(
-      {
-        [GROUPS_ARGS]: () =>
-          result(
-            `${upstreamRow("main", "origin", "main")}\n${upstreamRow("feature", "origin", "feature")}\n`,
-          ),
-        "fetch --progress -- origin +refs/heads/feature:refs/remotes/origin/feature": () =>
-          result("", false, "fatal: couldn't find remote ref refs/heads/feature"),
-        "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () => result(""),
-      },
-      progress,
-      calls,
-    );
-
-    const outcome = await executeRemoteFetch(context);
-
-    expect(outcome.steps).toHaveLength(2);
-    expect(outcome.warnings).toEqual(["upstream not found for origin/feature"]);
-    expect(outcome.steps[0]?.argv).toContain("+refs/heads/feature:refs/remotes/origin/feature");
-    expect(outcome.steps[0]?.nonFatal).toBeTrue();
-    expect(outcome.steps[1]?.nonFatal).toBeUndefined();
-    expect(outcome.steps[1]?.exitCode).toBe(0);
-    expect(outcome.cancelled).toBeUndefined();
-    expect(outcome.timedOut).toBeUndefined();
-    expect(outcome.remoteResults).toEqual([{ remote: "origin", succeeded: true }]);
+    expect(outcome.failed).toBeTrue();
+    expect(outcome.remoteResults).toEqual([{ remote: "origin", succeeded: false }]);
   });
 });

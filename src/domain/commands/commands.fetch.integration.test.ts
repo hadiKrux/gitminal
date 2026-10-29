@@ -27,6 +27,48 @@ function createContext(client: GitClient, cwd: string): CommandHandlerContext {
 }
 
 describe.skipIf(!gitAvailable)("remote.fetch against a real repository", () => {
+  it.each(["+refs/heads/main:refs/heads/protected", "+refs/*:refs/*"])(
+    "refuses unsafe mapping %s without changing any local head",
+    async (refspec) => {
+      await withGitFixture({ bare: true, seed: false }, async (upstream) => {
+        await withGitFixture({}, async (fixture) => {
+          expect(
+            (
+              await fixture.run(["remote", "add", "origin", upstream.root], {
+                operationClass: "write",
+              })
+            ).ok,
+          ).toBeTrue();
+          expect(
+            (await fixture.run(["push", "origin", "main"], { operationClass: "network" })).ok,
+          ).toBeTrue();
+          fixture.writeFile("protected.txt", "local-only commit\n");
+          expect((await fixture.commit("Local protected commit")).ok).toBeTrue();
+          expect(
+            (await fixture.run(["branch", "protected"], { operationClass: "write" })).ok,
+          ).toBeTrue();
+          expect(
+            (
+              await fixture.run(["config", "--replace-all", "remote.origin.fetch", refspec], {
+                operationClass: "write",
+              })
+            ).ok,
+          ).toBeTrue();
+          const before = (
+            await fixture.run(["for-each-ref", "--format=%(refname):%(objectname)", "refs/heads"])
+          ).stdout;
+          const outcome = await executeRemoteFetch(createContext(fixture.client, fixture.root));
+          expect(outcome.blockedReason).toBe("unsafe-fetch-refspec");
+          expect(outcome.steps).toEqual([]);
+          expect(
+            (await fixture.run(["for-each-ref", "--format=%(refname):%(objectname)", "refs/heads"]))
+              .stdout,
+          ).toBe(before);
+        });
+      });
+    },
+  );
+
   it("force-updates the remote-tracking ref after an amended upstream is force-pushed", async () => {
     await withGitFixture({ bare: true, seed: false }, async (upstream) => {
       await withGitFixture({}, async (fixture) => {
@@ -68,11 +110,39 @@ describe.skipIf(!gitAvailable)("remote.fetch against a real repository", () => {
           oldOid,
         );
 
+        // A branch never tracked by any local branch must still be discovered.
+        expect(
+          (await upstream.run(["branch", "newly-discovered", newOid], { operationClass: "write" }))
+            .ok,
+        ).toBeTrue();
+        expect(
+          (await fixture.run(["config", "fetch.prune", "true"], { operationClass: "write" })).ok,
+        ).toBeTrue();
+        expect(
+          (
+            await fixture.run(["update-ref", "refs/remotes/origin/stale", oldOid], {
+              operationClass: "write",
+            })
+          ).ok,
+        ).toBeTrue();
+        const localBefore = (
+          await fixture.run(["for-each-ref", "--format=%(refname):%(objectname)", "refs/heads"])
+        ).stdout;
         const outcome = await executeRemoteFetch(createContext(fixture.client, fixture.root));
 
+        expect(
+          (await fixture.run(["rev-parse", "refs/remotes/origin/newly-discovered"])).stdout.trim(),
+        ).toBe(newOid);
+        expect((await fixture.run(["rev-parse", "refs/remotes/origin/stale"])).stdout.trim()).toBe(
+          oldOid,
+        );
+        expect(
+          (await fixture.run(["for-each-ref", "--format=%(refname):%(objectname)", "refs/heads"]))
+            .stdout,
+        ).toBe(localBefore);
         expect(outcome.steps).toHaveLength(1);
         expect(outcome.steps[0]?.exitCode).toBe(0);
-        expect(outcome.steps[0]?.argv).toContain("+refs/heads/main:refs/remotes/origin/main");
+        expect(outcome.steps[0]?.argv).toContain("--no-prune");
         expect(outcome.remoteResults).toEqual([{ remote: "origin", succeeded: true }]);
         expect((await fixture.run(["rev-parse", "refs/remotes/origin/main"])).stdout.trim()).toBe(
           newOid,

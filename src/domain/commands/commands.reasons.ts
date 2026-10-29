@@ -11,6 +11,8 @@ const REASON_TEXT: Readonly<Partial<Record<CommandAvailabilityReason, string>>> 
   "missing-target": "Select an item first",
   "invalid-target": "The selected target is no longer valid",
   "unknown-remote": "The selected remote is not configured",
+  "unsafe-fetch-refspec":
+    "Fetch refused: configure remote fetch destinations under refs/remotes, not local branches",
   "cannot-delete-current-branch": "Cannot delete the current branch",
   "checked-out-in-worktree": "checked out in another worktree",
   "no-remote-branch": "no matching remote branch",

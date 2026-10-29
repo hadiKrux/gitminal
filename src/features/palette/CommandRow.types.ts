@@ -15,6 +15,8 @@ export type PaletteCategory = ActionCategory | "recent";
  * user saw. Activation re-derives both instead of trusting this capture.
  */
 export interface PaletteCommandEntry {
+  /** Configured remote for a remote-wide fetch entry. */
+  readonly fetchRemote?: string;
   /** Registry descriptor the entry came from. */
   readonly descriptor: CommandDescriptor;
   /** Explicit target captured when the palette opened. */

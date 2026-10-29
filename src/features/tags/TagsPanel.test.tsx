@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, spyOn } from "bun:test";
-import type { InputRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
 import {
@@ -18,7 +17,6 @@ import { buildListLocalTagsArgs } from "@/domain/git/git.tags";
 import type { GitClient } from "@/domain/git/git.types";
 import type { RepositorySelection } from "@/domain/repository/repository.types";
 import { TagsPanel } from "@/features/tags/TagsPanel";
-import { TAG_FILTER_INPUT_ID } from "@/features/tags/TagsPanel.constants";
 import { AppTestProviders } from "@/test/app.harness";
 import { createFakeGitClient, fakeGitResult } from "@/test/git.fake";
 
@@ -221,29 +219,6 @@ async function pressEnter(setup: Awaited<ReturnType<typeof testRender>>): Promis
   });
 }
 
-/**
- * Types a value into the tag filter field.
- *
- * @param setup - Renderer setup.
- * @param value - Filter text.
- */
-async function typeFilter(
-  setup: Awaited<ReturnType<typeof testRender>>,
-  value: string,
-): Promise<void> {
-  await act(async () => {
-    const input = setup.renderer.root.findDescendantById(
-      TAG_FILTER_INPUT_ID,
-    ) as InputRenderable | null;
-
-    input?.focus();
-    input?.insertText(value);
-  });
-  await act(async () => {
-    await setup.renderOnce();
-  });
-}
-
 beforeEach(() => {
   resetActionRegistry();
 });
@@ -394,21 +369,6 @@ describe("TagsPanel", () => {
 
     expect(frame).toContain("No tags");
     expect(frame).toContain("n New tag");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
-  it("reports the typed filter when nothing matches", async () => {
-    const setup = await renderPanel(
-      createClient({ tags: lightweightTag("v1.0.0", "abc123", "subject") }),
-    );
-
-    await waitFor(setup, () => setup.captureCharFrame().includes("v1.0.0"));
-    await typeFilter(setup, "zzz");
-
-    expect(setup.captureCharFrame()).toContain("No tags match zzz");
 
     await act(async () => {
       await setup.dispose();

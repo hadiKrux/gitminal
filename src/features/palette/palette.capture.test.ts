@@ -115,3 +115,54 @@ describe("capturePaletteEntries", () => {
     expect(unboundEntry?.shortcut).toBe(PALETTE_UNBOUND_LABEL);
   });
 });
+
+describe("configured remote fetch entries", () => {
+  it("offers exactly the configured remotes including upstream and preserves slash names", () => {
+    const remotes = ["origin", "upstream", "team/upstream"];
+    const calls: unknown[] = [];
+    const captured = capturePaletteEntries({
+      repository: {
+        getAvailability: (commandId, target, region, formValues) => {
+          if (commandId === "remote.fetch") {
+            calls.push({ target, region, formValues });
+          }
+          return { available: true };
+        },
+      },
+      keymap: createKeymap({ "remote.fetch": "f" }),
+      remotes,
+      deriveTarget: () => ({ kind: "none" }),
+    }).filter((entry) => entry.fetchRemote !== undefined);
+    expect(captured.map((entry) => entry.descriptor.label)).toEqual(
+      remotes.map((remote) => `Fetch ${remote}`),
+    );
+    expect(captured.map((entry) => entry.descriptor.id)).toEqual(
+      remotes.map((remote) => `remote.fetch:${remote}`),
+    );
+    expect(captured.every((entry) => entry.shortcuts.length === 0)).toBeTrue();
+    expect(calls).toEqual(
+      remotes.map((remote) => ({
+        target: { kind: "none" },
+        region: "overlay",
+        formValues: { remote },
+      })),
+    );
+  });
+
+  it("offers no fetch remote when none exists, and does not invent origin beside upstream", () => {
+    for (const remotes of [[], ["upstream"]]) {
+      const captured = capturePaletteEntries({
+        repository: createAvailabilitySource([]),
+        keymap: createKeymap({}),
+        remotes,
+        deriveTarget: () => ({ kind: "none" }),
+      });
+      expect(
+        captured
+          .filter((entry) => entry.fetchRemote !== undefined)
+          .map((entry) => entry.fetchRemote),
+      ).toEqual(remotes);
+      expect(captured.some((entry) => entry.descriptor.id === "remote.fetch")).toBeFalse();
+    }
+  });
+});

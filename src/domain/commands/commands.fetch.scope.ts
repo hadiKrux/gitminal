@@ -10,7 +10,7 @@ const FETCH_SCOPE_FORM_KEY = "fetchScope";
 const FETCH_BRANCH_FORM_KEY = "branch";
 
 /**
- * Builds the fetch form values shared by the top bar and the palette.
+ * Builds the Fetch --prune form values shared by the top bar and the palette.
  *
  * The scope is captured from configuration when the request is dispatched, and the branch is
  * captured from the same provider projection the top bar renders. The executor reads both back, so
@@ -18,7 +18,7 @@ const FETCH_BRANCH_FORM_KEY = "branch";
  *
  * @param scope - Effective `config.remote.fetchScope`.
  * @param branch - Checked-out branch name, or an empty string for a detached HEAD.
- * @returns The frozen form values for `remote.fetch` and `remote.fetchPrune`.
+ * @returns The frozen form values for `remote.fetchPrune`.
  */
 export function buildFetchFormValues(scope: RemoteFetchScope, branch: string): CommandFormValues {
   return Object.freeze({ [FETCH_SCOPE_FORM_KEY]: scope, [FETCH_BRANCH_FORM_KEY]: branch });

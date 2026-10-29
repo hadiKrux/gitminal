@@ -480,7 +480,7 @@ describe("useCommandPalette dispatch", () => {
 
     await waitFor(setup, () => latestPalette !== undefined && latestPalette.options.length > 0);
 
-    const option = readOption("remote.fetch");
+    const option = readOption("remote.fetch:origin");
 
     expect(option?.description).toBe(describeCommandReason("operation-in-progress"));
 

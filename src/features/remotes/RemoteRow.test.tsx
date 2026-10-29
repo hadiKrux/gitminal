@@ -31,13 +31,16 @@ async function renderRow(
   freshness: RemoteFreshness,
   width: number,
   branch: string = "main",
+  remote: string = "origin",
+  hasLocalTracker: boolean = false,
 ): Promise<string> {
   const setup = await testRender(
     <ShellTestProviders>
       <box flexDirection="column" width={Math.min(width, 28)} height={4}>
         <RemoteRow
           id="remote-row-origin-main"
-          remote="origin"
+          remote={remote}
+          hasLocalTracker={hasLocalTracker}
           branch={branch}
           freshness={freshness}
           selected
@@ -71,6 +74,7 @@ async function renderRow(
 function OverflowingRows(props: {
   readonly freshness: RemoteFreshness;
   readonly branch: string;
+  readonly hasLocalTracker?: boolean;
 }): ReactNode {
   return (
     <box flexDirection="column" flexShrink={0}>
@@ -78,6 +82,7 @@ function OverflowingRows(props: {
         id="remote-row-origin-main"
         remote="origin"
         branch={props.branch}
+        hasLocalTracker={props.hasLocalTracker}
         freshness={props.freshness}
         selected
         focused
@@ -104,6 +109,7 @@ async function renderFramedRow(
   freshness: RemoteFreshness,
   sidebarWidth: number,
   branch: string,
+  hasLocalTracker: boolean = false,
 ): Promise<{ readonly frame: string; readonly scrollBox: ScrollBoxRenderable }> {
   const setup = await testRender(
     <SidebarFrameHarness
@@ -112,7 +118,9 @@ async function renderFramedRow(
       width={sidebarWidth}
       height={10}
       contentWidth={sidebarWidth - PANEL_BORDER_WIDTH}
-      content={<OverflowingRows freshness={freshness} branch={branch} />}
+      content={
+        <OverflowingRows freshness={freshness} branch={branch} hasLocalTracker={hasLocalTracker} />
+      }
     />,
     { width: sidebarWidth, height: 10 },
   );
@@ -188,26 +196,52 @@ function readMarkerLine(frame: string): string {
 }
 
 describe("RemoteRow", () => {
-  it("shows only the remote branch name for a fresh remote", async () => {
-    const frame = await renderRow("fresh", 80);
-
-    expect(frame).toContain(" origin/main");
-    expect(frame).not.toContain(ICONS.selected);
-    expect(frame).not.toContain(REMOTE_ROW_STALE_INDICATOR);
-    expect(frame).not.toContain(ICONS.missingUpstream);
+  it("prefixes a tracked branch once without adding its remote name", async () => {
+    const frame = await renderRow("fresh", 80, "main", "upstream", true);
+    expect(frame).toContain(`${ICONS.remoteLocalTracker} main`);
+    expect(frame.split(ICONS.remoteLocalTracker)).toHaveLength(2);
+    expect(frame).not.toContain("upstream/");
   });
+
+  it.each([
+    { width: 26, name: "feature..." },
+    { width: 20, name: "f..." },
+  ])("reserves tracker and freshness marker widths at $width columns", async ({ width, name }) => {
+    const { frame, scrollBox } = await renderFramedRow("stale", width, LONG_BRANCH, true);
+    expect(scrollBox.scrollHeight).toBeGreaterThan(scrollBox.height);
+    expect(readMarkerLine(frame)).toContain(
+      `${ICONS.remoteLocalTracker} ${name} ${REMOTE_ROW_STALE_INDICATOR}`,
+    );
+    expect(frame).not.toContain(LONG_BRANCH);
+  });
+
+  it.each(["origin", "upstream", "team/upstream"])(
+    "shows only the branch name within the %s group",
+    async (remote) => {
+      const frame = await renderRow("fresh", 80, "feature/nested", remote);
+
+      expect(frame).toContain(" feature/nested");
+      expect(frame).not.toContain(`${remote}/`);
+      expect(frame).not.toContain(ICONS.remoteLocalTracker);
+      expect(frame).not.toContain(ICONS.selected);
+      expect(frame).not.toContain(REMOTE_ROW_STALE_INDICATOR);
+      expect(frame).not.toContain(ICONS.missingUpstream);
+    },
+  );
 
   it("marks a stale remote inline with the stale indicator", async () => {
     const frame = await renderRow("stale", 80);
 
-    expect(frame).toContain("origin/main");
+    expect(frame).toContain(" main");
+    expect(frame).not.toContain("origin/");
     expect(frame).toContain(REMOTE_ROW_STALE_INDICATOR);
   });
 
   it("marks an unknown remote inline without claiming absence", async () => {
     const frame = await renderRow("unknown", 80);
 
-    expect(frame).toContain("origin/main");
+    expect(frame).toContain(" main");
+    expect(frame).not.toContain("origin/");
     expect(frame).toContain(ICONS.missingUpstream);
     expect(frame).not.toContain("deleted");
     expect(frame).not.toContain("unpushed");
@@ -216,7 +250,7 @@ describe("RemoteRow", () => {
   it("keeps the name visible on a narrow terminal", async () => {
     const frame = await renderRow("fresh", 30);
 
-    expect(frame).toContain("origin");
+    expect(frame).not.toContain("origin/");
     expect(frame).toContain("main");
   });
 
@@ -224,7 +258,7 @@ describe("RemoteRow", () => {
     const { frame, scrollBox } = await renderFramedRow("stale", 26, LONG_BRANCH);
 
     expect(scrollBox.scrollHeight).toBeGreaterThan(scrollBox.height);
-    expect(readMarkerLine(frame)).toContain(" origin/feat... [stale]");
+    expect(readMarkerLine(frame)).toContain(" feature/a-v... [stale]");
     expect(frame).not.toContain(ICONS.selected);
     expect(frame).not.toContain("filler 28");
     expect(frame).not.toContain(LONG_BRANCH);
@@ -234,7 +268,7 @@ describe("RemoteRow", () => {
     const { frame, scrollBox } = await renderFramedRow("stale", 20, LONG_BRANCH);
 
     expect(scrollBox.scrollHeight).toBeGreaterThan(scrollBox.height);
-    expect(readMarkerLine(frame)).toContain(" origi... [stale]");
+    expect(readMarkerLine(frame)).toContain(" featu... [stale]");
     expect(frame).not.toContain("filler 28");
     expect(frame).not.toContain(LONG_BRANCH);
   });

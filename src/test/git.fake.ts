@@ -123,10 +123,13 @@ export function createFakeGitClient() {
     "rev-parse --verify --quiet REBASE_HEAD": () => fakeGitResult("", false),
     "rev-parse --verify --quiet CHERRY_PICK_HEAD": () => fakeGitResult("", false),
     "rebase --show-current-patch": () => fakeGitResult("", false, "fatal: no rebase"),
+    remote: () => fakeGitResult("origin\n"),
     "remote -v": () =>
       fakeGitResult(
         "origin\tgit@example.com:repo.git (fetch)\norigin\tgit@example.com:repo.git (push)\n",
       ),
+    "config --get-all remote.origin.fetch": () =>
+      fakeGitResult("+refs/heads/*:refs/remotes/origin/*\n"),
     "config user.name": () => fakeGitResult("Test User\n"),
     "config user.email": () => fakeGitResult("test@example.com\n"),
     "for-each-ref --format=%(upstream:remotename)%09%(upstream:remoteref) refs/heads/main": () =>
@@ -135,8 +138,7 @@ export function createFakeGitClient() {
     "rev-parse --verify --quiet refs/remotes/origin/main": () => fakeGitResult("abc123\n"),
     "for-each-ref --format=%(refname:short)%09%(upstream:remotename)%09%(upstream:remoteref) refs/heads":
       () => fakeGitResult("main\torigin\trefs/heads/main\n"),
-    "fetch --progress -- origin +refs/heads/main:refs/remotes/origin/main": () =>
-      fetchResult ?? fakeGitResult(""),
+    "fetch --progress --no-prune --no-prune-tags -- origin": () => fetchResult ?? fakeGitResult(""),
     [buildListLocalBranchesArgs().join(" ")]: () => fakeGitResult(LOCAL_BRANCHES_OUTPUT),
     [buildListRemoteBranchesArgs().join(" ")]: () => fakeGitResult(REMOTE_BRANCHES_OUTPUT),
     [buildListLocalTagsArgs().join(" ")]: () => fakeGitResult(LOCAL_TAGS_OUTPUT),

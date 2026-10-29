@@ -12,7 +12,7 @@ import {
 } from "@/app/hooks/useAction";
 import type { ActionScope } from "@/app/hooks/useAction.types";
 import { useFocusState } from "@/app/hooks/useFocusState";
-import { registerInputEscapeClear, resetInputEscapeClear } from "@/app/hooks/useInputEscapeClear";
+import { resetInputEscapeClear } from "@/app/hooks/useInputEscapeClear";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
 import { ConfigProvider } from "@/app/providers/ConfigProvider";
@@ -25,9 +25,11 @@ import { RepositoryProvider } from "@/app/providers/RepositoryProvider";
 import { StatusProvider } from "@/app/providers/StatusProvider";
 import type { StatusContextValue } from "@/app/providers/StatusProvider.types";
 import { ThemeProvider } from "@/app/providers/ThemeProvider";
+import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import { listCommandDescriptors } from "@/domain/commands/commands.registry";
 import { resetCommandRunner } from "@/domain/commands/commands.runner";
 import type { CommandTarget } from "@/domain/commands/commands.types";
+import { buildListRemoteBranchesArgs } from "@/domain/git/git.remote-branches";
 import { buildListLocalTagsArgs, buildLsRemoteTagsArgs } from "@/domain/git/git.tags";
 import type { GitClient, GitInvocationResult } from "@/domain/git/git.types";
 import { COMMIT_DETAILS_RETRY_ID } from "@/features/commit-details/useCommitDetails";
@@ -41,7 +43,6 @@ import { HELP_MODAL_ID } from "@/features/help/HelpModal.constants";
 import { PALETTE_SELECT_ID } from "@/features/palette/CommandPalette.constants";
 import { decodePaletteValue } from "@/features/palette/CommandRow";
 import { readRecentCommandIds, resetRecentCommands } from "@/features/palette/palette.search";
-import { REMOTES_FILTER_INPUT_ID } from "@/features/remotes/RemoteFilter.constants";
 import type { FocusContextValue } from "@/features/shell/focus.types";
 import { FOCUS_ACTION_BY_REGION, SIDEBAR_SWITCHER_ID } from "@/features/shell/regions";
 import { MORE_MENU_SELECT_ID } from "@/features/top-bar/MoreMenu.constants";
@@ -493,6 +494,7 @@ describe("AppShellHost", () => {
       ["stash.apply", "stashes"],
       ["stash.pop", "stashes"],
       ["stash.delete", "stashes"],
+      ["list.filter", "stashes"],
       ["nav.up", "stashes"],
       ["nav.down", "stashes"],
       ["nav.activate", "stashes"],
@@ -858,6 +860,87 @@ describe("AppShellHost", () => {
     });
   });
 
+  it("Ctrl+P fetches the explicitly selected configured remote and refreshes its discovered branches", async () => {
+    const fake = createFakeGitClient();
+    let remotes = ["origin", "upstream"];
+    let discovered = false;
+    const fetchCalls: string[][] = [];
+    const client: GitClient = {
+      ...fake.client,
+      invoke: async (options) => {
+        const key = options.args.join(" ");
+        if (key === "remote") {
+          return fakeGitResult(`${remotes.join("\n")}\n`);
+        }
+        if (key === "remote -v") {
+          return fakeGitResult(
+            remotes
+              .map(
+                (remote) =>
+                  `${remote}\tgit@example.com:${remote}.git (fetch)\n${remote}\tgit@example.com:${remote}.git (push)`,
+              )
+              .join("\n"),
+          );
+        }
+        if (key === "config --get-all remote.upstream.fetch") {
+          return fakeGitResult("+refs/heads/*:refs/remotes/upstream/*\n");
+        }
+        if (options.args[0] === "fetch") {
+          fetchCalls.push([...options.args]);
+          discovered = true;
+          return fakeGitResult("");
+        }
+        if (key === buildListRemoteBranchesArgs().join(" ") && discovered) {
+          return fakeGitResult(
+            `refs/remotes/upstream/new\0abc123\0${"2026-01-02T03:04:05+00:00"}\0discovered\0\n`,
+          );
+        }
+        return fake.client.invoke(options);
+      },
+    };
+    const setup = await renderHost(client);
+    try {
+      await waitForFrame(setup, "Branches (2)");
+      await act(async () => {
+        setup.mockInput.pressKey("p", { ctrl: true });
+      });
+      await waitForCondition(setup, () => findPaletteSelect(setup) !== undefined);
+      expect(readPaletteOption(setup, "Fetch origin")).toBeDefined();
+      expect(readPaletteOption(setup, "Fetch upstream")).toBeDefined();
+      expect(readPaletteOption(setup, "Fetch backup")).toBeUndefined();
+      await activatePaletteOption(setup, "Fetch upstream");
+      await waitForCondition(
+        setup,
+        () =>
+          latestRepository?.snapshot?.remoteBranches.some(
+            (branch) => branch.remote === "upstream" && branch.branch === "new",
+          ) === true,
+      );
+      expect(fetchCalls).toEqual([
+        ["fetch", "--progress", "--no-prune", "--no-prune-tags", "--", "upstream"],
+      ]);
+      expect(
+        latestRepository?.snapshot?.remoteBranches.some(
+          (branch) => branch.remote === "upstream" && branch.branch === "new",
+        ),
+      ).toBeTrue();
+      await waitForCondition(setup, () => latestStatus?.operation === null);
+      await openPalette(setup);
+      remotes = ["origin"];
+      await act(async () => {
+        await latestRepository?.refreshStatus();
+      });
+      await activatePaletteOption(setup, "Fetch upstream");
+      await waitForCondition(setup, () => findPaletteSelect(setup) === undefined);
+      expect(fetchCalls).toHaveLength(1);
+      expect(latestStatus?.status?.message).toBe(describeCommandReason("unknown-remote"));
+    } finally {
+      await act(async () => {
+        await setup.dispose();
+      });
+    }
+  });
+
   it("shows the composer availability reason in the palette for each selection", async () => {
     const setup = await renderHost(createFakeGitClient().client);
 
@@ -1071,40 +1154,22 @@ describe("AppShellHost", () => {
     });
   });
 
-  it("clears a focused filter on the first Esc and leaves the field on the next", async () => {
+  it("opens remote search outside the sidebar and Escape cancels immediately", async () => {
     const setup = await renderHost();
-
     await act(async () => {
-      await setup.renderOnce();
-    });
-
-    let clears = 0;
-    let unregister = (): void => {};
-    unregister = registerInputEscapeClear(REMOTES_FILTER_INPUT_ID, () => {
-      clears += 1;
-      unregister();
-    });
-
-    await act(async () => {
-      latestFocus?.focusRenderable(REMOTES_FILTER_INPUT_ID);
+      latestFocus?.focusRegion("remotes");
     });
     await act(async () => {
-      await setup.renderOnce();
+      setup.mockInput.pressKey("/");
     });
-
-    expect(setup.renderer.currentFocusedRenderable?.id).toBe(REMOTES_FILTER_INPUT_ID);
-
+    await waitForCondition(
+      setup,
+      () => setup.renderer.currentFocusedRenderable?.id === "feature-search-input",
+    );
     await act(async () => {
-      setup.mockInput.pressEscape();
+      setup.mockInput.typeText("missing-branch");
     });
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    expect(clears).toBe(1);
-    expect(setup.renderer.currentFocusedRenderable?.id).toBe(REMOTES_FILTER_INPUT_ID);
-    expect(latestFocus?.state.activeRegion).toBe("remotes");
-
+    await waitForFrame(setup, "No matches");
     await act(async () => {
       setup.mockInput.pressEscape();
     });
@@ -1112,10 +1177,10 @@ describe("AppShellHost", () => {
       setup,
       () => setup.renderer.currentFocusedRenderable?.id === "region-remotes",
     );
-
-    expect(clears).toBe(1);
-    expect(latestFocus?.state.activeRegion).toBe("remotes");
-
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    expect(setup.captureCharFrame()).not.toContain("Search remotes");
     await act(async () => {
       await setup.dispose();
     });

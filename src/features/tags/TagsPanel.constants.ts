@@ -1,9 +1,3 @@
-/** Stable renderable id of the tags filter field, focused by `list.filter`. */
-export const TAG_FILTER_INPUT_ID = "tags-filter";
-
-/** Filter placeholder text. */
-export const TAG_FILTER_PLACEHOLDER = "filter tags";
-
 /** Overlay entry id of the Create Tag modal. */
 export const CREATE_TAG_OVERLAY_ID = "tag.create";
 

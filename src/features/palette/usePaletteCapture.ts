@@ -1,27 +1,10 @@
 import { useState } from "react";
 import { useCommandTargets } from "@/app/hooks/useCommandTargets";
-import type { CommandTargetHandle } from "@/app/hooks/useCommandTargets.types";
 import { useKeymap } from "@/app/hooks/useKeymap";
 import { useRepository } from "@/app/hooks/useRepository";
-import type { ResolvedKeymap } from "@/domain/keymap/keymap.types";
-import type { PaletteCommandEntry } from "@/features/palette/CommandRow.types";
 import { capturePaletteEntries } from "@/features/palette/palette.capture";
 import { readRecentCommandIds } from "@/features/palette/palette.search";
-import type { PaletteAvailabilitySource } from "@/features/palette/palette.targets.types";
-
-/** Entries the palette captured when it opened, plus the projections dispatch re-reads. */
-export interface PaletteCapture {
-  /** Captured command entries, in catalogue order. */
-  readonly entries: readonly PaletteCommandEntry[];
-  /** Session recents captured at open time. */
-  readonly recentCommandIds: readonly string[];
-  /** Repository surface the activation path revalidates against. */
-  readonly repository: PaletteAvailabilitySource;
-  /** Resolved keymap the footer hints are read from. */
-  readonly keymap: ResolvedKeymap;
-  /** Target derivation and comparison used by the activation path. */
-  readonly targets: CommandTargetHandle;
-}
+import type { PaletteCapture } from "./usePaletteCapture.types";
 
 /**
  * Captures the palette entries when the palette opens.
@@ -39,8 +22,15 @@ export function usePaletteCapture(): PaletteCapture {
   const targets = useCommandTargets();
   const [recentCommandIds] = useState(() => readRecentCommandIds());
   const [entries] = useState(() =>
-    capturePaletteEntries({ repository, keymap, deriveTarget: targets.deriveTarget }),
+    capturePaletteEntries({
+      repository,
+      keymap,
+      deriveTarget: targets.deriveTarget,
+      remotes: repository.signals.remotes,
+    }),
   );
 
   return { entries, recentCommandIds, repository, keymap, targets };
 }
+
+export type { PaletteCapture } from "./usePaletteCapture.types";

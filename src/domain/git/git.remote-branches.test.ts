@@ -197,7 +197,82 @@ describe("readRemoteBranches", () => {
 });
 
 describe("groupByRemote", () => {
-  it("sorts by remote name then branch name", () => {
+  it("orders tip commits newest first within unchanged remote groups and breaks equal instants by branch name", () => {
+    const records = parseRemoteBranches(
+      [
+        remoteBranchLine(
+          "refs/remotes/upstream/z-old",
+          "u-old",
+          "2020-01-01T00:00:00Z",
+          "upstream old",
+        ),
+        remoteBranchLine(
+          "refs/remotes/origin/alpha-old",
+          "o-old",
+          "2026-10-21T12:00:00Z",
+          "origin old",
+        ),
+        remoteBranchLine(
+          "refs/remotes/origin/zeta-new",
+          "o-zeta",
+          "2026-10-22T10:00:00+02:00",
+          "same instant",
+        ),
+        remoteBranchLine(
+          "refs/remotes/upstream/a-new",
+          "u-new",
+          "2030-01-01T00:00:00Z",
+          "newer than every origin branch",
+        ),
+        remoteBranchLine(
+          "refs/remotes/origin/beta-new",
+          "o-beta",
+          "2026-10-22T08:00:00Z",
+          "same instant",
+        ),
+      ].join("\n"),
+      ["upstream", "origin"],
+    );
+    const originalOrder = records.map((record) => record.ref);
+    const groups = groupByRemote(records);
+
+    expect(groups.map((group) => group.remote)).toEqual(["origin", "upstream"]);
+    expect(groups.map((group) => group.branches.map((branch) => branch.branch))).toEqual([
+      ["beta-new", "zeta-new", "alpha-old"],
+      ["a-new", "z-old"],
+    ]);
+    expect(
+      groups.every((group) => group.branches.every((branch) => branch.remote === group.remote)),
+    ).toBeTrue();
+    expect(groups[0]?.branches[0]).toBe(records[4]);
+    expect(records.map((record) => record.ref)).toEqual(originalOrder);
+  });
+
+  it("puts missing and invalid timestamps last with a deterministic name tie-breaker", () => {
+    const records = parseRemoteBranches(
+      [
+        remoteBranchLine("refs/remotes/origin/z-missing", "missing", "", "unknown"),
+        remoteBranchLine("refs/remotes/origin/a-invalid", "invalid", "not-a-date", "invalid"),
+        remoteBranchLine(
+          "refs/remotes/origin/old-valid",
+          "old",
+          "1960-01-01T00:00:00Z",
+          "valid before epoch",
+        ),
+        remoteBranchLine("refs/remotes/origin/new-valid", "new", "2026-10-22T08:00:00Z", "new"),
+      ].join("\n"),
+      ["origin"],
+    );
+
+    expect(groupByRemote(records)[0]?.branches.map((branch) => branch.branch)).toEqual([
+      "new-valid",
+      "old-valid",
+      "a-invalid",
+      "z-missing",
+    ]);
+  });
+
+  it("sorts unknown commit dates by remote name then branch name", () => {
     const records = parseRemoteBranches(
       [
         remoteBranchLine("refs/remotes/origin/zeta", "t1", "", "one"),

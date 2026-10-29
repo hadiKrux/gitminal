@@ -6,7 +6,6 @@ import { mergeTagScopes, sortTagsVersionDesc } from "@/domain/git/git.tags";
 import type {
   BranchRecord,
   FileChangeKind,
-  RemoteBranchRecord,
   StashRecord,
   StatusEntry,
   TagRowRecord,
@@ -20,6 +19,7 @@ import type {
   DiffSectionView,
   DiffStatusLetter,
   PendingCounts,
+  RemoteBranchRow,
   RemoteCheckRecord,
   RemoteFreshness,
   RemoteTagChecks,
@@ -869,16 +869,35 @@ function compareCommitterDatesDesc(left: string | null, right: string | null): n
 }
 
 /**
- * Groups remote-tracking branches by remote and sorts both levels.
- *
+ * Projects remote groups using the single domain ordering shared by the sidebar and feature search.
+ * Tip commit committer dates sort newest first within each remote; names break ties, with unknown dates last.
+ * Local tracking is derived only from exact upstream remote/branch pairs, independent of checkout or local name.
  * @param snapshot - Current snapshot, or null before the first read.
- * @returns Groups ordered by remote name, each with branches ordered by branch name.
+ * @returns Groups ordered by remote name, each with branches ordered by commit date descending then name.
  */
 export function selectRemoteBranchGroups(snapshot: RepositorySnapshot | null): readonly {
   readonly remote: string;
-  readonly branches: readonly RemoteBranchRecord[];
+  readonly branches: readonly RemoteBranchRow[];
 }[] {
-  return groupByRemote(snapshot?.remoteBranches ?? []);
+  const trackedBranches = new Map<string, Set<string>>();
+
+  for (const branch of snapshot?.branches ?? []) {
+    if (branch.upstreamRemote === null || branch.upstreamBranch === null) {
+      continue;
+    }
+
+    const names = trackedBranches.get(branch.upstreamRemote) ?? new Set<string>();
+    names.add(branch.upstreamBranch);
+    trackedBranches.set(branch.upstreamRemote, names);
+  }
+
+  return groupByRemote(snapshot?.remoteBranches ?? []).map((group) => ({
+    remote: group.remote,
+    branches: group.branches.map((branch) => ({
+      ...branch,
+      hasLocalTracker: trackedBranches.get(group.remote)?.has(branch.branch) ?? false,
+    })),
+  }));
 }
 
 /**

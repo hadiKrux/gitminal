@@ -127,7 +127,7 @@ afterEach(() => {
 });
 
 describe("useTopBarCommands fetch form values", () => {
-  it("carries the scope and branch only for the two fetch commands", async () => {
+  it("carries scope and branch only for the distinct prune command", async () => {
     const requests: CommandRequest[] = [];
     const commandIds = [
       "remote.fetch",
@@ -162,7 +162,7 @@ describe("useTopBarCommands fetch form values", () => {
     }
 
     expect(requests.map((request) => [request.commandId, request.formValues])).toEqual([
-      ["remote.fetch", { fetchScope: "current", branch: "main" }],
+      ["remote.fetch", undefined],
       ["remote.fetchPrune", { fetchScope: "current", branch: "main" }],
       ["remote.pull", undefined],
       ["remote.push", undefined],

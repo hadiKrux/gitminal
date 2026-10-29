@@ -154,7 +154,7 @@ export const ACTION_CATALOGUE = [
     defaults: ["f"],
     label: "Fetch",
     category: "remote",
-    description: "Fetch using the configured fetch scope.",
+    description: "Fetch configured branches from origin without pruning.",
   },
   {
     id: "remote.fetchPrune",
@@ -384,11 +384,11 @@ export const ACTION_CATALOGUE = [
   },
   {
     id: "list.filter",
-    contexts: ["branches", "remotes", "tags", "worktrees"],
+    contexts: ["branches", "remotes", "tags", "stashes", "worktrees"],
     defaults: ["/"],
-    label: "Filter list",
+    label: "Search list",
     category: "list",
-    description: "Focus the current panel filter field.",
+    description: "Open feature search, or focus the Branches inline filter.",
   },
   {
     id: "graph.search",

@@ -266,6 +266,7 @@ export type CommandAvailabilityReason =
   | "missing-target"
   | "invalid-target"
   | "unknown-remote"
+  | "unsafe-fetch-refspec"
   | "cannot-delete-current-branch"
   | "checked-out-in-worktree"
   | "no-remote-branch"

@@ -229,35 +229,6 @@ describe("useWorktrees registration", () => {
 });
 
 describe("useWorktrees state", () => {
-  it("preserves the filter and the narrowed rows across a refresh", async () => {
-    const setup = await renderHarness(createClient().client);
-
-    await act(async () => {
-      handle?.setFilter("feature");
-    });
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    expect(handle?.rows).toHaveLength(1);
-    expect(handle?.rows[0]?.branch).toBe("feature-branch");
-
-    await act(async () => {
-      await latestRepository?.refreshStatus();
-    });
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    expect(handle?.filter).toBe("feature");
-    expect(handle?.rows).toHaveLength(1);
-    expect(handle?.rows[0]?.branch).toBe("feature-branch");
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
   it("reports no commits yet for create in an empty repository", async () => {
     const setup = await renderHarness(createClient({ emptyRepository: true }).client);
 

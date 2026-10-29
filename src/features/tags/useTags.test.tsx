@@ -195,34 +195,6 @@ describe("useTags", () => {
     });
   });
 
-  it("filters locally and case-insensitively without reordering the rows", async () => {
-    const setup = await renderProbe(
-      createClient({
-        tags: [
-          lightweightTag("v1.2.9", "aaa", "older"),
-          lightweightTag("v1.2.10", "bbb", "newer"),
-          lightweightTag("release", "ccc", "named"),
-        ].join("\n"),
-      }),
-    );
-
-    await waitFor(setup, () => latestTags?.rows.length === 3);
-
-    await act(async () => {
-      latestTags?.setFilter("V1.2");
-    });
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    expect(latestTags?.rows.map((row) => row.name)).toEqual(["v1.2.10", "v1.2.9"]);
-    expect(latestTags?.totalCount).toBe(3);
-
-    await act(async () => {
-      await setup.dispose();
-    });
-  });
-
   it("selects the tagged commit through nav.activate without a git call", async () => {
     const setup = await renderProbe(
       createClient({ tags: lightweightTag("v2.0.0", "abc123", "subject") }),

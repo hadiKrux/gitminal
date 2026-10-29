@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
+import { useFeatureSearch, useFeatureSearchReveal } from "@/app/hooks/useFeatureSearch";
 import { useFocusRegion } from "@/app/hooks/useFocusRegion";
 import { useRepository } from "@/app/hooks/useRepository";
 import { useStatus } from "@/app/hooks/useStatus";
+import { stashRowId } from "@/features/stashes/StashRow";
 import { isReadablePrimary } from "@/features/stashes/stash.availability";
 import { usePendingStashSelection } from "@/features/stashes/usePendingStashSelection";
 import { useStashAvailability } from "@/features/stashes/useStashAvailability";
@@ -13,7 +15,7 @@ import { useStashRows } from "@/features/stashes/useStashRows";
 import { useStashSelection, useStashSelectionRepair } from "@/features/stashes/useStashSelection";
 
 /**
- * Owns the stashes panel state and the four region-scoped actions it registers.
+ * Owns the stashes panel state, four stash actions, and read-only feature search.
  *
  * Rows come only from `selectStashRows` through `useStashRows`, so newest-first ordering, the source
  * branch, and the age are the repository's. The immutable object name is the identity of every row
@@ -21,8 +23,8 @@ import { useStashSelection, useStashSelectionRepair } from "@/features/stashes/u
  * `useStashSelection`, availability from `useStashAvailability`, and the modal and row commands from
  * `useStashCreateCommand` and `useStashRowCommands`.
  *
- * The hook registers exactly `stash.create`, `stash.apply`, `stash.pop`, and `stash.delete` in the
- * `stashes` scope. It never registers `nav.*`, `app.refresh`, `focus.*`, or `remote.*`; the cursor
+ * The hook composes `stash.create`, `stash.apply`, `stash.pop`, `stash.delete`, and the `list.filter`
+ * search opener in the `stashes` scope. It never registers `nav.*`, `app.refresh`, `focus.*`, or `remote.*`; the cursor
  * owns navigation and the app or shell owns global actions. A focus transition to true refreshes
  * the repository through `refreshStatus()`. Every mutation goes through `useCommandRunner`; this
  * hook never calls git or a domain executor directly.
@@ -34,8 +36,7 @@ export function useStashes(options: UseStashesOptions) {
   const repository = useRepository();
   const { setStatus, operation } = useStatus();
   const region = useFocusRegion(STASHES_REGION_ID);
-  const rows = useStashRows(repository.snapshot);
-  const selection = useStashSelection(rows.items, repository.setSelection);
+  const { rows, selection } = useStashList(repository);
   const availability = useStashAvailability(repository, selection.selected, rows.totalCount);
   const pendingSelection = usePendingStashSelection({
     snapshot: repository.snapshot,
@@ -103,6 +104,19 @@ export function useStashes(options: UseStashesOptions) {
     handleRowClick: selection.cursor.handleRowClick,
     retry: createRetryAction(repository.refreshStatus),
   };
+}
+
+/**
+ * Owns the stash list's read-only view flow: ordered rows, search reveal, and cursor selection.
+ * @param repository - Snapshot and the activation-only right-pane selection writer.
+ * @returns The visible row ledger and cursor helpers shared by stash operations.
+ */
+function useStashList(repository: ReturnType<typeof useRepository>) {
+  const search = useFeatureSearch("stashes");
+  const rows = useStashRows(repository.snapshot, search.revealId);
+  const selection = useStashSelection(rows.items, repository.setSelection);
+  useFeatureSearchReveal(search, rows.items, selection.cursor.selectId, stashRowId);
+  return { rows, selection };
 }
 
 /**

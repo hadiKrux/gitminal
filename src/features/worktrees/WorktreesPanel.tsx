@@ -10,8 +10,6 @@ import { WorktreeRow, worktreeRowId } from "@/features/worktrees/WorktreeRow";
 import {
   CREATE_WORKTREE_OVERLAY_ID,
   DELETE_WORKTREE_OVERLAY_ID_PREFIX,
-  WORKTREE_FILTER_INPUT_ID,
-  WORKTREE_FILTER_PLACEHOLDER,
   WORKTREES_BUSY_MESSAGE,
   WORKTREES_EMPTY_MESSAGE,
   WORKTREES_ERROR_MESSAGE,
@@ -22,13 +20,12 @@ import { useTokens } from "@/theme/useTokens";
 import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { LoadingRow } from "@/ui/LoadingRow";
-import { SearchField } from "@/ui/SearchField";
 
 /**
  * Renders the Worktrees panel body.
  *
  * The shell already supplies the focusable panel frame, the border title with the count, and the
- * scroll container, so this component returns only the filter field, the worktree rows, and the
+ * scroll container, so this component returns only the worktree rows, and the
  * state rows. Rows come from `useWorktrees`, which reads `selectWorktreeRows`; the panel never
  * recomputes the current worktree, the branch map, or the ordering, never calls git, and never
  * registers a global action. The active row id is passed to `useScrollSelectedRow`, so keyboard
@@ -63,8 +60,6 @@ export function WorktreesPanel(): ReactNode {
       [overlay],
     ),
   });
-  const showNoMatches =
-    !worktrees.loading && worktrees.totalCount > 0 && worktrees.rows.length === 0;
 
   useScrollSelectedRow(
     worktrees.activeRow === null ? null : worktreeRowId(worktrees.activeRow.path),
@@ -73,14 +68,6 @@ export function WorktreesPanel(): ReactNode {
 
   return (
     <box flexDirection="column" flexGrow={1}>
-      <box paddingLeft={1} paddingRight={1} flexShrink={0}>
-        <SearchField
-          id={WORKTREE_FILTER_INPUT_ID}
-          value={worktrees.filter}
-          placeholder={WORKTREE_FILTER_PLACEHOLDER}
-          onInput={worktrees.setFilter}
-        />
-      </box>
       {worktrees.busy ? (
         <text fg={tokens.dim} wrapMode="none">
           {WORKTREES_BUSY_MESSAGE}
@@ -113,7 +100,6 @@ export function WorktreesPanel(): ReactNode {
       {worktrees.empty ? (
         <EmptyState message={WORKTREES_EMPTY_MESSAGE} hint={worktrees.emptyHint} />
       ) : null}
-      {showNoMatches ? <EmptyState message={`No worktrees match ${worktrees.filter}`} /> : null}
     </box>
   );
 }

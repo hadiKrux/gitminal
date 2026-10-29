@@ -1,9 +1,3 @@
-/** Stable renderable id of the worktrees filter field, focused by `list.filter`. */
-export const WORKTREE_FILTER_INPUT_ID = "worktrees-filter";
-
-/** Filter placeholder text. */
-export const WORKTREE_FILTER_PLACEHOLDER = "filter worktrees";
-
 /** Overlay entry id of the New Worktree modal. */
 export const CREATE_WORKTREE_OVERLAY_ID = "worktree.create";
 

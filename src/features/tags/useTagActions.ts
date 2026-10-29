@@ -7,7 +7,6 @@ import type { useStatus } from "@/app/hooks/useStatus";
 import { describeCommandReason } from "@/domain/commands/commands.reasons";
 import type { CommandAvailabilityReason } from "@/domain/commands/commands.types";
 import type { TagRowRecord } from "@/domain/git/git.types";
-import { TAG_FILTER_INPUT_ID } from "@/features/tags/TagsPanel.constants";
 
 /** Title and exact confirm label of the shared push-tag confirmation. */
 const PUSH_TAG_TITLE = "Push tag";
@@ -15,13 +14,12 @@ const PUSH_TAG_TITLE = "Push tag";
 /**
  * Owns the Tags region actions and their availability pre-checks.
  *
- * The hook registers exactly `tag.create`, `tag.delete`, `tag.push`, and `list.filter` in the
+ * The hook registers exactly `tag.create`, `tag.delete`, and `tag.push` in the
  * `tags` scope. Push reads its display reason from the shared reason table except for a tag already
  * on a remote, where the remote is named. Every mutation goes through `useCommandRunner`; this hook
  * never calls git directly.
  *
- * @param input - Repository, active row, rows, default remote, modal openers, status writer, and
- * focus helper.
+ * @param input - Active row, rows, default remote, modal openers, and status writer.
  * @returns The action callbacks and the push availability reader.
  */
 export function useTagActions(input: {
@@ -31,12 +29,11 @@ export function useTagActions(input: {
   readonly openCreateTag: () => void;
   readonly openDeleteTag: (row: TagRowRecord) => void;
   readonly setStatus: ReturnType<typeof useStatus>["setStatus"];
-  readonly focusRenderable: (id: string) => void;
 }) {
   const repository = useRepository();
   const overlay = useOverlay();
   const { runCommand } = useCommandRunner();
-  const { activeRow, defaultRemote, focusRenderable, openCreateTag, openDeleteTag, rows } = input;
+  const { activeRow, defaultRemote, openCreateTag, openDeleteTag, rows } = input;
   const { setStatus } = input;
 
   /** Shows an unavailable reason as a transient warning status. */
@@ -142,15 +139,9 @@ export function useTagActions(input: {
     setStatus,
   ]);
 
-  /** Focuses the filter field through its stable renderable id. */
-  const focusFilter = useCallback((): void => {
-    focusRenderable(TAG_FILTER_INPUT_ID);
-  }, [focusRenderable]);
-
   useAction("tag.create", { scope: "tags", targetKind: "none" }, createTag);
   useAction("tag.delete", { scope: "tags", targetKind: "tag" }, deleteTag);
   useAction("tag.push", { scope: "tags", targetKind: "tag" }, pushTag);
-  useAction("list.filter", { scope: "tags", targetKind: "none" }, focusFilter);
 
   return { readPushAvailability };
 }

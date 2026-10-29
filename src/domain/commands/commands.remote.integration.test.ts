@@ -37,11 +37,12 @@ function createPushContext(
  *
  * @param client - Production client from the fixture.
  * @param cwd - Repository root.
+ * @param remote - Explicit configured remote selected in the palette.
  * @returns The handler context with a never-aborted signal.
  */
-function createFetchContext(client: GitClient, cwd: string): CommandHandlerContext {
+function createFetchContext(client: GitClient, cwd: string, remote: string): CommandHandlerContext {
   return {
-    request: { commandId: "remote.fetch", target: { kind: "none" } },
+    request: { commandId: "remote.fetch", target: { kind: "none" }, formValues: { remote } },
     target: { kind: "none" },
     cwd,
     client,
@@ -250,13 +251,16 @@ describe.skipIf(!gitAvailable)("remote.push against a real repository", () => {
               })
             ).ok,
           ).toBeTrue();
-          expect(
-            (
-              await fixture.run(["remote", "add", "a/b", slash.root], {
-                operationClass: "write",
-              })
-            ).ok,
-          ).toBeTrue();
+          // Intentionally configure a legacy overlapping remote directly: newer git rejects
+          // remote add for a/b beside a, but existing configurations must remain supported.
+          for (const [key, value] of [
+            ["remote.a/b.url", slash.root],
+            ["remote.a/b.fetch", "+refs/heads/*:refs/remotes/a/b/*"],
+          ] as const) {
+            expect(
+              (await fixture.run(["config", key, value], { operationClass: "write" })).ok,
+            ).toBeTrue();
+          }
           expect(
             (await fixture.run(["checkout", "-b", "foo"], { operationClass: "write" })).ok,
           ).toBeTrue();
@@ -311,13 +315,16 @@ describe.skipIf(!gitAvailable)("remote.push against a real repository", () => {
               })
             ).ok,
           ).toBeTrue();
-          expect(
-            (
-              await fixture.run(["remote", "add", "a/b", slash.root], {
-                operationClass: "write",
-              })
-            ).ok,
-          ).toBeTrue();
+          // Intentionally configure a legacy overlapping remote directly: newer git rejects
+          // remote add for a/b beside a, but existing configurations must remain supported.
+          for (const [key, value] of [
+            ["remote.a/b.url", slash.root],
+            ["remote.a/b.fetch", "+refs/heads/*:refs/remotes/a/b/*"],
+          ] as const) {
+            expect(
+              (await fixture.run(["config", key, value], { operationClass: "write" })).ok,
+            ).toBeTrue();
+          }
 
           const slashTip = (await fixture.run(["rev-parse", "refs/heads/main"])).stdout.trim();
 
@@ -371,7 +378,7 @@ describe.skipIf(!gitAvailable)("remote.push against a real repository", () => {
           ).toBeTrue();
 
           const outcome = await executeRemoteFetch(
-            createFetchContext(fixture.client, fixture.root),
+            createFetchContext(fixture.client, fixture.root, "a/b"),
           );
 
           expect(outcome.steps).toHaveLength(1);

@@ -49,7 +49,7 @@ const OPERATION_MARKER_GATE_REASONS: ReadonlySet<CommandAvailabilityReason> = ne
 ]);
 
 /** Commands driven by `config.remote.fetchScope`. */
-const FETCH_SCOPE_COMMANDS: ReadonlySet<string> = new Set(["remote.fetch", "remote.fetchPrune"]);
+const FETCH_SCOPE_COMMANDS: ReadonlySet<string> = new Set(["remote.fetchPrune"]);
 
 /** Commit commands that create a normal commit and therefore need staged files. */
 const STAGED_COMMIT_ACTIONS: ReadonlySet<string> = new Set([
@@ -97,6 +97,14 @@ export function getAvailability(commandId: string, context: CommandContext): Com
       available: false,
       reason: readBlockedGateReason(descriptor, context, gate.reason),
     };
+  }
+
+  if (commandId === "remote.fetch") {
+    const remote = context.formValues?.remote ?? "origin";
+
+    if (typeof remote !== "string" || !context.signals.remotes.includes(remote)) {
+      return blocked("unknown-remote");
+    }
   }
 
   const fetchScopeReason = readFetchScopeReason(descriptor, context);

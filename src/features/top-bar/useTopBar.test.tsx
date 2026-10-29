@@ -527,9 +527,7 @@ describe("buildTopBarControls", () => {
     const options = buildTopBarMoreOptions({ branch: "main", getAvailability: reader });
 
     expect(controlOfKind(controls, "push").reason).toBe("no commits yet");
-    expect(options.find((option) => option.commandId === "remote.fetch")?.reason).toBe(
-      "no local branches with upstreams",
-    );
+    expect(options.find((option) => option.commandId === "remote.fetch")?.reason).toBeNull();
   });
 
   it("blocks mutations while an operation is running", () => {
@@ -594,7 +592,7 @@ describe("top-bar fetch scope", () => {
     await waitForRequestCount(setup, requests, 1);
     await waitForIdle(setup);
 
-    expect(requests[0]?.formValues).toEqual({ fetchScope: "current", branch: "main" });
+    expect(requests[0]?.formValues).toBeUndefined();
 
     await act(async () => {
       await latestConfig?.reload();
@@ -616,7 +614,7 @@ describe("top-bar fetch scope", () => {
     });
     await waitForRequestCount(setup, requests, 3);
 
-    expect(requests[1]?.formValues).toEqual({ fetchScope: "local", branch: "main" });
+    expect(requests[1]?.formValues).toBeUndefined();
     expect(requests[2]?.formValues).toEqual(requests[1]?.formValues);
 
     cleanup();
