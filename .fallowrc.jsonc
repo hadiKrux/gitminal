@@ -1,7 +1,12 @@
 {
   // This file is JSONC: fallow reads these comments; generic JSON tools may not.
   "$schema": "./node_modules/fallow/schema.json",
-  "entry": ["src/index.{ts,tsx,js,jsx}", "src/main.{ts,tsx,js,jsx}"],
+  "entry": [
+    "src/index.{ts,tsx,js,jsx}",
+    "src/main.{ts,tsx,js,jsx}",
+    "web/app.js",
+    "web/styles.css"
+  ],
   "ignoreDependencies": [
     "fallow",
     // Build-time grammar sources. scripts/parsers.vendor.ts copies their wasm and highlight

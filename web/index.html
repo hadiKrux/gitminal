@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gitminal v1.3.0 - Keyboard-First Terminal Git Client</title>
+  <meta name="description" content="Gitminal (@im4all/gitminal v1.3.0) is a keyboard-first terminal git client with full mouse support, built on Bun, React 19, and OpenTUI.">
+  <meta name="author" content="Md Habibullah Al Hadi">
+  <meta name="keywords" content="git, terminal, git client, git gui, tui, lazygit, commit graph, syntax highlighted diff, branch, tag, stash, worktree, bun, react, opentui, keyboard-first">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#090a0f">
+
+  <!-- Social share metadata. Update the four absolute URLs below if the page
+       is hosted somewhere other than https://im4all.github.io/gitminal/ . -->
+  <link rel="canonical" href="https://im4all.github.io/gitminal/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Gitminal">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="Gitminal v1.3.0 - Keyboard-First Terminal Git Client">
+  <meta property="og:description" content="Gitminal (@im4all/gitminal v1.3.0) is a keyboard-first terminal git client with full mouse support, built on Bun, React 19, and OpenTUI.">
+  <meta property="og:url" content="https://im4all.github.io/gitminal/">
+  <meta property="og:image" content="https://im4all.github.io/gitminal/screenshot.png">
+  <meta property="og:image:width" content="3644">
+  <meta property="og:image:height" content="2256">
+  <meta property="og:image:alt" content="Gitminal running in a terminal: multi-pane commit graph, branch sidebar, and a syntax-highlighted unified diff">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Gitminal v1.3.0 - Keyboard-First Terminal Git Client">
+  <meta name="twitter:description" content="Gitminal (@im4all/gitminal v1.3.0) is a keyboard-first terminal git client with full mouse support, built on Bun, React 19, and OpenTUI.">
+  <meta name="twitter:image" content="https://im4all.github.io/gitminal/screenshot.png">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=1.3.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300..800;1,300..800&display=swap">
+  <link rel="stylesheet" href="./styles.css?v=1.3.0">
+</head>
+<body class="page">
+  <div class="page__scanline" aria-hidden="true"></div>
+
+  <!-- Top Status Bar -->
+  <header class="topbar">
+    <div class="topbar__inner">
+      <div class="topbar__identity">
+        <a href="#top" class="topbar__brand" aria-label="Gitminal home">
+          <span class="topbar__logo-wrap" aria-hidden="true">
+            <?xml version="1.0" encoding="UTF-8"?><svg class="topbar__logo" width="24px" height="24px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000" aria-hidden="true"><title>Gitminal</title><path d="M13 17H20" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M5 7L10 12L5 17" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </span>
+          <span class="topbar__title">gitminal</span>
+        </a>
+        <span class="topbar__version">v1.3.0</span>
+        <span class="topbar__divider" aria-hidden="true">|</span>
+        <span class="topbar__repo-path">~/repos/gitminal</span>
+        <span class="topbar__branch-badge">
+          <span class="topbar__branch-icon" aria-hidden="true">*</span>
+          <span class="topbar__branch-name">main</span>
+        </span>
+        <span class="topbar__sync-badge" id="topbar-sync-status">
+          origin/main ahead 0 behind 0 [v] up to date
+        </span>
+      </div>
+
+      <nav class="topbar__nav" aria-label="Primary sections">
+        <a href="#workbench" class="topbar__link">
+          <span class="topbar__key" aria-hidden="true">[w]</span>
+          <span class="topbar__link-text">Workbench</span>
+        </a>
+        <a href="#matrix" class="topbar__link">
+          <span class="topbar__key" aria-hidden="true">[m]</span>
+          <span class="topbar__link-text">Architecture</span>
+        </a>
+        <a href="#reference" class="topbar__link">
+          <span class="topbar__key" aria-hidden="true">[k]</span>
+          <span class="topbar__link-text">Keymap &amp; Config</span>
+        </a>
+        <button type="button" class="topbar__palette-btn" id="open-palette-btn" aria-haspopup="dialog">
+          <span class="topbar__key">Ctrl+P</span>
+          <span class="topbar__link-text">Palette</span>
+        </button>
+        <a href="https://github.com/im4aLL/gitminal" target="_blank" rel="noopener noreferrer" class="topbar__ext-link">
+          GitHub -&gt;
+        </a>
+        <a href="https://www.npmjs.com/package/@im4all/gitminal" target="_blank" rel="noopener noreferrer" class="topbar__ext-link topbar__ext-link--accent">
+          npm -&gt;
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="viewport" id="top">
+    <!-- Hero / Command Deck -->
+    <section class="hero" aria-labelledby="hero-heading">
+      <div class="hero__frame">
+        <div class="hero__meta-bar">
+          <div class="hero__coord">
+            <span class="hero__coord-id">[00 // COMMAND DECK]</span>
+            <span class="hero__coord-sep" aria-hidden="true">::</span>
+            <span class="hero__coord-pkg">@im4all/gitminal</span>
+          </div>
+          <div class="hero__telemetry">
+            <span class="hero__signal hero__signal--ok">[v] GUARDED CLI</span>
+            <span class="hero__signal">BUN &gt;= 1.3.14</span>
+            <span class="hero__signal">GIT &gt;= 2.31.0</span>
+            <span class="hero__signal">OPENTUI 0.6.6</span>
+          </div>
+        </div>
+
+        <div class="hero__grid">
+          <div class="hero__primary">
+            <div class="hero__eyebrow">
+              <span class="hero__eyebrow-marker">&gt;</span>
+              <span>KEYBOARD-FIRST TERMINAL GIT CLIENT WITH FULL MOUSE PARITY</span>
+            </div>
+
+            <h1 class="hero__headline" id="hero-heading">
+              Precision Git control inside a multi-pane terminal instrument.
+            </h1>
+
+            <p class="hero__description">
+              Built on <strong>Bun</strong>, <strong>React 19</strong>, and <strong>OpenTUI</strong>. Inspect lazygit-style commit graphs, syntax-highlighted Tree-sitter diffs, branches, remotes, tags, stashes, and linked worktrees with zero shell interpolation and single-mutation safety.
+            </p>
+
+            <div class="hero__badges">
+              <span class="hero__badge">
+                <span class="hero__badge-label">PACKAGE</span>
+                <span class="hero__badge-value">@im4all/gitminal</span>
+              </span>
+              <span class="hero__badge">
+                <span class="hero__badge-label">RELEASE</span>
+                <span class="hero__badge-value hero__badge-value--accent">v1.3.0</span>
+              </span>
+              <span class="hero__badge">
+                <span class="hero__badge-label">AUTHOR</span>
+                <span class="hero__badge-value">Hadi</span>
+              </span>
+              <span class="hero__badge">
+                <span class="hero__badge-label">LICENSE</span>
+                <span class="hero__badge-value hero__badge-value--ok">MIT</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="hero__installer">
+            <div class="installer">
+              <div class="installer__header">
+                <span class="installer__title">┌─ Quick Launch &amp; Install</span>
+                <div class="installer__tabs" role="tablist" aria-label="Package manager options">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    class="installer__tab installer__tab--active"
+                    data-install-tab="bun"
+                  >
+                    [bun -g]
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    class="installer__tab"
+                    data-install-tab="bunx"
+                  >
+                    [bunx]
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    class="installer__tab"
+                    data-install-tab="npm"
+                  >
+                    [npm -g]
+                  </button>
+                </div>
+              </div>
+
+              <div class="installer__body">
+                <div class="installer__prompt-row">
+                  <span class="installer__prompt-char" aria-hidden="true">$</span>
+                  <code class="installer__command" id="install-command-text">bun add -g @im4all/gitminal</code>
+                  <button
+                    type="button"
+                    class="installer__copy-btn"
+                    id="copy-install-btn"
+                    aria-label="Copy install command (shortcut: y)"
+                  >
+                    <span class="installer__copy-key">[y]</span>
+                    <span class="installer__copy-label" id="copy-install-label">Copy</span>
+                  </button>
+                </div>
+                <p class="installer__note" id="install-command-note">
+                  Install the global `gitminal` binary via Bun (&gt;= 1.3.14).
+                </p>
+              </div>
+
+              <div class="installer__footer">
+                <div class="installer__step">
+                  <span class="installer__step-num">01</span>
+                  <span class="installer__step-text">cd ~/your-repo</span>
+                </div>
+                <span class="installer__step-arrow" aria-hidden="true">-&gt;</span>
+                <div class="installer__step">
+                  <span class="installer__step-num">02</span>
+                  <span class="installer__step-text">gitminal</span>
+                </div>
+                <span class="installer__step-arrow" aria-hidden="true">-&gt;</span>
+                <div class="installer__step">
+                  <span class="installer__step-num">03</span>
+                  <span class="installer__step-text">? for Help / Ctrl+P Palette</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Live TUI Workbench -->
+    <section class="workbench" id="workbench" aria-labelledby="workbench-heading">
+      <div class="workbench__header">
+        <div class="workbench__heading-group">
+          <span class="workbench__coord">[01 // INTERACTIVE TUI WORKBENCH]</span>
+          <h2 class="workbench__title" id="workbench-heading">
+            Live Multi-Pane Terminal Simulation
+          </h2>
+          <p class="workbench__subtitle">
+            Press <kbd class="workbench__kbd">1</kbd>-<kbd class="workbench__kbd">8</kbd> to focus regions, <kbd class="workbench__kbd">j</kbd>/<kbd class="workbench__kbd">k</kbd> to inspect commits, <kbd class="workbench__kbd">g</kbd> to toggle graph box-drawing style, or <kbd class="workbench__kbd">9</kbd> to open the Console drawer.
+          </p>
+        </div>
+
+        <div class="workbench__controls">
+          <div class="workbench__view-switch" role="tablist" aria-label="Workbench view mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              class="workbench__mode-btn workbench__mode-btn--active"
+              data-workbench-mode="simulator"
+              id="mode-simulator-btn"
+            >
+              [Interactive TUI]
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              class="workbench__mode-btn"
+              data-workbench-mode="screenshot"
+              id="mode-screenshot-btn"
+            >
+              [Reference Screenshot]
+            </button>
+          </div>
+
+          <button type="button" class="workbench__action-btn" id="toggle-graph-style-btn">
+            <span class="workbench__action-key">[g]</span>
+            <span>graph.style: <strong id="graph-style-label">rounded</strong></span>
+          </button>
+
+          <button type="button" class="workbench__action-btn" id="cycle-theme-btn">
+            <span class="workbench__action-key">[t]</span>
+            <span>theme: <strong id="sim-theme-label">catppuccin-mocha</strong></span>
+          </button>
+
+          <button type="button" class="workbench__action-btn" id="toggle-console-btn">
+            <span class="workbench__action-key">[9]</span>
+            <span>console: <strong id="console-state-label">open</strong></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Interactive Simulator Container -->
+      <div class="tui" id="tui-simulator" data-sim-theme="catppuccin-mocha">
+        <!-- Terminal Window Chrome -->
+        <div class="tui__window-bar">
+          <div class="tui__dots" aria-hidden="true">
+            <span class="tui__dot tui__dot--close"></span>
+            <span class="tui__dot tui__dot--min"></span>
+            <span class="tui__dot tui__dot--max"></span>
+          </div>
+          <div class="tui__window-title">
+            gitminal - ~/repos/gitminal (Active Region: <span id="tui-active-region-label">[6] Commits</span>)
+          </div>
+          <div class="tui__window-dims">142x42 // TRUECOLOR</div>
+        </div>
+
+        <!-- Simulated Gitminal TopBar -->
+        <div class="tui__topbar">
+          <div class="tui__topbar-left">
+            <div class="tui__repo-line">~/repos/gitminal</div>
+            <div class="tui__status-line">
+              <span class="tui__status-focus">&gt;</span>
+              <span class="tui__status-branch">main</span>
+              <span class="tui__status-upstream">origin/main</span>
+              <span class="tui__status-counts">ahead 0 behind 0</span>
+              <span class="tui__status-ok" id="tui-status-message">✓ up to date</span>
+            </div>
+          </div>
+          <div class="tui__topbar-right">
+            <div class="tui__progress" id="tui-progress-wrap" hidden>
+              <span class="tui__progress-label" id="tui-progress-label">Fetching origin... 68%</span>
+              <span class="tui__progress-track">
+                <span class="tui__progress-fill" id="tui-progress-fill"></span>
+              </span>
+            </div>
+            <button type="button" class="tui__cmd-btn" data-sim-git="pull" title="Pull (p)">
+              ↓ Pull
+            </button>
+            <button type="button" class="tui__cmd-btn" data-sim-git="push" title="Push (P)">
+              ↑ Push
+            </button>
+            <button type="button" class="tui__cmd-btn" data-sim-git="fetch" title="Fetch &amp; Prune (F)">
+              Fetch
+            </button>
+          </div>
+        </div>
+
+        <!-- Mobile Region Switcher (visible on small viewports) -->
+        <div class="tui__mobile-tabs">
+          <button type="button" class="tui__mobile-tab" data-mobile-pane="sidebar">
+            [1-5] Sidebar
+          </button>
+          <button type="button" class="tui__mobile-tab tui__mobile-tab--active" data-mobile-pane="graph">
+            [6] Graph
+          </button>
+          <button type="button" class="tui__mobile-tab" data-mobile-pane="inspector">
+            [7-8] Diff &amp; Details
+          </button>
+        </div>
+
+        <!-- Main 3-Column TUI Body -->
+        <div class="tui__main" id="tui-main-grid" data-mobile-active="graph">
+          <!-- Column 1: 5-Panel Sidebar -->
+          <div class="tui__sidebar">
+            <!-- [1] Branches Panel -->
+            <section
+              class="tui-panel"
+              data-region-id="1"
+              data-region-name="[1] Branches"
+              aria-label="Branches panel, region 1"
+            >
+              <header class="tui-panel__header">
+                <span class="tui-panel__title">Branches (6)</span>
+                <span class="tui-panel__shortcut">[1]</span>
+              </header>
+              <div class="tui-panel__body" id="sim-branches-list">
+                <div class="tui-row" data-selected="true">
+                  <span class="tui-row__left">
+                    <span class="tui-row__marker">*</span>
+                    <span>main</span>
+                    <span class="tui-row__badge">[LR]</span>
+                  </span>
+                  <span class="tui-row__meta">origin/main</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- [2] Remotes Panel -->
+            <section
+              class="tui-panel"
+              data-region-id="2"
+              data-region-name="[2] Remotes"
+              aria-label="Remotes panel, region 2"
+            >
+              <header class="tui-panel__header">
+                <span class="tui-panel__title">Remotes (5)</span>
+                <span class="tui-panel__shortcut">[2]</span>
+              </header>
+              <div class="tui-panel__body" id="sim-remotes-list"></div>
+            </section>
+
+            <!-- [3] Tags Panel -->
+            <section
+              class="tui-panel"
+              data-region-id="3"
+              data-region-name="[3] Tags"
+              aria-label="Tags panel, region 3"
+            >
+              <header class="tui-panel__header">
+                <span class="tui-panel__title">Tags (4)</span>
+                <span class="tui-panel__shortcut">[3]</span>
+              </header>
+              <div class="tui-panel__body" id="sim-tags-list"></div>
+            </section>
+
+            <!-- [4] Stashes Panel -->
+            <section
+              class="tui-panel"
+              data-region-id="4"
+              data-region-name="[4] Stashes"
+              aria-label="Stashes panel, region 4"
+            >
+              <header class="tui-panel__header">
+                <span class="tui-panel__title">Stashes (2)</span>
+                <span class="tui-panel__shortcut">[4]</span>
+              </header>
+              <div class="tui-panel__body" id="sim-stashes-list"></div>
+            </section>
+
+            <!-- [5] Worktrees Panel -->
+            <section
+              class="tui-panel"
+              data-region-id="5"
+              data-region-name="[5] Worktrees"
+              aria-label="Worktrees panel, region 5"
+            >
+              <header class="tui-panel__header">
+                <span class="tui-panel__title">Worktrees (2)</span>
+                <span class="tui-panel__shortcut">[5]</span>
+              </header>
+              <div class="tui-panel__body" id="sim-worktrees-list"></div>
+            </section>
+          </div>
+
+          <!-- Column 2: Center Commit Graph ([6]) -->
+          <section
+            class="tui-panel tui-panel--graph tui-panel--focused"
+            data-region-id="6"
+            data-region-name="[6] Commits"
+            aria-label="Commit graph panel, region 6"
+          >
+            <header class="tui-panel__header">
+              <span class="tui-panel__title">Commits</span>
+              <span class="tui-panel__shortcut">[6] j/k g/G /</span>
+            </header>
+            <div class="tui-graph__toolbar">
+              <span class="tui-graph__scope">all refs | 37 commits</span>
+              <label class="tui-graph__search-wrap" aria-label="Filter commits in graph">
+                <span class="tui-graph__search-prefix">/</span>
+                <input
+                  type="search"
+                  class="tui-graph__search-input"
+                  id="sim-graph-search"
+                  placeholder="Search commits (subject, author, oid)..."
+                  autocomplete="off"
+                >
+              </label>
+            </div>
+            <div class="tui-graph__list" id="sim-graph-list" role="listbox" aria-label="Commit history">
+              <div class="tui-commit" role="option" tabindex="-1" aria-selected="true" data-commit-index="0">
+                <div class="tui-commit__line">
+                  <div class="tui-commit__left">
+                    <span class="tui-commit__lanes tui-commit__lane--0 tui-commit__lane--1 tui-commit__lane--2 tui-commit__lane--3">○   </span>
+                    <span class="tui-commit__subject tui-commit__subject--pending">feat(config): load settings from the environment</span>
+                  </div>
+                  <span class="tui-commit__files-count">1</span>
+                </div>
+                <div class="tui-commit__line">
+                  <div class="tui-commit__left">
+                    <span class="tui-commit__lanes tui-commit__lane--0">│   </span>
+                    <span class="tui-commit__ref tui-commit__ref--tag">[main]</span>
+                    <span class="tui-commit__author">Ada Lovelace</span>
+                  </div>
+                  <span class="tui-commit__date">14 Sep 16:26</span>
+                </div>
+              </div>
+            </div>
+            <div class="tui-graph__footer">
+              <span>Style: <strong id="tui-graph-footer-style">rounded (╭ ╮ ╰ ╯ ○ ◎)</strong></span>
+              <span>Page: 1/1 (loaded 8 of 37)</span>
+            </div>
+          </section>
+
+          <!-- Column 3: Right Inspector ([7] Details/Composer + [8] Diff) -->
+          <div class="tui__inspector">
+            <!-- [7] Commit Details or Commit Composer -->
+            <section
+              class="tui-panel tui-panel--details"
+              data-region-id="7"
+              data-region-name="[7] Commit Details / Composer"
+              aria-label="Commit details or composer panel, region 7"
+            >
+              <header class="tui-panel__header">
+                <span class="tui-panel__title" id="sim-details-title">Commit 1f901cb</span>
+                <span class="tui-panel__shortcut">[7] c</span>
+              </header>
+              <div class="tui-panel__body tui-details" id="sim-details-body">
+                <div class="tui-details__row">
+                  <span class="tui-details__label">Commit</span>
+                  <span class="tui-details__oid">1f901cb</span>
+                  <span class="tui-details__stats">1 file changed +32 -1</span>
+                </div>
+                <div class="tui-details__msg">feat(config): load settings from the environment</div>
+                <div class="tui-composer" hidden>
+                  <div class="tui-composer__identity">Author: Md Habibullah Al Hadi</div>
+                  <input type="text" class="tui-composer__input" value="" aria-label="Composer preview">
+                  <div class="tui-composer__actions">
+                    <button type="button" class="tui-composer__btn">[Ctrl+S] Commit</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- [8] Unified Diff Panel -->
+            <section
+              class="tui-panel tui-panel--diff"
+              data-region-id="8"
+              data-region-name="[8] Diff Viewer"
+              aria-label="Unified diff viewer panel, region 8"
+            >
+              <header class="tui-panel__header">
+                <span class="tui-panel__title" id="sim-diff-title">Diff 1f901cb (Tree-sitter WASM)</span>
+                <span class="tui-panel__shortcut">[8] J/K H/L</span>
+              </header>
+              <div class="tui-panel__body tui-diff" id="sim-diff-body">
+                <div class="tui-diff__file-header">
+                  <span>▼ M src/config.py</span>
+                  <span>
+                    <span class="tui-diff__file-stat-add">+32</span>
+                    <span class="tui-diff__file-stat-del">-1</span>
+                  </span>
+                </div>
+                <div class="tui-diff__hunk">@@ -1,4 +1,18 @@</div>
+                <div class="tui-diff__line tui-diff__line--del">
+                  <span class="tui-diff__lineno">1</span>
+                  <span class="tui-diff__sign">-</span>
+                  <span class="tui-diff__code"># feat: config loader</span>
+                </div>
+                <div class="tui-diff__line tui-diff__line--add">
+                  <span class="tui-diff__lineno">1</span>
+                  <span class="tui-diff__sign">+</span>
+                  <span class="tui-diff__code">from __future__ import annotations</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <!-- [9] Expandable Git Console Drawer -->
+        <section
+          class="tui-console"
+          id="tui-console-drawer"
+          data-region-id="9"
+          data-region-name="[9] Console Drawer"
+          aria-label="Git command console drawer, region 9"
+        >
+          <header class="tui-console__header">
+            <div class="tui-console__title-group">
+              <span class="tui-console__title">Console (Serialized Git Command Log)</span>
+              <span class="tui-console__badge">0 shell interpolations // argv[] only</span>
+            </div>
+            <div class="tui-console__actions">
+              <button type="button" class="tui-console__clear-btn" id="clear-console-btn">
+                [c] Clear
+              </button>
+              <span class="tui-console__shortcut">[9 / Ctrl+`]</span>
+            </div>
+          </header>
+          <div class="tui-console__body" id="sim-console-list">
+            <div class="tui-console__entry">
+              <span class="tui-console__cmd"><span class="tui-console__status">✓ 0</span>$ git status --porcelain=v2 --branch</span>
+              <span class="tui-console__dur">9ms</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Simulated App Bottom Hint Bar -->
+        <div class="tui__hintbar" id="tui-sim-hintbar">
+          <span class="tui__hint"><kbd>?</kbd> Help</span>
+          <span class="tui__hint-sep">|</span>
+          <span class="tui__hint"><kbd>Up/k</kbd> Move up</span>
+          <span class="tui__hint-sep">|</span>
+          <span class="tui__hint"><kbd>Down/j</kbd> Move down</span>
+          <span class="tui__hint-sep">|</span>
+          <span class="tui__hint"><kbd>g/G</kbd> First/Last</span>
+          <span class="tui__hint-sep">|</span>
+          <span class="tui__hint"><kbd>/</kbd> Search commits</span>
+          <span class="tui__hint-sep">|</span>
+          <span class="tui__hint"><kbd>J/K/H/L</kbd> Scroll diff</span>
+          <span class="tui__hint-sep">|</span>
+          <span class="tui__hint"><kbd>Ctrl+P</kbd> Command palette</span>
+          <span class="tui__hint-sep">|</span>
+          <span class="tui__hint"><kbd>r</kbd> Refresh</span>
+        </div>
+      </div>
+
+      <!-- Reference Screenshot View (Hidden unless toggled) -->
+      <figure class="screenshot-frame" id="tui-screenshot-view" hidden>
+        <div class="screenshot-frame__bar">
+          <span class="screenshot-frame__title">┌─ Reference Terminal Capture (screenshot.png)</span>
+          <span class="screenshot-frame__meta">Catppuccin Mocha // Rounded Graph Lanes // Unified Tree-Sitter Diff</span>
+        </div>
+        <div class="screenshot-frame__img-wrap">
+          <img
+            src="./screenshot.png?v=1.3.0"
+            alt="Gitminal v1.3.0 terminal interface showing Branches, Remotes, Tags, Stashes, Worktrees, Commit Graph with rounded box-drawing lanes, Commit Details, and syntax-highlighted Python diff."
+            class="screenshot-frame__img"
+            width="1600"
+            height="1000"
+          >
+        </div>
+        <figcaption class="screenshot-frame__caption">
+          Actual capture of <code>@im4all/gitminal</code> running inside a terminal with <code>catppuccin-mocha</code> and <code>graph.style = "rounded"</code>.
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- Architecture & Capabilities Matrix -->
+    <section class="matrix" id="matrix" aria-labelledby="matrix-heading">
+      <div class="matrix__header">
+        <span class="matrix__coord">[02 // SYSTEM ARCHITECTURE &amp; CAPABILITIES]</span>
+        <h2 class="matrix__title" id="matrix-heading">
+          Engineered Like a Systems Runtime, Not a Wrapper Script
+        </h2>
+        <p class="matrix__subtitle">
+          Strict unidirectional layering (<code>features -&gt; ui/app -&gt; domain -&gt; lib</code>), deterministic command serialization, and native terminal rendering.
+        </p>
+      </div>
+
+      <div class="matrix__grid">
+        <article class="matrix-card">
+          <header class="matrix-card__header">
+            <span class="matrix-card__index">01 // GRAPH ENGINE</span>
+            <span class="matrix-card__tag">domain/graph</span>
+          </header>
+          <h3 class="matrix-card__title">Two-Cell Lazygit Box-Drawing Lanes</h3>
+          <p class="matrix-card__body">
+            Renders complex branch topologies and octopus merges using East Asian Ambiguous 1-cell glyphs. Switch seamlessly between <code>rounded</code> arc corners (<code>╭ ╮ ╰ ╯ ○ ◎</code>) and WGL4/CP437-safe <code>sharp</code> corners (<code>┌ ┐ └ ┘ +</code>) with cursor-paginated history and instant commit search (<code>/</code>).
+          </p>
+          <div class="matrix-card__spec">
+            <span>Glyphs: U+2500..U+257F</span>
+            <span>Page window: 500 commits</span>
+          </div>
+        </article>
+
+        <article class="matrix-card">
+          <header class="matrix-card__header">
+            <span class="matrix-card__index">02 // GUARDED GIT CLI</span>
+            <span class="matrix-card__tag">domain/git + commands</span>
+          </header>
+          <h3 class="matrix-card__title">Serialized Runner &amp; Zero Shell Interpolation</h3>
+          <p class="matrix-card__body">
+            Every Git subprocess spawns via argument arrays with no shell interpretation. Write operations are strictly serialized (one mutation at a time with explicit blocked reasons), credentials in URLs and stderr are automatically redacted, and branch deletion inspects unmerged commit risk before confirmation.
+          </p>
+          <div class="matrix-card__spec">
+            <span>Spawn: argv[] only</span>
+            <span>Safety: Credential Redaction</span>
+          </div>
+        </article>
+
+        <article class="matrix-card">
+          <header class="matrix-card__header">
+            <span class="matrix-card__index">03 // DIFF &amp; TREE-SITTER</span>
+            <span class="matrix-card__tag">features/diff + parsers</span>
+          </header>
+          <h3 class="matrix-card__title">Vendored WASM Syntax Highlighting</h3>
+          <p class="matrix-card__body">
+            Working tree, staged, untracked, commit, stash, and conflict diffs render through OpenTUI's unified <code>&lt;diff&gt;</code> primitive with vendored Tree-sitter WASM grammars (TypeScript, Python, Rust, Go, Bash, JSON, YAML, HTML, CSS, Java, PHP). Unchanged context runs collapse cleanly and scroll via <code>J</code>/<code>K</code>/<code>H</code>/<code>L</code>.
+          </p>
+          <div class="matrix-card__spec">
+            <span>View: Unified 1-Gutter</span>
+            <span>Parsers: Offline WASM</span>
+          </div>
+        </article>
+
+        <article class="matrix-card">
+          <header class="matrix-card__header">
+            <span class="matrix-card__index">04 // INPUT &amp; FOCUS AUTHORITY</span>
+            <span class="matrix-card__tag">app/hooks/useHotkeys</span>
+          </header>
+          <h3 class="matrix-card__title">Context-Sensitive Keys + Full Mouse Support</h3>
+          <p class="matrix-card__body">
+            A single global key dispatcher resolves precedence (Overlay -&gt; Text Editor -&gt; Native Select -&gt; Focused Region -&gt; Global). Every keyboard action has mouse parity: click to focus and select, double-click to trigger primary actions, click checkboxes/headers, and scroll any viewport with the wheel.
+          </p>
+          <div class="matrix-card__spec">
+            <span>Regions: 1..9 + Tab</span>
+            <span>Mouse: Click / DblClick / Wheel</span>
+          </div>
+        </article>
+
+        <article class="matrix-card">
+          <header class="matrix-card__header">
+            <span class="matrix-card__index">05 // COMPLETE REPO SURFACES</span>
+            <span class="matrix-card__tag">features/branches..worktrees</span>
+          </header>
+          <h3 class="matrix-card__title">Branches, Remotes, Tags [LR], Stashes &amp; Worktrees</h3>
+          <p class="matrix-card__body">
+            Manage the entire Git lifecycle without leaving the viewport: checkout/create/delete branches, prune remotes, inspect tag presence via the fixed-width <code>[LR]</code> / <code>[L↑]</code> / <code>[L?]</code> matrix, pop/apply stashes with untracked files, and create or prune linked Git worktrees.
+          </p>
+          <div class="matrix-card__spec">
+            <span>Tag Matrix: [L R ↑ ?]</span>
+            <span>Frame-Buffer Progress Bar</span>
+          </div>
+        </article>
+
+        <article class="matrix-card">
+          <header class="matrix-card__header">
+            <span class="matrix-card__index">06 // CATPPUCCIN &amp; COLOR ENGINE</span>
+            <span class="matrix-card__tag">domain/theme</span>
+          </header>
+          <h3 class="matrix-card__title">Truecolor, 256-Color &amp; Monochrome Fallback</h3>
+          <p class="matrix-card__body">
+            Ships with four official Catppuccin flavors (<code>mocha</code>, <code>macchiato</code>, <code>frappe</code>, <code>latte</code>). Inspects <code>NO_COLOR</code>, <code>COLORTERM</code>, and <code>TERM</code> at startup to adapt automatically between 24-bit truecolor, quantized xterm-256color, and high-contrast monochrome.
+          </p>
+          <div class="matrix-card__spec">
+            <span>Default: catppuccin-mocha</span>
+            <span>Live Reload: Ctrl+P</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Interactive Keymap & Configuration Reference -->
+    <section class="reference" id="reference" aria-labelledby="reference-heading">
+      <div class="reference__header">
+        <span class="reference__coord">[03 // KEYMAP &amp; CONFIGURATION BLUEPRINTS]</span>
+        <h2 class="reference__title" id="reference-heading">
+          Interactive Keybinding Explorer &amp; Config Reference
+        </h2>
+        <p class="reference__subtitle">
+          Every keybinding is scoped to its active region and customizable via <code>keybindings.json</code>. Search by key chord, action ID, or command name below.
+        </p>
+      </div>
+
+      <div class="reference__grid">
+        <!-- Left Column: Filterable Keymap Explorer -->
+        <div class="keymap-box">
+          <div class="keymap-box__header">
+            <span class="keymap-box__title">┌─ Default Keybindings (56 Actions)</span>
+            <span class="keymap-box__count" id="keymap-match-count">Showing 56 actions</span>
+          </div>
+
+          <div class="keymap-box__controls">
+            <div class="keymap-box__scopes" role="tablist" aria-label="Filter keybindings by scope">
+              <button
+                type="button"
+                role="tab"
+                aria-selected="true"
+                class="keymap-box__scope-btn keymap-box__scope-btn--active"
+                data-keymap-scope="all"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected="false"
+                class="keymap-box__scope-btn"
+                data-keymap-scope="global"
+              >
+                Global
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected="false"
+                class="keymap-box__scope-btn"
+                data-keymap-scope="navigation"
+              >
+                Focus &amp; Nav
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected="false"
+                class="keymap-box__scope-btn"
+                data-keymap-scope="panels"
+              >
+                Panels (1-5)
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected="false"
+                class="keymap-box__scope-btn"
+                data-keymap-scope="composer"
+              >
+                Composer (7)
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected="false"
+                class="keymap-box__scope-btn"
+                data-keymap-scope="diff"
+              >
+                Diff &amp; Console (8-9)
+              </button>
+            </div>
+
+            <label class="keymap-box__search-wrap" aria-label="Filter keybindings">
+              <span class="keymap-box__search-icon">/</span>
+              <input
+                type="search"
+                class="keymap-box__search-input"
+                id="keymap-search-input"
+                placeholder="Filter by action, ID (e.g. diff.stage, app.palette), or key..."
+                autocomplete="off"
+              >
+            </label>
+          </div>
+
+          <section class="keymap-box__table-wrap" aria-label="Keybindings table">
+            <table class="keymap-table">
+              <thead class="keymap-table__head">
+                <tr class="keymap-table__row">
+                  <th class="keymap-table__th" scope="col">Action</th>
+                  <th class="keymap-table__th" scope="col">Action ID</th>
+                  <th class="keymap-table__th" scope="col">Scope</th>
+                  <th class="keymap-table__th" scope="col">Default Keys</th>
+                </tr>
+              </thead>
+              <tbody class="keymap-table__body" id="keymap-table-body">
+                <tr class="keymap-table__tr">
+                  <td class="keymap-table__td keymap-table__action">Command palette</td>
+                  <td class="keymap-table__td"><code class="keymap-table__id">app.palette</code></td>
+                  <td class="keymap-table__td"><span class="keymap-table__scope">global</span></td>
+                  <td class="keymap-table__td">
+                    <kbd class="keymap-table__kbd">ctrl+p</kbd>
+                    <span class="keymap-table__none" hidden>palette only</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+
+        <!-- Right Column: Tabbed Config & Truecolor Blueprints -->
+        <div class="config-box">
+          <div class="config-box__header">
+            <span class="config-box__title">┌─ Configuration &amp; Environment</span>
+            <button type="button" class="config-box__copy-btn" id="copy-config-btn">
+              <span id="copy-config-label">[Copy Snippet]</span>
+            </button>
+          </div>
+
+          <div class="config-box__tabs" role="tablist" aria-label="Configuration files and shell snippets">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              class="config-box__tab config-box__tab--active"
+              data-config-tab="config"
+            >
+              config.json
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              class="config-box__tab"
+              data-config-tab="keybindings"
+            >
+              keybindings.json
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              class="config-box__tab"
+              data-config-tab="truecolor-unix"
+            >
+              Truecolor (Unix/WSL)
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              class="config-box__tab"
+              data-config-tab="truecolor-ps"
+            >
+              PowerShell
+            </button>
+          </div>
+
+          <div class="config-box__body">
+            <div class="config-box__path-bar">
+              <span class="config-box__path-label">PATH RESOLUTION:</span>
+              <code class="config-box__path-code" id="config-path-display">
+                $GITMINAL_CONFIG -&gt; ~/.config/gitminal/config.json
+              </code>
+            </div>
+
+            <pre class="config-box__pre"><code class="config-box__code" id="config-code-display"></code></pre>
+
+            <div class="config-box__notes" id="config-notes-display"></div>
+          </div>
+
+          <!-- Built-in Catppuccin Palette Swatches -->
+          <div class="config-box__swatches">
+            <div class="config-box__swatches-title">BUILT-IN CATPPUCCIN FLAVORS (CLICK TO PREVIEW IN WORKBENCH)</div>
+            <div class="config-box__swatch-grid">
+              <button type="button" class="swatch-pill swatch-pill--active" data-theme-pick="catppuccin-mocha">
+                <span class="swatch-pill__dot swatch-pill__dot--mocha"></span>
+                <span class="swatch-pill__name">catppuccin-mocha</span>
+              </button>
+              <button type="button" class="swatch-pill" data-theme-pick="catppuccin-macchiato">
+                <span class="swatch-pill__dot swatch-pill__dot--macchiato"></span>
+                <span class="swatch-pill__name">catppuccin-macchiato</span>
+              </button>
+              <button type="button" class="swatch-pill" data-theme-pick="catppuccin-frappe">
+                <span class="swatch-pill__dot swatch-pill__dot--frappe"></span>
+                <span class="swatch-pill__name">catppuccin-frappe</span>
+              </button>
+              <button type="button" class="swatch-pill" data-theme-pick="mono-dark">
+                <span class="swatch-pill__dot swatch-pill__dot--mono"></span>
+                <span class="swatch-pill__name">NO_COLOR (mono)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Architectural Footer -->
+  <footer class="site-footer">
+    <div class="site-footer__inner">
+      <div class="site-footer__left">
+        <div class="site-footer__brand">
+          <span class="site-footer__logo-wrap" aria-hidden="true">
+            <?xml version="1.0" encoding="UTF-8"?><svg class="site-footer__logo" width="24px" height="24px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000" aria-hidden="true"><title>Gitminal</title><path d="M13 17H20" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M5 7L10 12L5 17" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </span>
+          <span class="site-footer__name">@im4all/gitminal</span>
+          <span class="site-footer__ver">v1.3.0</span>
+        </div>
+        <p class="site-footer__copy">
+          Crafted by <strong>Md Habibullah Al Hadi</strong>. Released under the MIT License.
+        </p>
+      </div>
+
+      <div class="site-footer__links">
+        <a href="https://github.com/im4aLL/gitminal" target="_blank" rel="noopener noreferrer" class="site-footer__link">
+          [GitHub Repository]
+        </a>
+        <a href="https://www.npmjs.com/package/@im4all/gitminal" target="_blank" rel="noopener noreferrer" class="site-footer__link">
+          [npm Package]
+        </a>
+        <a href="https://github.com/im4aLL/gitminal/issues" target="_blank" rel="noopener noreferrer" class="site-footer__link">
+          [Issue Tracker]
+        </a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Sticky Bottom TUI Hint Bar -->
+  <section class="footer-bar" aria-label="Keyboard shortcuts bar">
+    <div class="footer-bar__inner">
+      <button type="button" class="footer-bar__item" id="footer-palette-trigger">
+        <kbd class="footer-bar__kbd">? / Ctrl+P</kbd>
+        <span class="footer-bar__label">Command Palette</span>
+      </button>
+      <span class="footer-bar__sep" aria-hidden="true">|</span>
+      <span class="footer-bar__item">
+        <kbd class="footer-bar__kbd">1-8</kbd>
+        <span class="footer-bar__label">Focus Region</span>
+      </span>
+      <span class="footer-bar__sep" aria-hidden="true">|</span>
+      <span class="footer-bar__item">
+        <kbd class="footer-bar__kbd">j / k</kbd>
+        <span class="footer-bar__label">Navigate Commits</span>
+      </span>
+      <span class="footer-bar__sep" aria-hidden="true">|</span>
+      <button type="button" class="footer-bar__item" id="footer-graph-trigger">
+        <kbd class="footer-bar__kbd">g</kbd>
+        <span class="footer-bar__label">Graph: <strong id="footer-graph-style">rounded</strong></span>
+      </button>
+      <span class="footer-bar__sep" aria-hidden="true">|</span>
+      <button type="button" class="footer-bar__item" id="footer-console-trigger">
+        <kbd class="footer-bar__kbd">9</kbd>
+        <span class="footer-bar__label">Toggle Console</span>
+      </button>
+      <span class="footer-bar__sep" aria-hidden="true">|</span>
+      <button type="button" class="footer-bar__item" id="footer-copy-trigger">
+        <kbd class="footer-bar__kbd">y</kbd>
+        <span class="footer-bar__label">Copy Install</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Interactive Command Palette Modal Overlay -->
+  <div class="palette" id="palette-modal" role="dialog" aria-modal="true" aria-labelledby="palette-title" hidden>
+    <div class="palette__backdrop" id="palette-backdrop"></div>
+    <div class="palette__dialog">
+      <header class="palette__header">
+        <span class="palette__title" id="palette-title">┌─ Command Palette (app.palette)</span>
+        <button type="button" class="palette__close-btn" id="close-palette-btn" aria-label="Close command palette">
+          [Esc] Close
+        </button>
+      </header>
+      <div class="palette__search-bar">
+        <span class="palette__prompt">&gt;</span>
+        <input
+          type="search"
+          class="palette__input"
+          id="palette-search-input"
+          placeholder="Type a command or action ID (e.g. graph, copy, keymap, github)..."
+          autocomplete="off"
+        >
+      </div>
+      <div class="palette__list" id="palette-command-list" role="listbox" aria-label="Palette commands">
+        <button type="button" class="palette__item" data-active="true" data-palette-index="0">
+          <span class="palette__item-left">
+            <span class="palette__item-marker">&gt;</span>
+            <span>Copy global install (bun add -g @im4all/gitminal)</span>
+            <code class="palette__item-id">(install.copyBunGlobal)</code>
+          </span>
+          <kbd class="palette__item-key">y</kbd>
+        </button>
+      </div>
+      <footer class="palette__footer">
+        <span><kbd>Up/Down</kbd> Select</span>
+        <span>|</span>
+        <span><kbd>Enter</kbd> Run Command</span>
+        <span>|</span>
+        <span><kbd>Esc</kbd> Cancel</span>
+      </footer>
+    </div>
+  </div>
+
+  <script src="./app.js?v=1.3.0" defer></script>
+</body>
+</html>
