@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<!-- Source template for web/og-image.png (1200x630 social card).
+     Not part of the site: it is linked from nowhere.
+     Regenerate with:
+       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+         --headless --disable-gpu --hide-scrollbars \
+         --force-device-scale-factor=2 --allow-file-access-from-files \
+         --screenshot=/tmp/og.png --window-size=1200,630 \
+         "file://$PWD/web/og-image.html"
+     then downscale /tmp/og.png to 1200x630 and save as web/og-image.png.
+     The screenshot is positioned by CSS only, so this file keeps working
+     whenever web/screenshot.png is replaced. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Gitminal social card</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; background: #090a0f; }
+  .card {
+    position: relative;
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    background: #090a0f;
+    font-family: "JetBrains Mono", monospace;
+  }
+  /* Crop window onto web/screenshot.png. The source is 3644x2256 with a black
+     margin; the visible window starts at x=112, y=142 and is 3420x1966. */
+  .stage {
+    position: absolute;
+    top: 92px;
+    left: 0;
+    width: 1200px;
+    height: 540px;
+    overflow: hidden;
+    opacity: 0.95;
+  }
+  .stage__image {
+    position: absolute;
+    top: -49.8px;
+    left: -39.3px;
+    width: 1278.7px;
+    display: block;
+  }
+  .scrim {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(to bottom, #090a0f 0px, #090a0f 92px, rgba(9,10,15,0) 92px, rgba(9,10,15,0) 236px, rgba(9,10,15,0.72) 300px, rgba(9,10,15,0.96) 356px, #090a0f 396px, #090a0f 630px);
+  }
+  .frame-edge {
+    position: absolute;
+    top: 91px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(to right, rgba(203,166,247,0) 0%, rgba(203,166,247,0.4) 50%, rgba(203,166,247,0) 100%);
+  }
+  .glow {
+    position: absolute;
+    left: 50%;
+    top: 250px;
+    width: 900px;
+    height: 420px;
+    transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(137,180,250,0.10), rgba(137,180,250,0) 72%);
+    pointer-events: none;
+  }
+  .topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 92px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 48px;
+  }
+  .brandline { display: flex; align-items: center; gap: 14px; }
+  .logo-wrap {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: #151a29;
+    border: 1px solid #2b3350;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+  .name { font-size: 30px; font-weight: 700; color: #eef2ff; letter-spacing: -0.02em; }
+  .kicker { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: #5a6180; }
+  .panel {
+    position: absolute;
+    left: 48px;
+    right: 48px;
+    bottom: 46px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 40px;
+  }
+  .headline {
+    font-size: 34px;
+    line-height: 1.24;
+    color: #eef2ff;
+    letter-spacing: -0.01em;
+    max-width: 620px;
+  }
+  .headline em { font-style: normal; color: #cba6f7; }
+  .sub { margin-top: 14px; font-size: 16px; color: #a6adc8; max-width: 560px; }
+  .aside { text-align: right; flex: none; padding-bottom: 4px; }
+  .aside__label { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: #6c7391; }
+  .aside__cmd {
+    margin-top: 8px;
+    display: inline-block;
+    font-size: 14px;
+    color: #94e2d5;
+    background: #0d0f17;
+    border: 1px solid #1c2030;
+    border-radius: 6px;
+    padding: 9px 13px;
+  }
+  .aside__cmd .prompt { color: #5a6180; margin-right: 7px; }
+  .aside__url { margin-top: 10px; font-size: 12px; color: #6c7391; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="stage">
+      <img class="stage__image" src="./screenshot.png" alt="">
+    </div>
+    <div class="glow"></div>
+    <div class="scrim"></div>
+    <div class="frame-edge"></div>
+    <div class="topbar">
+      <div class="brandline">
+        <div class="logo-wrap">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M13 17H20" stroke="#94e2d5" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M5 7L10 12L5 17" stroke="#cba6f7" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="name">gitminal</span>
+      </div>
+      <div class="kicker">bun - react 19 - opentui</div>
+    </div>
+    <div class="panel">
+      <div>
+        <div class="headline">Git, fully controllable from one <em>terminal viewport</em>.</div>
+        <div class="sub">Commit graph, Tree-sitter diffs, branches, tags, stashes, and worktrees. Keyboard-first with full mouse parity.</div>
+      </div>
+      <div class="aside">
+        <div class="aside__label">install</div>
+        <div class="aside__cmd"><span class="prompt">$</span>bun add -g @im4all/gitminal</div>
+        <div class="aside__url">gitminal.habibhadi.com</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

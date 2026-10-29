@@ -22,3 +22,4 @@ jobs:
             **/.git*
             **/.git*/
             **/.DS_Store
+            og-image.html
